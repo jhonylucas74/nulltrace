@@ -1,0 +1,333 @@
+.wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 100% 60% at 80% 20%, var(--accent-muted), transparent 50%),
+    radial-gradient(ellipse 80% 80% at 20% 80%, var(--accent-secondary-muted), transparent 50%),
+    radial-gradient(ellipse 80% 50% at 50% -20%, var(--accent-muted), transparent 45%),
+    linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+}
+
+.bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(
+    ellipse 90% 70% at 50% 50%,
+    var(--overlay-subtle) 0%,
+    transparent 60%
+  );
+  animation: bgDrift 18s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(var(--overlay-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--overlay-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+
+@keyframes bgDrift {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+
+@keyframes centerEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes clockEnter {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes formEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cardEnter {
+  from {
+    opacity: 0;
+    transform: translateZ(0) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateZ(0) translateY(0);
+  }
+}
+
+.clockBlock {
+  position: absolute;
+  top: 2rem;
+  right: 2rem;
+  z-index: 1;
+  text-align: right;
+  animation: clockEnter 0.3s ease-out both;
+}
+
+.clock {
+  font-size: 3rem;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.date {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.center {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  animation: centerEnter 0.4s ease-out both;
+}
+
+.logo {
+  display: block;
+  height: 100px;
+  width: auto;
+  object-fit: contain;
+  object-position: center;
+  margin-bottom: 0;
+}
+
+.logoWordmark {
+  margin: -0.85rem 0 0 0;
+  font-family: "Syne", var(--font-sans);
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  text-align: center;
+}
+
+.logoWordmarkNull,
+.logoWordmarkTrace {
+  display: inline-block;
+  vertical-align: baseline;
+  line-height: 1;
+}
+
+/* "null" fades left-to-right (gradient so it reads but feels like it's disappearing) */
+.logoWordmarkNull {
+  font-weight: 300;
+  background: linear-gradient(
+    to right,
+    var(--text-primary) 0%,
+    var(--text-primary) 30%,
+    color-mix(in srgb, var(--text-primary) 55%, transparent) 75%,
+    color-mix(in srgb, var(--text-primary) 18%, transparent) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* "trace" solid, slightly bolder – small gap so "null" and "trace" don't overlap */
+.logoWordmarkTrace {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-left: 0.04em;
+}
+
+.userList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: stretch;
+  width: 280px;
+}
+
+.userCard {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--bg-surface);
+  border: 2px solid transparent;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  transform: translateZ(0);
+  animation: cardEnter 0.3s ease-out both;
+}
+
+.userCard:nth-child(1) { animation-delay: 0.05s; }
+.userCard:nth-child(2) { animation-delay: 0.1s; }
+.userCard:nth-child(3) { animation-delay: 0.15s; }
+.userCard:nth-child(4) { animation-delay: 0.2s; }
+.userCard:nth-child(5) { animation-delay: 0.25s; }
+
+.userCard:hover {
+  background: var(--bg-surface);
+  border-color: var(--border-color);
+}
+
+.userCardSelected {
+  border-color: var(--text-muted);
+  box-shadow: 0 0 0 1px var(--border-color);
+}
+
+.avatar {
+  width: 2.5rem;
+  height: 2.5rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg-tertiary);
+  border-radius: 50%;
+  transform: translateZ(0);
+}
+
+.userName {
+  font-size: 1rem;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.passwordForm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 280px;
+  animation: formEnter 0.3s ease-out both;
+}
+
+.sessionLabel {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.input {
+  width: 100%;
+  padding: 0.65rem 1rem;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  transform: translateZ(0);
+}
+
+.input:focus {
+  border-color: var(--text-muted);
+  box-shadow: none;
+}
+
+.userCircles {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  animation: formEnter 0.3s ease-out 0.05s both;
+}
+
+.userCircle {
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  transform: translateZ(0);
+}
+
+.userCircle:hover {
+  background: var(--bg-surface);
+  border-color: var(--border-color);
+}
+
+.userCircleSelected {
+  border-color: var(--text-muted);
+  background: var(--bg-surface);
+}
+
+.userCircleLetter {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.createUser {
+  position: absolute;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.createUser:hover {
+  color: var(--accent);
+}

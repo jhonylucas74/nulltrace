@@ -1,0 +1,77 @@
+.desktop {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.wallpaper {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 100% 60% at 85% 15%, rgba(125, 207, 255, 0.1), transparent 50%),
+    radial-gradient(ellipse 70% 70% at 15% 85%, rgba(187, 154, 247, 0.08), transparent 50%),
+    radial-gradient(ellipse 120% 80% at 50% 50%, rgba(36, 40, 59, 0.6) 0%, transparent 50%),
+    linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+}
+
+.wallpaper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(
+    ellipse 90% 70% at 50% 50%,
+    rgba(125, 207, 255, 0.05) 0%,
+    transparent 60%
+  );
+  animation: wallpaperDrift 20s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.wallpaper::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(192, 202, 245, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(192, 202, 245, 0.025) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+}
+
+@keyframes wallpaperDrift {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.75; transform: scale(1.08); }
+}
+
+.workspace {
+  position: fixed;
+  top: var(--bar-height);
+  left: 0;
+  right: 0;
+  bottom: calc(20px + var(--dock-height));
+  z-index: 1;
+  pointer-events: none;
+}
+
+.workspace > * {
+  pointer-events: auto;
+}
+
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 0.5rem;
+  color: var(--text-muted);
+}
+
+.placeholderSub {
+  font-size: 0.875rem;
+  opacity: 0.8;
+}

@@ -1,0 +1,39 @@
+/**
+ * Catppuccin Mocha theme
+ * Maps app variables to Catppuccin Mocha palette.
+ * To switch theme: change the import in index.css or add another theme file.
+ */
+:root {
+  /* Backgrounds (Base, Mantle, Crust, Surface) */
+  --bg-primary: #1e1e2e;
+  --bg-secondary: #181825;
+  --bg-tertiary: #313244;
+  --bg-surface: rgba(49, 50, 68, 0.85);
+  --bg-terminal: #11111b;
+
+  /* Accent (Blue / Sky) */
+  --accent: #89b4fa;
+  --accent-dim: #74a5eb;
+  --accent-muted: rgba(137, 180, 250, 0.4);
+
+  /* Text (Text, Subtext1, Overlay0) */
+  --text-primary: #cdd6f4;
+  --text-secondary: #bac2de;
+  --text-muted: #6c7086;
+  --text-accent: var(--accent);
+
+  /* Terminal / semantic colors */
+  --term-green: #a6e3a1;
+  --term-red: #f38ba8;
+  --term-yellow: #f9e2af;
+  --term-blue: #74c7ec;
+
+  /* Borders */
+  --border-color: rgba(108, 112, 134, 0.25);
+
+  /* Optional for gradients / overlays */
+  --overlay-subtle: rgba(137, 180, 250, 0.06);
+  --overlay-grid: rgba(205, 214, 244, 0.04);
+  --accent-secondary: #cba6f7;
+  --accent-secondary-muted: rgba(203, 166, 247, 0.12);
+}
