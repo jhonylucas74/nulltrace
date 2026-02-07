@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { useWindowManager } from "../contexts/WindowManagerContext";
 import styles from "./TopBar.module.css";
 
 export default function TopBar() {
@@ -9,6 +10,7 @@ export default function TopBar() {
   const userMenuRef = useRef<HTMLDivElement>(null);
   const { username, logout } = useAuth();
   const navigate = useNavigate();
+  const { open, setFocus, getWindowIdsByType } = useWindowManager();
 
   useEffect(() => {
     const id = setInterval(() => setTime(formatTime(new Date())), 1000);
@@ -33,18 +35,48 @@ export default function TopBar() {
     navigate("/login", { replace: true });
   }
 
+  function handleSoundClick() {
+    const ids = getWindowIdsByType("sound");
+    if (ids.length > 0) {
+      setFocus(ids[ids.length - 1]);
+    } else {
+      open("sound", { title: "Sound" });
+    }
+  }
+
+  function handleWifiClick() {
+    const ids = getWindowIdsByType("network");
+    if (ids.length > 0) {
+      setFocus(ids[ids.length - 1]);
+    } else {
+      open("network", { title: "Network" });
+    }
+  }
+
   return (
     <header className={styles.bar}>
       <div className={styles.left}>
         <span className={styles.logo}>nulltrace</span>
       </div>
       <div className={styles.right}>
-        <span className={styles.iconBtn} title="Wi-Fi">
+        <button
+          type="button"
+          className={styles.iconBtn}
+          onClick={handleWifiClick}
+          title="Network"
+          aria-label="Network"
+        >
           <WifiIcon />
-        </span>
-        <span className={styles.iconBtn} title="Sound">
+        </button>
+        <button
+          type="button"
+          className={styles.iconBtn}
+          onClick={handleSoundClick}
+          title="Sound"
+          aria-label="Sound"
+        >
           <SoundIcon />
-        </span>
+        </button>
         <span className={styles.clock}>{time}</span>
         <div className={styles.userMenuWrap} ref={userMenuRef}>
           <button

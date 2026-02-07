@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 
-export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme";
+export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email";
 
 export interface WindowPosition {
   x: number;
@@ -49,8 +49,18 @@ const DEFAULT_SIZE: WindowSize = { width: 640, height: 400 };
 /** Browser and Code editor need more space; use larger default size. */
 const LARGE_WINDOW_SIZE: WindowSize = { width: 900, height: 600 };
 
+/** Sound Manager and Network are compact. */
+const SOUND_WINDOW_SIZE: WindowSize = { width: 380, height: 320 };
+const NETWORK_WINDOW_SIZE: WindowSize = { width: 400, height: 280 };
+
+/** Email app: message list + read/compose panel. */
+const EMAIL_WINDOW_SIZE: WindowSize = { width: 640, height: 480 };
+
 function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "browser" || type === "editor") return LARGE_WINDOW_SIZE;
+  if (type === "sound") return SOUND_WINDOW_SIZE;
+  if (type === "network") return NETWORK_WINDOW_SIZE;
+  if (type === "email") return EMAIL_WINDOW_SIZE;
   return DEFAULT_SIZE;
 }
 
@@ -167,6 +177,9 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         apps: "All Apps",
         editor: "Code",
         theme: "Theme",
+        sound: "Sound",
+        network: "Network",
+        email: "Mail",
       };
   const title = options?.title ?? defaultTitles[type];
       dispatch({

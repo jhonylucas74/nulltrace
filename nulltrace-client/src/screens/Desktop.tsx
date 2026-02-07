@@ -13,6 +13,9 @@ import ThemeApp from "../components/ThemeApp";
 import Explorer from "../components/Explorer";
 import CodeEditor from "../components/CodeEditor";
 import Browser from "../components/Browser";
+import SoundManager from "../components/SoundManager";
+import NetworkManager from "../components/NetworkManager";
+import EmailApp from "../components/EmailApp";
 import FilePicker from "../components/FilePicker";
 import styles from "./Desktop.module.css";
 
@@ -74,6 +77,36 @@ function ThemeIcon() {
   );
 }
 
+function SoundIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+    </svg>
+  );
+}
+
+function WifiIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+      <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+      <line x1="12" y1="20" x2="12.01" y2="20" />
+    </svg>
+  );
+}
+
+function MailIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+      <polyline points="22,6 12,13 2,6" />
+    </svg>
+  );
+}
+
 const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   terminal: <TerminalIcon />,
   explorer: <ExplorerIcon />,
@@ -81,6 +114,9 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   apps: <AppsIcon />,
   editor: <EditorIcon />,
   theme: <ThemeIcon />,
+  sound: <SoundIcon />,
+  network: <WifiIcon />,
+  email: <MailIcon />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -113,6 +149,15 @@ function DesktopContent() {
     }
     if (win.type === "browser") {
       return <Browser />;
+    }
+    if (win.type === "sound") {
+      return <SoundManager />;
+    }
+    if (win.type === "network") {
+      return <NetworkManager />;
+    }
+    if (win.type === "email") {
+      return <EmailApp />;
     }
     return <PlaceholderContent title={win.title} />;
   }
