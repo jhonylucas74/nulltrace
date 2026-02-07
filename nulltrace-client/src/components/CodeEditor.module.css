@@ -1,0 +1,443 @@
+/* VSCode-style code editor: menu bar, sidebar + editor area */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 280px;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+/* Menu bar */
+.menuBar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 2rem;
+  padding: 0 0.25rem;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.85rem;
+}
+
+.menuWrap {
+  position: relative;
+}
+
+.menuItem {
+  padding: 0.25rem 0.6rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  font-size: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+
+.menuItem:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.menuDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 200px;
+  margin-top: 0.15rem;
+  padding: 0.25rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  z-index: 50;
+}
+
+.menuDropdownItem {
+  display: block;
+  width: 100%;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.menuDropdownItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.menuDropdownItem:hover {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.menuDropdownItem:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.menuDropdownItem:disabled:hover {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.menuItemLabel {
+  flex: 1;
+  text-align: left;
+}
+
+.menuItemShortcut {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.menuDropdownSep {
+  height: 1px;
+  margin: 0.25rem 0;
+  background: var(--border-color);
+}
+
+.menuDropdownLabel {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.menuDropdownMuted {
+  display: block;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* Body: sidebar + editor area */
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebarHint {
+  padding: 1rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.tree {
+  flex: 1;
+  overflow: auto;
+  padding: 0.35rem 0;
+  min-height: 0;
+}
+
+.treeFolder {
+  display: block;
+}
+
+.treeRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.treeRow:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.treeRowActive {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.treeChevron {
+  width: 0.75rem;
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.treeLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.treeRow svg {
+  flex-shrink: 0;
+  color: var(--term-yellow);
+}
+
+.treeRow[data-type="file"] svg,
+.treeRowActive svg {
+  color: var(--text-muted);
+}
+
+.treeRowActive svg {
+  color: var(--accent);
+}
+
+.treeChildren {
+  display: block;
+}
+
+.editorArea {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-terminal);
+}
+
+/* Welcome view (no folder open) */
+.welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+}
+
+.welcomeIcon {
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+.welcomeTitle {
+  margin: 0 0 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.welcomeDesc {
+  max-width: 420px;
+  margin: 0 0 1.5rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.welcomeDesc strong {
+  color: var(--text-primary);
+}
+
+.welcomeBtn {
+  padding: 0.5rem 1.25rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.welcomeBtn:hover {
+  background: var(--accent-dim);
+}
+
+.editorBar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.savedBadge {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--term-green);
+  margin-left: auto;
+  animation: fadeOut 1.2s ease-out forwards;
+}
+
+@keyframes fadeOut {
+  0% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Editor with line-number gutter */
+.editorWithGutter {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.gutter {
+  flex-shrink: 0;
+  width: 3.5em;
+  padding: 0.75rem 0.5rem 0.75rem 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  overflow: hidden;
+  overflow-y: auto;
+  user-select: none;
+}
+
+.gutterLine {
+  text-align: right;
+  white-space: pre;
+}
+
+/* Wrapper for highlight layer + textarea (sync scroll) */
+.editorScrollWrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-terminal);
+}
+
+.highlightLayer {
+  position: absolute;
+  inset: 0;
+  padding: 0.75rem 0.75rem 0.75rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre;
+  overflow: auto;
+  pointer-events: none;
+  word-wrap: normal;
+}
+
+/* Lua/Luau syntax highlight colors (theme-aware) */
+.highlightLayer :global(.luau-keyword) {
+  color: var(--accent);
+}
+.highlightLayer :global(.luau-string) {
+  color: var(--term-green);
+}
+.highlightLayer :global(.luau-comment) {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.highlightLayer :global(.luau-number) {
+  color: var(--term-yellow);
+}
+
+.textarea {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  padding: 0.75rem 0.75rem 0.75rem 1rem;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  background: var(--bg-terminal);
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: auto;
+}
+
+.textarea.luaHighlight {
+  color: transparent;
+  caret-color: var(--text-primary);
+  background: transparent;
+}
+
+.textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Modal content (New File form) */
+.modalContent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.modalLabel {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.modalInput {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.modalInput:focus {
+  border-color: var(--accent);
+}
+
+.modalError {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-error, #e74c3c);
+}

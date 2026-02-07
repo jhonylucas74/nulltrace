@@ -18,6 +18,7 @@ interface WindowProps {
   position: WindowPosition;
   size: WindowSize;
   onMove: (id: string, x: number, y: number) => void;
+  onResize: (id: string, width: number, height: number) => void;
   onClose: (id: string) => void;
   onMinimize: (id: string) => void;
   onMaximize: (id: string) => void;
@@ -46,6 +47,7 @@ export default function Window({
   position,
   size,
   onMove,
+  onResize,
   onClose,
   onMinimize,
   onMaximize,
@@ -57,7 +59,12 @@ export default function Window({
   children,
 }: WindowProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
+  const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 });
+
+  const MIN_W = 320;
+  const MIN_H = 200;
 
   const handleTitlePointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -89,7 +96,38 @@ export default function Window({
 
   const handlePointerUp = useCallback(() => {
     setIsDragging(false);
+    setIsResizing(false);
   }, []);
+
+  const handleResizePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (maximized) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setIsResizing(true);
+      resizeStart.current = {
+        x: e.clientX,
+        y: e.clientY,
+        width: size.width,
+        height: size.height,
+      };
+      onFocus?.();
+      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    },
+    [maximized, size, onFocus]
+  );
+
+  const handleResizePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isResizing) return;
+      const dx = e.clientX - resizeStart.current.x;
+      const dy = e.clientY - resizeStart.current.y;
+      const w = Math.max(MIN_W, resizeStart.current.width + dx);
+      const h = Math.max(MIN_H, resizeStart.current.height + dy);
+      onResize(id, w, h);
+    },
+    [id, isResizing, onResize]
+  );
 
   if (minimized) {
     return null;
@@ -148,6 +186,16 @@ export default function Window({
         </div>
       </div>
       <div className={styles.content}>{children}</div>
+      {!maximized && (
+        <div
+          className={styles.resizeHandle}
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
+          aria-label="Resize"
+        />
+      )}
     </div>
   );
 }

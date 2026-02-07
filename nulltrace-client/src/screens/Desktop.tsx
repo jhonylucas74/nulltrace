@@ -1,6 +1,7 @@
 import React from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { WindowManagerProvider, useWindowManager } from "../contexts/WindowManagerContext";
+import { FilePickerProvider, useFilePicker, getDefaultInitialPath } from "../contexts/FilePickerContext";
 import type { WindowType } from "../contexts/WindowManagerContext";
 import TopBar from "../components/TopBar";
 import Dock from "../components/Dock";
@@ -8,6 +9,8 @@ import Window from "../components/Window";
 import Terminal from "../components/Terminal";
 import ThemeApp from "../components/ThemeApp";
 import Explorer from "../components/Explorer";
+import CodeEditor from "../components/CodeEditor";
+import FilePicker from "../components/FilePicker";
 import styles from "./Desktop.module.css";
 
 function TerminalIcon() {
@@ -88,7 +91,8 @@ function PlaceholderContent({ title }: { title: string }) {
 
 function DesktopContent() {
   const { username } = useAuth();
-  const { windows, focusedId, close, minimize, maximize, setFocus, move } = useWindowManager();
+  const { windows, focusedId, close, minimize, maximize, setFocus, move, resize } = useWindowManager();
+  const { isOpen: filePickerOpen, options: filePickerOptions, closeFilePicker } = useFilePicker();
 
   function renderWindowContent(win: { type: WindowType; title: string }) {
     if (win.type === "terminal") {
@@ -100,6 +104,9 @@ function DesktopContent() {
     if (win.type === "explorer") {
       return <Explorer />;
     }
+    if (win.type === "editor") {
+      return <CodeEditor />;
+    }
     return <PlaceholderContent title={win.title} />;
   }
 
@@ -107,6 +114,21 @@ function DesktopContent() {
     <div className={styles.desktop}>
       <div className={styles.wallpaper} />
       <TopBar />
+      {filePickerOpen && filePickerOptions && (
+        <FilePicker
+          open={true}
+          mode={filePickerOptions.mode}
+          initialPath={filePickerOptions.initialPath ?? getDefaultInitialPath()}
+          onSelect={(path) => {
+            filePickerOptions.onSelect(path);
+            closeFilePicker();
+          }}
+          onCancel={() => {
+            filePickerOptions.onCancel?.();
+            closeFilePicker();
+          }}
+        />
+      )}
       <div className={styles.workspace}>
         {windows
           .filter((w) => !w.minimized)
@@ -118,6 +140,7 @@ function DesktopContent() {
               position={win.position}
               size={win.size}
               onMove={move}
+              onResize={resize}
               onClose={close}
               onMinimize={minimize}
               onMaximize={maximize}
@@ -140,7 +163,9 @@ function DesktopContent() {
 export default function Desktop() {
   return (
     <WindowManagerProvider>
-      <DesktopContent />
+      <FilePickerProvider>
+        <DesktopContent />
+      </FilePickerProvider>
     </WindowManagerProvider>
   );
 }

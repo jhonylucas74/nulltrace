@@ -113,3 +113,17 @@
   overflow: auto;
   min-height: 0;
 }
+
+.resizeHandle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  z-index: 1;
+}
+
+.window.maximized .resizeHandle {
+  display: none;
+}

@@ -41,9 +41,12 @@ type WindowManagerAction =
   | { type: "minimize"; payload: { id: string } }
   | { type: "maximize"; payload: { id: string } }
   | { type: "setFocus"; payload: { id: string } }
-  | { type: "move"; payload: { id: string; x: number; y: number } };
+  | { type: "move"; payload: { id: string; x: number; y: number } }
+  | { type: "resize"; payload: { id: string; width: number; height: number } };
 
 const DEFAULT_SIZE: WindowSize = { width: 640, height: 400 };
+const MIN_WIDTH = 320;
+const MIN_HEIGHT = 200;
 
 function reducer(state: WindowManagerState, action: WindowManagerAction): WindowManagerState {
   switch (action.type) {
@@ -103,6 +106,17 @@ function reducer(state: WindowManagerState, action: WindowManagerAction): Window
         ),
       };
     }
+    case "resize": {
+      const { id, width, height } = action.payload;
+      const w = Math.max(MIN_WIDTH, width);
+      const h = Math.max(MIN_HEIGHT, height);
+      return {
+        ...state,
+        windows: state.windows.map((win) =>
+          win.id === id ? { ...win, size: { width: w, height: h } } : win
+        ),
+      };
+    }
     default:
       return state;
   }
@@ -117,6 +131,7 @@ interface WindowManagerValue {
   maximize: (id: string) => void;
   setFocus: (id: string) => void;
   move: (id: string, x: number, y: number) => void;
+  resize: (id: string, width: number, height: number) => void;
   getWindowIdsByType: (type: WindowType) => string[];
 }
 
@@ -185,6 +200,17 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
     dispatch({ type: "move", payload: { id, x, y } });
   }, []);
 
+  const resize = useCallback((id: string, width: number, height: number) => {
+    dispatch({
+      type: "resize",
+      payload: {
+        id,
+        width: Math.max(MIN_WIDTH, width),
+        height: Math.max(MIN_HEIGHT, height),
+      },
+    });
+  }, []);
+
   const getWindowIdsByType = useCallback(
     (type: WindowType) => state.windows.filter((w) => w.type === type).map((w) => w.id),
     [state.windows]
@@ -199,6 +225,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
     maximize,
     setFocus,
     move,
+    resize,
     getWindowIdsByType,
   };
 

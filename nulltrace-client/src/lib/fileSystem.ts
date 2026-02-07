@@ -29,6 +29,14 @@ const ROOT: FileSystemNode = dir(
   folder("usr", folder("bin"), folder("share", file("readme")))
 );
 
+/** In-memory file contents (path -> content). Paths normalized with leading slash. */
+const fileContents = new Map<string, string>();
+
+function normalizePathForStorage(path: string): string {
+  const p = path.replace(/\/+/g, "/").trim();
+  return p.startsWith("/") ? p : "/" + p;
+}
+
 function parsePath(path: string): string[] {
   const parts = path.replace(/\/+/g, "/").split("/").filter(Boolean);
   const resolved: string[] = [];
@@ -81,4 +89,47 @@ export function getChildren(path: string): FileSystemNode[] {
  */
 export function getHomePath(): string {
   return "/home/user";
+}
+
+/**
+ * Returns the parent path, or null if already at root.
+ * e.g. "/home/user/docs" -> "/home/user", "/home" -> ""
+ */
+export function getParentPath(path: string): string | null {
+  const normalized = path.replace(/\/+/g, "/").trim().replace(/\/$/, "") || "";
+  if (!normalized) return null;
+  const lastSlash = normalized.lastIndexOf("/");
+  if (lastSlash < 0) return null;
+  if (lastSlash === 0) return "/";
+  return normalized.slice(0, lastSlash);
+}
+
+/**
+ * Creates a new file under parentPath. Returns false if parent is not a folder or name already exists.
+ */
+export function createFile(parentPath: string, name: string): boolean {
+  const parent = getItem(parentPath);
+  if (!parent || parent.type !== "folder") return false;
+  const children = parent.children ?? [];
+  if (children.some((c) => c.name === name)) return false;
+  parent.children = [...children, file(name)];
+  return true;
+}
+
+/**
+ * Returns the stored content for a file path, or "" if none.
+ */
+export function getFileContent(path: string): string {
+  const key = normalizePathForStorage(path);
+  return fileContents.get(key) ?? "";
+}
+
+/**
+ * Sets the content for a file path. Only valid for existing file nodes.
+ */
+export function setFileContent(path: string, content: string): void {
+  const node = getItem(path);
+  if (!node || node.type !== "file") return;
+  const key = normalizePathForStorage(path);
+  fileContents.set(key, content);
 }
