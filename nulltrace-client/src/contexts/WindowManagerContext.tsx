@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 
-export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet";
+export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart";
 
 export interface WindowPosition {
   x: number;
@@ -49,6 +49,10 @@ const DEFAULT_SIZE: WindowSize = { width: 640, height: 400 };
 /** Browser and Code editor need more space; use larger default size. */
 const LARGE_WINDOW_SIZE: WindowSize = { width: 900, height: 600 };
 
+/** Pixel Art: small picker on open; resize to this when user confirms canvas size. */
+export const PIXELART_EDITOR_SIZE: WindowSize = { width: 900, height: 600 };
+const PIXELART_PICKER_SIZE: WindowSize = { width: 420, height: 320 };
+
 /** Sound Manager and Network are compact. */
 const SOUND_WINDOW_SIZE: WindowSize = { width: 380, height: 320 };
 const NETWORK_WINDOW_SIZE: WindowSize = { width: 400, height: 280 };
@@ -61,6 +65,7 @@ const WALLET_WINDOW_SIZE: WindowSize = { width: 400, height: 340 };
 
 function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "browser" || type === "editor") return LARGE_WINDOW_SIZE;
+  if (type === "pixelart") return PIXELART_PICKER_SIZE;
   if (type === "sound") return SOUND_WINDOW_SIZE;
   if (type === "network") return NETWORK_WINDOW_SIZE;
   if (type === "email") return EMAIL_WINDOW_SIZE;
@@ -204,6 +209,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         network: "Network",
         email: "Mail",
         wallet: "Wallet",
+        pixelart: "Pixel Art",
       };
   const title = options?.title ?? defaultTitles[type];
       dispatch({

@@ -1,4 +1,5 @@
 import React from "react";
+import { Palette } from "lucide-react";
 import type { WindowType } from "../contexts/WindowManagerContext";
 
 export interface LaunchableApp {
@@ -85,6 +86,10 @@ function WalletIcon() {
   );
 }
 
+function PixelArtIcon() {
+  return <Palette size={24} />;
+}
+
 /** Launchable apps shown in the app launcher grid (excludes All Apps itself). */
 export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "terminal", label: "Terminal", icon: <TerminalIcon /> },
@@ -94,6 +99,7 @@ export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "theme", label: "Theme", icon: <ThemeIcon /> },
   { type: "email", label: "Mail", icon: <MailIcon /> },
   { type: "wallet", label: "Wallet", icon: <WalletIcon /> },
+  { type: "pixelart", label: "Pixel Art", icon: <PixelArtIcon /> },
 ];
 
 /** Default window title for a given app type (optional username for Terminal). */
@@ -110,6 +116,7 @@ export function getAppTitle(type: WindowType, username?: string | null): string 
     network: "Network",
     email: "Mail",
     wallet: "Wallet",
+    pixelart: "Pixel Art",
   };
   return titles[type];
 }

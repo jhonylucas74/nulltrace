@@ -1,0 +1,16 @@
+---
+description: Use lucide-react for new icons; do not create custom SVGs
+globs: 
+alwaysApply: true
+---
+
+# Use lucide-react for icons
+
+From now on, **use icons from the `lucide-react` library** for new UI (buttons, app icons, menus, etc.). Do **not** create custom SVG icons by hand.
+
+- **Library:** `lucide-react` (already installed in the project).
+- **Usage:** Import the icon component and render it with the desired `size` (e.g. `<Palette size={24} />`). Icons inherit `currentColor` by default.
+- **Scope:** Applies to **new** icons and any icon you are asked to add or change. Do not refactor existing custom SVG icons elsewhere unless the user explicitly asks.
+- **Do not:** Write inline `<svg>...</svg>` or custom path-based icons when a suitable lucide icon exists. Prefer a semantically close lucide icon over a custom SVG.
+
+This rule applies to all new code and icon changes going forward.

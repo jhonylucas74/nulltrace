@@ -1,4 +1,5 @@
 import React from "react";
+import { Palette } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WindowManagerProvider, useWindowManager } from "../contexts/WindowManagerContext";
 import { FilePickerProvider, useFilePicker, getDefaultInitialPath } from "../contexts/FilePickerContext";
@@ -17,6 +18,7 @@ import SoundManager from "../components/SoundManager";
 import NetworkManager from "../components/NetworkManager";
 import EmailApp from "../components/EmailApp";
 import WalletApp from "../components/WalletApp";
+import PixelArtApp from "../components/PixelArtApp";
 import FilePicker from "../components/FilePicker";
 import styles from "./Desktop.module.css";
 
@@ -118,6 +120,10 @@ function WalletIcon() {
   );
 }
 
+function PixelArtIcon() {
+  return <Palette size={12} />;
+}
+
 const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   terminal: <TerminalIcon />,
   explorer: <ExplorerIcon />,
@@ -129,6 +135,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   network: <WifiIcon />,
   email: <MailIcon />,
   wallet: <WalletIcon />,
+  pixelart: <PixelArtIcon />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -146,7 +153,7 @@ function DesktopContent() {
   const { isOpen: filePickerOpen, options: filePickerOptions, closeFilePicker } = useFilePicker();
   const { isOpen: appLauncherOpen } = useAppLauncher();
 
-  function renderWindowContent(win: { type: WindowType; title: string }) {
+  function renderWindowContent(win: { id: string; type: WindowType; title: string }) {
     if (win.type === "terminal") {
       return <Terminal username={username ?? "user"} />;
     }
@@ -173,6 +180,9 @@ function DesktopContent() {
     }
     if (win.type === "wallet") {
       return <WalletApp />;
+    }
+    if (win.type === "pixelart") {
+      return <PixelArtApp windowId={win.id} />;
     }
     return <PlaceholderContent title={win.title} />;
   }
