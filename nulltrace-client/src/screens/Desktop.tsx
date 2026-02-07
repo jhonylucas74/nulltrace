@@ -16,6 +16,7 @@ import Browser from "../components/Browser";
 import SoundManager from "../components/SoundManager";
 import NetworkManager from "../components/NetworkManager";
 import EmailApp from "../components/EmailApp";
+import WalletApp from "../components/WalletApp";
 import FilePicker from "../components/FilePicker";
 import styles from "./Desktop.module.css";
 
@@ -107,6 +108,16 @@ function MailIcon() {
   );
 }
 
+function WalletIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+      <line x1="1" y1="10" x2="23" y2="10" />
+      <path d="M17 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+    </svg>
+  );
+}
+
 const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   terminal: <TerminalIcon />,
   explorer: <ExplorerIcon />,
@@ -117,6 +128,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   sound: <SoundIcon />,
   network: <WifiIcon />,
   email: <MailIcon />,
+  wallet: <WalletIcon />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -158,6 +170,9 @@ function DesktopContent() {
     }
     if (win.type === "email") {
       return <EmailApp />;
+    }
+    if (win.type === "wallet") {
+      return <WalletApp />;
     }
     return <PlaceholderContent title={win.title} />;
   }

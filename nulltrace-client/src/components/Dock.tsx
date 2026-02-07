@@ -4,11 +4,16 @@ import type { WindowType } from "../contexts/WindowManagerContext";
 import { LAUNCHABLE_APPS, AppsIcon, getAppTitle } from "../lib/appList";
 import styles from "./Dock.module.css";
 
-/** Dock order: launchable apps + All Apps in the middle. */
+/** Apps shown on the dock: exclude Theme and Wallet (launcher only). */
+const DOCK_LAUNCHABLE = LAUNCHABLE_APPS.filter(
+  (app) => app.type !== "theme" && app.type !== "wallet"
+);
+
+/** Dock order: dock apps + All Apps in the middle. */
 const DOCK_APPS = [
-  ...LAUNCHABLE_APPS.slice(0, 3),
+  ...DOCK_LAUNCHABLE.slice(0, 3),
   { type: "apps" as const, label: "All Apps", icon: <AppsIcon /> },
-  ...LAUNCHABLE_APPS.slice(3),
+  ...DOCK_LAUNCHABLE.slice(3),
 ];
 
 interface DockProps {

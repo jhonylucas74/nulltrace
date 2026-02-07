@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 
-export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email";
+export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet";
 
 export interface WindowPosition {
   x: number;
@@ -56,11 +56,15 @@ const NETWORK_WINDOW_SIZE: WindowSize = { width: 400, height: 280 };
 /** Email app: message list + read/compose panel. */
 const EMAIL_WINDOW_SIZE: WindowSize = { width: 640, height: 480 };
 
+/** Wallet app: balance cards (Zorin-style). */
+const WALLET_WINDOW_SIZE: WindowSize = { width: 400, height: 340 };
+
 function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "browser" || type === "editor") return LARGE_WINDOW_SIZE;
   if (type === "sound") return SOUND_WINDOW_SIZE;
   if (type === "network") return NETWORK_WINDOW_SIZE;
   if (type === "email") return EMAIL_WINDOW_SIZE;
+  if (type === "wallet") return WALLET_WINDOW_SIZE;
   return DEFAULT_SIZE;
 }
 
@@ -199,6 +203,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         sound: "Sound",
         network: "Network",
         email: "Mail",
+        wallet: "Wallet",
       };
   const title = options?.title ?? defaultTitles[type];
       dispatch({

@@ -75,6 +75,16 @@ function MailIcon() {
   );
 }
 
+function WalletIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+      <line x1="1" y1="10" x2="23" y2="10" />
+      <path d="M17 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+    </svg>
+  );
+}
+
 /** Launchable apps shown in the app launcher grid (excludes All Apps itself). */
 export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "terminal", label: "Terminal", icon: <TerminalIcon /> },
@@ -83,6 +93,7 @@ export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "editor", label: "Code", icon: <EditorIcon /> },
   { type: "theme", label: "Theme", icon: <ThemeIcon /> },
   { type: "email", label: "Mail", icon: <MailIcon /> },
+  { type: "wallet", label: "Wallet", icon: <WalletIcon /> },
 ];
 
 /** Default window title for a given app type (optional username for Terminal). */
@@ -98,6 +109,7 @@ export function getAppTitle(type: WindowType, username?: string | null): string 
     sound: "Sound",
     network: "Network",
     email: "Mail",
+    wallet: "Wallet",
   };
   return titles[type];
 }
