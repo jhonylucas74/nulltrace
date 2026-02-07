@@ -168,8 +168,27 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
   const open = useCallback(
     (type: WindowType, options?: OpenWindowOptions): string => {
       const id = `win-${nextId++}`;
-      const position = options?.position ?? { x: 60 + (state.windows.length % 4) * 40, y: 60 + (state.windows.length % 3) * 32 };
       const size = options?.size ?? getDefaultSizeForType(type);
+      const position =
+        options?.position ??
+        (typeof window !== "undefined"
+          ? (() => {
+              const dockBottom = 20;
+              const dockHeight = 56;
+              const safeBottom = dockBottom + dockHeight;
+              const availableHeight = window.innerHeight - safeBottom;
+              const centerX = (window.innerWidth - size.width) / 2;
+              const centerY = (availableHeight - size.height) / 2;
+              const cascadeOffset = 28;
+              const n = state.windows.length;
+              const y = centerY + n * cascadeOffset;
+              const yClamped = Math.max(0, Math.min(y, availableHeight - size.height));
+              return {
+                x: Math.max(0, centerX),
+                y: yClamped,
+              };
+            })()
+          : { x: 60, y: 60 });
       const defaultTitles: Record<WindowType, string> = {
         terminal: "Terminal",
         explorer: "Files",
