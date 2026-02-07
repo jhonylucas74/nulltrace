@@ -2,8 +2,10 @@ import React from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { WindowManagerProvider, useWindowManager } from "../contexts/WindowManagerContext";
 import { FilePickerProvider, useFilePicker, getDefaultInitialPath } from "../contexts/FilePickerContext";
+import { AppLauncherProvider, useAppLauncher } from "../contexts/AppLauncherContext";
 import type { WindowType } from "../contexts/WindowManagerContext";
 import TopBar from "../components/TopBar";
+import AppLauncher from "../components/AppLauncher";
 import Dock from "../components/Dock";
 import Window from "../components/Window";
 import Terminal from "../components/Terminal";
@@ -94,6 +96,7 @@ function DesktopContent() {
   const { username } = useAuth();
   const { windows, focusedId, close, minimize, maximize, setFocus, move, resize } = useWindowManager();
   const { isOpen: filePickerOpen, options: filePickerOptions, closeFilePicker } = useFilePicker();
+  const { isOpen: appLauncherOpen } = useAppLauncher();
 
   function renderWindowContent(win: { type: WindowType; title: string }) {
     if (win.type === "terminal") {
@@ -133,9 +136,10 @@ function DesktopContent() {
           }}
         />
       )}
+      {appLauncherOpen && <AppLauncher />}
       <div className={styles.workspace}>
         {windows
-          .filter((w) => !w.minimized)
+          .filter((w) => !w.minimized && w.type !== "apps")
           .map((win) => (
             <Window
               key={win.id}
@@ -168,7 +172,9 @@ export default function Desktop() {
   return (
     <WindowManagerProvider>
       <FilePickerProvider>
-        <DesktopContent />
+        <AppLauncherProvider>
+          <DesktopContent />
+        </AppLauncherProvider>
       </FilePickerProvider>
     </WindowManagerProvider>
   );

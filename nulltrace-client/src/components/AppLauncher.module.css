@@ -1,0 +1,106 @@
+/* App launcher overlay (Zorin Show Applications style, Blender-like search) */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4rem 1.5rem 2rem;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+}
+
+.panel {
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100vh - 6rem);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.search {
+  flex-shrink: 0;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  font-size: 1rem;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  outline: none;
+}
+
+.search::placeholder {
+  color: var(--text-muted);
+}
+
+.search:focus {
+  background: var(--bg-secondary);
+}
+
+.grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.appItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.75rem 0.5rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.appItem:hover {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.appIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+}
+
+.appIcon svg {
+  width: 40px;
+  height: 40px;
+}
+
+.appLabel {
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 2rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-align: center;
+}
