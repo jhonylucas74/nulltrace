@@ -1,0 +1,268 @@
+/* In-app browser: Safari-like toolbar + iframe content */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.toolbarWrap {
+  flex-shrink: 0;
+  position: relative;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.navButtons {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.navBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.navBtn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.navBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.addressWrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.addressBar {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 0.6rem;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.addressBar:focus {
+  border-color: var(--accent);
+}
+
+.addressBar::placeholder {
+  color: var(--text-muted);
+}
+
+.goBtn {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.goBtn:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.toolbarBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.toolbarBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.favoriteActive {
+  color: var(--term-yellow);
+}
+
+/* History page (full-page view like Chrome) */
+.historyPage {
+  height: 100%;
+  overflow: auto;
+  background: var(--bg-primary);
+}
+
+.historyPageInner {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem;
+}
+
+.historyPageActions {
+  margin-bottom: 1rem;
+}
+
+.historyPageBack {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.historyPageBack:hover {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.historyPageTitle {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.historyPageSubtitle {
+  margin: 0 0 1.5rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.historyPageEmpty {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.historyPageSection {
+  margin-bottom: 1.5rem;
+}
+
+.historyPageSectionTitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.historyPageList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  overflow: hidden;
+}
+
+.historyPageItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.historyPageList li:last-child .historyPageItem {
+  border-bottom: none;
+}
+
+.historyPageItem:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.historyPageItemActive {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.historyPageItemTitle {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.historyPageItemUrl {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.historyPageItemActive .historyPageItemUrl {
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+  background: #fff;
+}

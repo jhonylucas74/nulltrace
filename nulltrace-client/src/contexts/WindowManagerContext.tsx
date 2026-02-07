@@ -45,6 +45,15 @@ type WindowManagerAction =
   | { type: "resize"; payload: { id: string; width: number; height: number } };
 
 const DEFAULT_SIZE: WindowSize = { width: 640, height: 400 };
+
+/** Browser and Code editor need more space; use larger default size. */
+const LARGE_WINDOW_SIZE: WindowSize = { width: 900, height: 600 };
+
+function getDefaultSizeForType(type: WindowType): WindowSize {
+  if (type === "browser" || type === "editor") return LARGE_WINDOW_SIZE;
+  return DEFAULT_SIZE;
+}
+
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 
@@ -150,7 +159,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
     (type: WindowType, options?: OpenWindowOptions): string => {
       const id = `win-${nextId++}`;
       const position = options?.position ?? { x: 60 + (state.windows.length % 4) * 40, y: 60 + (state.windows.length % 3) * 32 };
-      const size = options?.size ?? DEFAULT_SIZE;
+      const size = options?.size ?? getDefaultSizeForType(type);
       const defaultTitles: Record<WindowType, string> = {
         terminal: "Terminal",
         explorer: "Files",

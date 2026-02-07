@@ -10,6 +10,7 @@ import Terminal from "../components/Terminal";
 import ThemeApp from "../components/ThemeApp";
 import Explorer from "../components/Explorer";
 import CodeEditor from "../components/CodeEditor";
+import Browser from "../components/Browser";
 import FilePicker from "../components/FilePicker";
 import styles from "./Desktop.module.css";
 
@@ -106,6 +107,9 @@ function DesktopContent() {
     }
     if (win.type === "editor") {
       return <CodeEditor />;
+    }
+    if (win.type === "browser") {
+      return <Browser />;
     }
     return <PlaceholderContent title={win.title} />;
   }

@@ -1,0 +1,15 @@
+---
+description: No real brands in app or game content
+globs: 
+alwaysApply: true
+---
+
+# No real brands
+
+Do not use real brand names, trademarks, or references to real companies in any text, UI copy, or in-game content.
+
+- **Forbidden examples:** GitHub, Google, Microsoft, Apple, Amazon, Facebook, Twitter/X, Instagram, Netflix, Spotify, and any other real-world brand or product name.
+- **Apply to:** User-facing strings, placeholder content, demo pages, mock data, error messages, tooltips, and any narrative or in-game text.
+- **Use instead:** Generic terms (e.g. "search engine", "code host", "social app"), fictional names, or placeholders (e.g. "Example Corp", "search.example") so the project stays brand-neutral.
+
+This rule must be followed in all code and content produced for this project.
