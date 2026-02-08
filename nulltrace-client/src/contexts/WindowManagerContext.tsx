@@ -73,8 +73,8 @@ const NETWORK_WINDOW_SIZE: WindowSize = { width: 400, height: 280 };
 /** Email app: message list + read/compose panel (large UI like pixel editor). */
 const EMAIL_WINDOW_SIZE: WindowSize = { width: 900, height: 600 };
 
-/** Wallet app: balance cards (Zorin-style). */
-const WALLET_WINDOW_SIZE: WindowSize = { width: 400, height: 340 };
+/** Wallet app: full finance UI (Overview, Statement, Transfer, Keys, Convert, NFTs). */
+const WALLET_WINDOW_SIZE: WindowSize = { width: 560, height: 600 };
 
 /** System info (Nullfetch) app: ASCII art + info block. */
 const SYSINFO_WINDOW_SIZE: WindowSize = { width: 640, height: 400 };
