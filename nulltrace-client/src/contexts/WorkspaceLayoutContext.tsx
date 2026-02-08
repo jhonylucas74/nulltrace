@@ -233,6 +233,7 @@ interface WorkspaceLayoutValue {
   setActiveWorkspace: (id: string) => void;
   addWorkspace: () => Workspace;
   moveWindowToWorkspace: (winId: string, workspaceId: string) => void;
+  getLayoutForWorkspace: (workspaceId: string) => LayoutPreset;
   getFirstFreeSlot: (workspaceId: string) => { workspaceId: string; slot: GridSlot } | null;
   getSlotAtPoint: (area: { left: number; top: number; width: number; height: number }, clientX: number, clientY: number) => GridSlot | null;
   getOccupiedSlots: (workspaceId: string, excludeWindowId?: string) => Map<string, string>;
@@ -476,6 +477,7 @@ export function WorkspaceLayoutProvider({ children }: { children: React.ReactNod
       setActiveWorkspace,
       addWorkspace,
       moveWindowToWorkspace,
+      getLayoutForWorkspace,
       getFirstFreeSlot,
       getSlotAtPoint: getSlotAtPointCallback,
       getOccupiedSlots: getOccupiedSlotsCallback,
@@ -491,6 +493,7 @@ export function WorkspaceLayoutProvider({ children }: { children: React.ReactNod
       setActiveWorkspace,
       addWorkspace,
       moveWindowToWorkspace,
+      getLayoutForWorkspace,
       getFirstFreeSlot,
       getSlotAtPointCallback,
       getOccupiedSlotsCallback,

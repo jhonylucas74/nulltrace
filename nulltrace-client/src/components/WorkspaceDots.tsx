@@ -1,7 +1,11 @@
 import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
 import styles from "./WorkspaceDots.module.css";
 
-export default function WorkspaceDots() {
+interface WorkspaceDotsProps {
+  highlightedWorkspaceId?: string | null;
+}
+
+export default function WorkspaceDots({ highlightedWorkspaceId = null }: WorkspaceDotsProps) {
   const { workspaces, activeWorkspaceId, setActiveWorkspace } = useWorkspaceLayout();
 
   return (
@@ -15,7 +19,10 @@ export default function WorkspaceDots() {
           aria-label={ws.label}
           title={ws.label}
           className={styles.dot}
+          data-workspace-dot
+          data-workspace-id={ws.id}
           data-active={activeWorkspaceId === ws.id ? "true" : undefined}
+          data-highlight={highlightedWorkspaceId === ws.id ? "true" : undefined}
           onClick={() => setActiveWorkspace(ws.id)}
         />
       ))}

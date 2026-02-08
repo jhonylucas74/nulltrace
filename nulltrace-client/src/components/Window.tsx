@@ -28,8 +28,12 @@ interface WindowProps {
   minimized?: boolean;
   maximized?: boolean;
   zIndex: number;
+  onDragStart?: (id: string) => void;
   onDragMove?: (id: string, clientX: number, clientY: number) => void;
   onDragEnd?: (id: string, lastX: number, lastY: number, centerClientX: number, centerClientY: number) => void;
+  style?: React.CSSProperties;
+  /** When true, window is hidden (used when dragging to workspace dots). */
+  dragGhost?: boolean;
   children: React.ReactNode;
 }
 
@@ -60,8 +64,11 @@ export default function Window({
   minimized = false,
   maximized = false,
   zIndex,
+  onDragStart,
   onDragMove,
   onDragEnd,
+  style: styleProp,
+  dragGhost = false,
   children,
 }: WindowProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -92,6 +99,7 @@ export default function Window({
       if (isTitleBarButton((e.target as HTMLElement))) return;
       e.preventDefault();
       setIsDragging(true);
+      onDragStart?.(id);
       dragStart.current = {
         x: e.clientX,
         y: e.clientY,
@@ -101,7 +109,7 @@ export default function Window({
       onFocus?.();
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     },
-    [position, onFocus, maximized]
+    [id, position, onFocus, maximized, onDragStart]
   );
 
   const handlePointerMove = useCallback(
@@ -162,19 +170,22 @@ export default function Window({
     return null;
   }
 
-  const style: React.CSSProperties = maximized
-    ? { zIndex }
-    : {
-        left: position.x,
-        top: position.y,
-        width: size.width,
-        height: size.height,
-        zIndex,
-      };
+  const style: React.CSSProperties = {
+    ...(maximized
+      ? { zIndex }
+      : {
+          left: position.x,
+          top: position.y,
+          width: size.width,
+          height: size.height,
+          zIndex,
+        }),
+    ...(styleProp ?? {}),
+  };
 
   return (
     <div
-      className={`${styles.window} ${focused ? styles.focused : ""} ${maximized ? styles.maximized : ""}`}
+      className={`${styles.window} ${focused ? styles.focused : ""} ${maximized ? styles.maximized : ""} ${dragGhost ? styles.dragGhost : ""}`}
       style={style}
       onPointerDown={onFocus}
     >

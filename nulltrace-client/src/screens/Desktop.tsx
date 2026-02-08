@@ -167,11 +167,25 @@ function DesktopContent() {
     layoutPreset,
     getSlotAtPoint,
     getOccupiedSlots,
+    getFirstFreeSlot,
+    getLayoutForWorkspace,
+    moveWindowToWorkspace,
   } = useWorkspaceLayout();
   const { isOpen: filePickerOpen, options: filePickerOptions, closeFilePicker } = useFilePicker();
   const { isOpen: appLauncherOpen } = useAppLauncher();
   const hasOpenedSysinfoRef = useRef(false);
   const [snapPreview, setSnapPreview] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const leftBottomRef = useRef<HTMLDivElement>(null);
+  const [draggingWindowId, setDraggingWindowId] = useState<string | null>(null);
+  const [dragCursorX, setDragCursorX] = useState(0);
+  const [dragCursorY, setDragCursorY] = useState(0);
+  const [workspaceDropTarget, setWorkspaceDropTarget] = useState<{
+    workspaceId: string;
+    dotCenterX: number;
+    dotCenterY: number;
+  } | null>(null);
+
+  const WORKSPACE_DROP_ZONE_THRESHOLD = 80;
 
   const firstWorkspaceId = workspaces[0]?.id ?? "";
   const visibleWindows = windows.filter(
@@ -191,16 +205,74 @@ function DesktopContent() {
     if (!gridModeEnabled) setSnapPreview(null);
   }, [gridModeEnabled]);
 
+  const handleDragStart = useCallback((id: string) => {
+    setDraggingWindowId(id);
+  }, []);
+
   const handleDragMove = useCallback(
     (_id: string, clientX: number, clientY: number) => {
-      if (!gridModeEnabled) return;
-      const area = getWorkspaceArea();
-      const slot = getSlotAtPoint(area, clientX, clientY);
-      if (slot) {
-        const bounds = getSlotBounds(layoutPreset, slot, area);
-        setSnapPreview({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
-      } else {
+      setDragCursorX(clientX);
+      setDragCursorY(clientY);
+
+      const container = leftBottomRef.current;
+      if (!container) {
+        setWorkspaceDropTarget(null);
+        if (gridModeEnabled) {
+          const area = getWorkspaceArea();
+          const slot = getSlotAtPoint(area, clientX, clientY);
+          if (slot) {
+            const bounds = getSlotBounds(layoutPreset, slot, area);
+            setSnapPreview({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+          } else {
+            setSnapPreview(null);
+          }
+        }
+        return;
+      }
+
+      const rect = container.getBoundingClientRect();
+      const expanded = {
+        left: rect.left - WORKSPACE_DROP_ZONE_THRESHOLD,
+        right: rect.right + WORKSPACE_DROP_ZONE_THRESHOLD,
+        top: rect.top - WORKSPACE_DROP_ZONE_THRESHOLD,
+        bottom: rect.bottom + WORKSPACE_DROP_ZONE_THRESHOLD,
+      };
+      const inZone =
+        clientX >= expanded.left &&
+        clientX <= expanded.right &&
+        clientY >= expanded.top &&
+        clientY <= expanded.bottom;
+
+      if (inZone) {
         setSnapPreview(null);
+        const dots = container.querySelectorAll("[data-workspace-dot]");
+        let nearest: { workspaceId: string; dotCenterX: number; dotCenterY: number } | null = null;
+        let minDist = Infinity;
+        for (let i = 0; i < dots.length; i++) {
+          const el = dots[i] as HTMLElement;
+          const r = el.getBoundingClientRect();
+          const cx = r.left + r.width / 2;
+          const cy = r.top + r.height / 2;
+          const dist = (clientX - cx) ** 2 + (clientY - cy) ** 2;
+          const wsId = el.getAttribute("data-workspace-id");
+          if (wsId && dist < minDist) {
+            minDist = dist;
+            nearest = { workspaceId: wsId, dotCenterX: cx, dotCenterY: cy };
+          }
+        }
+        setWorkspaceDropTarget(nearest);
+      } else {
+        setWorkspaceDropTarget(null);
+        if (gridModeEnabled) {
+          const area = getWorkspaceArea();
+          const slot = getSlotAtPoint(area, clientX, clientY);
+          if (slot) {
+            const bounds = getSlotBounds(layoutPreset, slot, area);
+            setSnapPreview({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+          } else {
+            setSnapPreview(null);
+          }
+        }
       }
     },
     [gridModeEnabled, layoutPreset, getSlotAtPoint]
@@ -208,6 +280,33 @@ function DesktopContent() {
 
   const handleDragEnd = useCallback(
     (id: string, lastX: number, lastY: number, centerClientX: number, centerClientY: number) => {
+      setDraggingWindowId(null);
+
+      if (workspaceDropTarget) {
+        const { workspaceId } = workspaceDropTarget;
+        const area = getWorkspaceArea();
+        const slotResult = getFirstFreeSlot(workspaceId);
+        const draggedWin = windows.find((w) => w.id === id);
+        if (draggedWin) {
+          if (slotResult) {
+            const preset = getLayoutForWorkspace(workspaceId);
+            const bounds = getSlotBounds(preset, slotResult.slot, area);
+            move(id, bounds.x, bounds.y);
+            resize(id, bounds.width, bounds.height);
+            setWindowGridSlot(id, slotResult.slot);
+          } else {
+            const cx = area.left + area.width / 2 - draggedWin.size.width / 2;
+            const cy = area.top + area.height / 2 - draggedWin.size.height / 2;
+            move(id, cx, cy);
+            setWindowGridSlot(id, undefined);
+          }
+          moveWindowToWorkspace(id, workspaceId);
+        }
+        setWorkspaceDropTarget(null);
+        setSnapPreview(null);
+        return;
+      }
+
       setSnapPreview(null);
       if (!gridModeEnabled) return;
       const area = getWorkspaceArea();
@@ -236,7 +335,21 @@ function DesktopContent() {
         setWindowGridSlot(id, slot);
       }
     },
-    [gridModeEnabled, layoutPreset, activeWorkspaceId, getSlotAtPoint, getOccupiedSlots, windows, move, resize, setWindowGridSlot]
+    [
+      workspaceDropTarget,
+      gridModeEnabled,
+      layoutPreset,
+      activeWorkspaceId,
+      getSlotAtPoint,
+      getOccupiedSlots,
+      getFirstFreeSlot,
+      getLayoutForWorkspace,
+      moveWindowToWorkspace,
+      windows,
+      move,
+      resize,
+      setWindowGridSlot,
+    ]
   );
 
   function renderWindowContent(win: { id: string; type: WindowType; title: string }) {
@@ -296,9 +409,32 @@ function DesktopContent() {
         />
       )}
       {appLauncherOpen && <AppLauncher />}
-      <div className={styles.leftBottom}>
+      {draggingWindowId && workspaceDropTarget && typeof window !== "undefined" && (
+        <div className={styles.workspaceDropOverlay} aria-hidden>
+          <div
+            className={styles.workspaceDropGhostDot}
+            style={{ left: dragCursorX, top: dragCursorY }}
+          />
+          <svg
+            className={styles.workspaceDropLine}
+            viewBox={`0 0 ${window.innerWidth} ${window.innerHeight}`}
+            preserveAspectRatio="none"
+          >
+            <line
+              x1={dragCursorX}
+              y1={dragCursorY}
+              x2={workspaceDropTarget.dotCenterX}
+              y2={workspaceDropTarget.dotCenterY}
+              stroke="var(--accent)"
+              strokeWidth="2"
+              strokeDasharray="6 4"
+            />
+          </svg>
+        </div>
+      )}
+      <div className={styles.leftBottom} ref={leftBottomRef}>
         <LayoutPanel />
-        <WorkspaceDots />
+        <WorkspaceDots highlightedWorkspaceId={workspaceDropTarget?.workspaceId ?? null} />
       </div>
       <div className={styles.workspace}>
         {gridModeEnabled && snapPreview && (
@@ -331,8 +467,10 @@ function DesktopContent() {
             maximized={win.maximized}
             zIndex={win.zIndex}
             icon={WINDOW_ICONS[win.type]}
-            onDragMove={gridModeEnabled ? handleDragMove : undefined}
-            onDragEnd={gridModeEnabled ? handleDragEnd : undefined}
+            onDragStart={handleDragStart}
+            onDragMove={handleDragMove}
+            onDragEnd={handleDragEnd}
+            dragGhost={draggingWindowId === win.id && workspaceDropTarget !== null}
           >
             {renderWindowContent(win)}
           </Window>

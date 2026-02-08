@@ -96,3 +96,43 @@
   font-size: 0.875rem;
   opacity: 0.8;
 }
+
+/* Workspace drop overlay: ghost dot + line when dragging window near dots */
+.workspaceDropOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1002;
+  pointer-events: none;
+}
+
+.workspaceDropGhostDot {
+  position: fixed;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-muted), 0 0 20px var(--accent);
+  animation: workspaceDropGhostPulse 0.7s ease-in-out infinite;
+}
+
+@keyframes workspaceDropGhostPulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 2px var(--accent-muted), 0 0 20px var(--accent);
+  }
+  50% {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 4px var(--accent-muted), 0 0 28px var(--accent);
+  }
+}
+
+.workspaceDropLine {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}

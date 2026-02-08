@@ -28,3 +28,16 @@
   opacity: 1;
   transform: scale(1.2);
 }
+
+.dot[data-highlight="true"] {
+  background: var(--accent);
+  opacity: 1;
+  transform: scale(1.35);
+  box-shadow: 0 0 0 3px var(--accent-muted), 0 0 16px var(--accent);
+  animation: dotHighlightPulse 0.8s ease-in-out infinite;
+}
+
+@keyframes dotHighlightPulse {
+  0%, 100% { box-shadow: 0 0 0 3px var(--accent-muted), 0 0 16px var(--accent); opacity: 1; }
+  50% { box-shadow: 0 0 0 5px var(--accent-muted), 0 0 24px var(--accent); opacity: 0.95; }
+}
