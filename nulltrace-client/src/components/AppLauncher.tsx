@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useWindowManager } from "../contexts/WindowManagerContext";
+import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
 import { useAppLauncher } from "../contexts/AppLauncherContext";
 import { useAuth } from "../contexts/AuthContext";
 import { LAUNCHABLE_APPS, getAppTitle } from "../lib/appList";
@@ -7,7 +7,7 @@ import styles from "./AppLauncher.module.css";
 
 export default function AppLauncher() {
   const { isOpen, close } = useAppLauncher();
-  const { open: openWindow } = useWindowManager();
+  const { openApp } = useWorkspaceLayout();
   const { username } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -35,7 +35,7 @@ export default function AppLauncher() {
   }, [isOpen, close]);
 
   function handleAppClick(type: (typeof LAUNCHABLE_APPS)[number]["type"]) {
-    openWindow(type, { title: getAppTitle(type, username) });
+    openApp(type, { title: getAppTitle(type, username) });
     close();
   }
 

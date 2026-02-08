@@ -12,6 +12,13 @@ export interface WindowSize {
   height: number;
 }
 
+export interface GridSlot {
+  row: number;
+  col: number;
+  rowSpan?: number;
+  colSpan?: number;
+}
+
 export interface WindowState {
   id: string;
   type: WindowType;
@@ -21,12 +28,16 @@ export interface WindowState {
   minimized: boolean;
   maximized: boolean;
   zIndex: number;
+  workspaceId: string;
+  gridSlot?: GridSlot;
 }
 
 export interface OpenWindowOptions {
   title?: string;
   position?: WindowPosition;
   size?: WindowSize;
+  workspaceId?: string;
+  gridSlot?: GridSlot;
 }
 
 interface WindowManagerState {
@@ -42,7 +53,9 @@ type WindowManagerAction =
   | { type: "maximize"; payload: { id: string } }
   | { type: "setFocus"; payload: { id: string } }
   | { type: "move"; payload: { id: string; x: number; y: number } }
-  | { type: "resize"; payload: { id: string; width: number; height: number } };
+  | { type: "resize"; payload: { id: string; width: number; height: number } }
+  | { type: "setWindowWorkspace"; payload: { id: string; workspaceId: string } }
+  | { type: "setWindowGridSlot"; payload: { id: string; gridSlot: GridSlot | undefined } };
 
 const DEFAULT_SIZE: WindowSize = { width: 640, height: 400 };
 
@@ -149,6 +162,24 @@ function reducer(state: WindowManagerState, action: WindowManagerAction): Window
         ),
       };
     }
+    case "setWindowWorkspace": {
+      const { id, workspaceId } = action.payload;
+      return {
+        ...state,
+        windows: state.windows.map((w) =>
+          w.id === id ? { ...w, workspaceId } : w
+        ),
+      };
+    }
+    case "setWindowGridSlot": {
+      const { id, gridSlot } = action.payload;
+      return {
+        ...state,
+        windows: state.windows.map((w) =>
+          w.id === id ? { ...w, gridSlot } : w
+        ),
+      };
+    }
     default:
       return state;
   }
@@ -164,6 +195,8 @@ interface WindowManagerValue {
   setFocus: (id: string) => void;
   move: (id: string, x: number, y: number) => void;
   resize: (id: string, width: number, height: number) => void;
+  setWindowWorkspace: (id: string, workspaceId: string) => void;
+  setWindowGridSlot: (id: string, gridSlot: GridSlot | undefined) => void;
   getWindowIdsByType: (type: WindowType) => string[];
 }
 
@@ -186,7 +219,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         options?.position ??
         (typeof window !== "undefined"
           ? (() => {
-              const dockBottom = 20;
+              const dockBottom = 6;
               const dockHeight = 56;
               const safeBottom = dockBottom + dockHeight;
               const availableHeight = window.innerHeight - safeBottom;
@@ -216,7 +249,9 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         pixelart: "Pixel Art",
         sysinfo: "Nullfetch",
       };
-  const title = options?.title ?? defaultTitles[type];
+      const title = options?.title ?? defaultTitles[type];
+      const workspaceId = options?.workspaceId ?? "";
+      const gridSlot = options?.gridSlot;
       dispatch({
         type: "open",
         payload: {
@@ -229,6 +264,8 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
             minimized: false,
             maximized: false,
             zIndex: state.nextZIndex,
+            workspaceId,
+            gridSlot,
           },
         },
       });
@@ -268,6 +305,14 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
     });
   }, []);
 
+  const setWindowWorkspace = useCallback((id: string, workspaceId: string) => {
+    dispatch({ type: "setWindowWorkspace", payload: { id, workspaceId } });
+  }, []);
+
+  const setWindowGridSlot = useCallback((id: string, gridSlot: GridSlot | undefined) => {
+    dispatch({ type: "setWindowGridSlot", payload: { id, gridSlot } });
+  }, []);
+
   const getWindowIdsByType = useCallback(
     (type: WindowType) => state.windows.filter((w) => w.type === type).map((w) => w.id),
     [state.windows]
@@ -283,6 +328,8 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
     setFocus,
     move,
     resize,
+    setWindowWorkspace,
+    setWindowGridSlot,
     getWindowIdsByType,
   };
 

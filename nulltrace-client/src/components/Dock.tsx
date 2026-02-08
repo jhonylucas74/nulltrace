@@ -1,4 +1,5 @@
 import { useWindowManager } from "../contexts/WindowManagerContext";
+import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
 import { useAppLauncher } from "../contexts/AppLauncherContext";
 import type { WindowType } from "../contexts/WindowManagerContext";
 import { LAUNCHABLE_APPS, AppsIcon, getAppTitle } from "../lib/appList";
@@ -20,7 +21,8 @@ interface DockProps {
 }
 
 export default function Dock({ username }: DockProps) {
-  const { open, setFocus, getWindowIdsByType } = useWindowManager();
+  const { openApp } = useWorkspaceLayout();
+  const { setFocus, getWindowIdsByType } = useWindowManager();
   const { open: openAppLauncher } = useAppLauncher();
 
   function handleAppClick(type: WindowType) {
@@ -32,7 +34,7 @@ export default function Dock({ username }: DockProps) {
     if (ids.length > 0) {
       setFocus(ids[ids.length - 1]);
     } else {
-      open(type, { title: getAppTitle(type, username) });
+      openApp(type, { title: getAppTitle(type, username) });
     }
   }
 

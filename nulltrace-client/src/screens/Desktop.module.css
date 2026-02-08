@@ -52,13 +52,34 @@
   top: var(--bar-height);
   left: 0;
   right: 0;
-  bottom: calc(20px + var(--dock-height));
+  bottom: calc(6px + var(--dock-height));
   z-index: 1;
   pointer-events: none;
 }
 
 .workspace > * {
   pointer-events: auto;
+}
+
+/* Left bottom: grid button + workspace dots */
+.leftBottom {
+  position: fixed;
+  bottom: 6px;
+  left: 1rem;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.gridSnapPreview {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-radius: var(--border-radius-sm);
+  box-sizing: border-box;
 }
 
 .placeholder {

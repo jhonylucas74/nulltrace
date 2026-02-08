@@ -207,6 +207,7 @@ function HistoryPageView({
   onSelectEntry,
   onGoBack,
   canGoBack,
+  onGoHome,
 }: {
   history: HistoryEntry[];
   historyIndex: number;

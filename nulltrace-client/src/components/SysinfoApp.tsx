@@ -1,4 +1,3 @@
-import React from "react";
 import { useTheme } from "../contexts/ThemeContext";
 import type { ThemeId } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";

@@ -88,7 +88,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
         const w = PIXELART_EDITOR_SIZE.width;
         const h = PIXELART_EDITOR_SIZE.height;
         resize(windowId, w, h);
-        const dockBottom = 20;
+        const dockBottom = 6;
         const dockHeight = 56;
         const safeBottom = dockBottom + dockHeight;
         const availableHeight = window.innerHeight - safeBottom;
@@ -305,12 +305,6 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2000);
   }, [saveFolderPath, saveFilename, data, compositePixels]);
-
-  const handleNewClick = useCallback(() => {
-    setData(null);
-    setLayers([]);
-    setActiveLayerId(null);
-  }, []);
 
   const handleZoom = useCallback((next: number) => {
     const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next));

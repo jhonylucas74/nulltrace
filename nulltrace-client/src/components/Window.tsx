@@ -1,4 +1,5 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
+import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
 import styles from "./Window.module.css";
 
 export interface WindowPosition {
@@ -27,6 +28,8 @@ interface WindowProps {
   minimized?: boolean;
   maximized?: boolean;
   zIndex: number;
+  onDragMove?: (id: string, clientX: number, clientY: number) => void;
+  onDragEnd?: (id: string, lastX: number, lastY: number, centerClientX: number, centerClientY: number) => void;
   children: React.ReactNode;
 }
 
@@ -36,7 +39,8 @@ function isTitleBarButton(el: HTMLElement | null): boolean {
   return !!(
     target.closest(`.${styles.minBtn}`) ||
     target.closest(`.${styles.maxBtn}`) ||
-    target.closest(`.${styles.closeBtn}`)
+    target.closest(`.${styles.closeBtn}`) ||
+    target.closest(`.${styles.workspaceMenuWrap}`)
   );
 }
 
@@ -56,12 +60,28 @@ export default function Window({
   minimized = false,
   maximized = false,
   zIndex,
+  onDragMove,
+  onDragEnd,
   children,
 }: WindowProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 });
+  const workspaceMenuRef = useRef<HTMLDivElement>(null);
+  const { workspaces, moveWindowToWorkspace } = useWorkspaceLayout();
+
+  useEffect(() => {
+    if (!workspaceMenuOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(e.target as Node)) {
+        setWorkspaceMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [workspaceMenuOpen]);
 
   const MIN_W = 320;
   const MIN_H = 200;
@@ -90,14 +110,23 @@ export default function Window({
       const dx = e.clientX - dragStart.current.x;
       const dy = e.clientY - dragStart.current.y;
       onMove(id, dragStart.current.posX + dx, dragStart.current.posY + dy);
+      onDragMove?.(id, e.clientX, e.clientY);
     },
-    [id, isDragging, onMove]
+    [id, isDragging, onMove, onDragMove]
   );
 
-  const handlePointerUp = useCallback(() => {
-    setIsDragging(false);
-    setIsResizing(false);
-  }, []);
+  const handlePointerUp = useCallback(
+    (_e: React.PointerEvent) => {
+      if (isDragging && onDragEnd) {
+        const centerClientX = position.x + size.width / 2;
+        const centerClientY = position.y + size.height / 2;
+        onDragEnd(id, position.x, position.y, centerClientX, centerClientY);
+      }
+      setIsDragging(false);
+      setIsResizing(false);
+    },
+    [id, isDragging, position, size, onDragEnd]
+  );
 
   const handleResizePointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -159,6 +188,38 @@ export default function Window({
         {icon && <span className={styles.icon}>{icon}</span>}
         <span className={styles.title}>{title}</span>
         <div className={styles.controls}>
+          <div className={styles.workspaceMenuWrap} ref={workspaceMenuRef}>
+            <button
+              type="button"
+              className={styles.workspaceMenuBtn}
+              onClick={() => setWorkspaceMenuOpen((o) => !o)}
+              aria-label="Move to workspace"
+              aria-expanded={workspaceMenuOpen}
+              aria-haspopup="true"
+              title="Move to workspace"
+            >
+              ⋯
+            </button>
+            {workspaceMenuOpen && (
+              <div className={styles.workspaceDropdown} role="menu">
+                <div className={styles.workspaceDropdownLabel}>Move to workspace</div>
+                {workspaces.map((ws) => (
+                  <button
+                    key={ws.id}
+                    type="button"
+                    role="menuitem"
+                    className={styles.workspaceDropdownItem}
+                    onClick={() => {
+                      moveWindowToWorkspace(id, ws.id);
+                      setWorkspaceMenuOpen(false);
+                    }}
+                  >
+                    {ws.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className={styles.minBtn}

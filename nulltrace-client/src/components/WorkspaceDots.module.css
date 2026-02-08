@@ -1,0 +1,30 @@
+/* Workspace indicators: to the right of grid button, left side */
+.wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding-left: 0.75rem;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.5;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.dot:hover {
+  opacity: 0.8;
+}
+
+.dot[data-active="true"] {
+  background: var(--text-primary);
+  opacity: 1;
+  transform: scale(1.2);
+}

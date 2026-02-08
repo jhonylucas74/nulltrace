@@ -1,13 +1,16 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Palette, Cpu } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WindowManagerProvider, useWindowManager } from "../contexts/WindowManagerContext";
+import { WorkspaceLayoutProvider, useWorkspaceLayout, getWorkspaceArea, getSlotBounds } from "../contexts/WorkspaceLayoutContext";
 import { FilePickerProvider, useFilePicker, getDefaultInitialPath } from "../contexts/FilePickerContext";
 import { AppLauncherProvider, useAppLauncher } from "../contexts/AppLauncherContext";
 import type { WindowType } from "../contexts/WindowManagerContext";
 import TopBar from "../components/TopBar";
 import AppLauncher from "../components/AppLauncher";
 import Dock from "../components/Dock";
+import LayoutPanel from "../components/LayoutPanel";
+import WorkspaceDots from "../components/WorkspaceDots";
 import Window from "../components/Window";
 import Terminal from "../components/Terminal";
 import ThemeApp from "../components/ThemeApp";
@@ -155,16 +158,86 @@ function PlaceholderContent({ title }: { title: string }) {
 
 function DesktopContent() {
   const { username } = useAuth();
-  const { windows, focusedId, close, minimize, maximize, setFocus, move, resize, open } = useWindowManager();
+  const { windows, focusedId, close, minimize, maximize, setFocus, move, resize, setWindowGridSlot } = useWindowManager();
+  const {
+    activeWorkspaceId,
+    workspaces,
+    openApp,
+    gridModeEnabled,
+    layoutPreset,
+    getSlotAtPoint,
+    getOccupiedSlots,
+  } = useWorkspaceLayout();
   const { isOpen: filePickerOpen, options: filePickerOptions, closeFilePicker } = useFilePicker();
   const { isOpen: appLauncherOpen } = useAppLauncher();
   const hasOpenedSysinfoRef = useRef(false);
+  const [snapPreview, setSnapPreview] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+
+  const firstWorkspaceId = workspaces[0]?.id ?? "";
+  const visibleWindows = windows.filter(
+    (w) =>
+      !w.minimized &&
+      w.type !== "apps" &&
+      (w.workspaceId === activeWorkspaceId || (w.workspaceId === "" && activeWorkspaceId === firstWorkspaceId))
+  );
 
   useEffect(() => {
     if (!username || hasOpenedSysinfoRef.current) return;
     hasOpenedSysinfoRef.current = true;
-    open("sysinfo");
-  }, [username, open]);
+    openApp("sysinfo");
+  }, [username, openApp]);
+
+  useEffect(() => {
+    if (!gridModeEnabled) setSnapPreview(null);
+  }, [gridModeEnabled]);
+
+  const handleDragMove = useCallback(
+    (_id: string, clientX: number, clientY: number) => {
+      if (!gridModeEnabled) return;
+      const area = getWorkspaceArea();
+      const slot = getSlotAtPoint(area, clientX, clientY);
+      if (slot) {
+        const bounds = getSlotBounds(layoutPreset, slot, area);
+        setSnapPreview({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+      } else {
+        setSnapPreview(null);
+      }
+    },
+    [gridModeEnabled, layoutPreset, getSlotAtPoint]
+  );
+
+  const handleDragEnd = useCallback(
+    (id: string, lastX: number, lastY: number, centerClientX: number, centerClientY: number) => {
+      setSnapPreview(null);
+      if (!gridModeEnabled) return;
+      const area = getWorkspaceArea();
+      const slot = getSlotAtPoint(area, centerClientX, centerClientY);
+      if (!slot) return;
+      const bounds = getSlotBounds(layoutPreset, slot, area);
+      const occupied = getOccupiedSlots(activeWorkspaceId, id);
+      const slotKey = `${slot.row},${slot.col}`;
+      const otherId = occupied.get(slotKey);
+      const draggedWin = windows.find((w) => w.id === id);
+      if (!draggedWin) return;
+
+      if (otherId) {
+        const otherWin = windows.find((w) => w.id === otherId);
+        if (!otherWin) return;
+        const sourceBounds = { x: lastX, y: lastY, width: draggedWin.size.width, height: draggedWin.size.height };
+        move(id, bounds.x, bounds.y);
+        resize(id, bounds.width, bounds.height);
+        setWindowGridSlot(id, slot);
+        move(otherId, sourceBounds.x, sourceBounds.y);
+        resize(otherId, sourceBounds.width, sourceBounds.height);
+        setWindowGridSlot(otherId, draggedWin.gridSlot);
+      } else {
+        move(id, bounds.x, bounds.y);
+        resize(id, bounds.width, bounds.height);
+        setWindowGridSlot(id, slot);
+      }
+    },
+    [gridModeEnabled, layoutPreset, activeWorkspaceId, getSlotAtPoint, getOccupiedSlots, windows, move, resize, setWindowGridSlot]
+  );
 
   function renderWindowContent(win: { id: string; type: WindowType; title: string }) {
     if (win.type === "terminal") {
@@ -223,31 +296,47 @@ function DesktopContent() {
         />
       )}
       {appLauncherOpen && <AppLauncher />}
+      <div className={styles.leftBottom}>
+        <LayoutPanel />
+        <WorkspaceDots />
+      </div>
       <div className={styles.workspace}>
-        {windows
-          .filter((w) => !w.minimized && w.type !== "apps")
-          .map((win) => (
-            <Window
-              key={win.id}
-              id={win.id}
-              title={win.title}
-              position={win.position}
-              size={win.size}
-              onMove={move}
-              onResize={resize}
-              onClose={close}
-              onMinimize={minimize}
-              onMaximize={maximize}
-              focused={focusedId === win.id}
-              onFocus={() => setFocus(win.id)}
-              minimized={win.minimized}
-              maximized={win.maximized}
-              zIndex={win.zIndex}
-              icon={WINDOW_ICONS[win.type]}
-            >
-              {renderWindowContent(win)}
-            </Window>
-          ))}
+        {gridModeEnabled && snapPreview && (
+          <div
+            className={styles.gridSnapPreview}
+            style={{
+              left: snapPreview.x,
+              top: snapPreview.y,
+              width: snapPreview.width,
+              height: snapPreview.height,
+            }}
+            aria-hidden
+          />
+        )}
+        {visibleWindows.map((win) => (
+          <Window
+            key={win.id}
+            id={win.id}
+            title={win.title}
+            position={win.position}
+            size={win.size}
+            onMove={move}
+            onResize={resize}
+            onClose={close}
+            onMinimize={minimize}
+            onMaximize={maximize}
+            focused={focusedId === win.id}
+            onFocus={() => setFocus(win.id)}
+            minimized={win.minimized}
+            maximized={win.maximized}
+            zIndex={win.zIndex}
+            icon={WINDOW_ICONS[win.type]}
+            onDragMove={gridModeEnabled ? handleDragMove : undefined}
+            onDragEnd={gridModeEnabled ? handleDragEnd : undefined}
+          >
+            {renderWindowContent(win)}
+          </Window>
+        ))}
       </div>
       <Dock username={username} />
     </div>
@@ -257,11 +346,13 @@ function DesktopContent() {
 export default function Desktop() {
   return (
     <WindowManagerProvider>
-      <FilePickerProvider>
-        <AppLauncherProvider>
-          <DesktopContent />
-        </AppLauncherProvider>
-      </FilePickerProvider>
+      <WorkspaceLayoutProvider>
+        <FilePickerProvider>
+          <AppLauncherProvider>
+            <DesktopContent />
+          </AppLauncherProvider>
+        </FilePickerProvider>
+      </WorkspaceLayoutProvider>
     </WindowManagerProvider>
   );
 }
