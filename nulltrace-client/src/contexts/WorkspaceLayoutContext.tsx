@@ -271,6 +271,7 @@ export function WorkspaceLayoutProvider({ children }: { children: React.ReactNod
   );
 
   const prevWorkspaceLayoutRef = useRef<Record<string, LayoutPreset>>({});
+  const prevGridModeRef = useRef(state.gridModeEnabled);
 
   // Remove empty temporary workspaces (non-default only).
   useEffect(() => {
@@ -294,6 +295,82 @@ export function WorkspaceLayoutProvider({ children }: { children: React.ReactNod
     dispatch({ type: "addWorkspace", payload: ws });
     return ws;
   }, []);
+
+  // When grid mode is turned ON, snap all floating windows (no gridSlot) into slots.
+  // Prefer each window's current workspace; if no free slot, search other workspaces or add one.
+  useEffect(() => {
+    const wasOff = !prevGridModeRef.current;
+    prevGridModeRef.current = state.gridModeEnabled;
+    if (!state.gridModeEnabled || !wasOff) return;
+
+    const floating = windows.filter((w) => !w.gridSlot);
+    if (floating.length === 0) return;
+
+    const area = getWorkspaceArea();
+    const slotKey = (s: GridSlot) => `${s.row},${s.col}`;
+    const occupied: Record<string, Map<string, string>> = {};
+    for (const ws of state.workspaces) {
+      occupied[ws.id] = new Map();
+    }
+    for (const win of windows) {
+      if (!win.gridSlot) continue;
+      const key = slotKey(win.gridSlot);
+      if (occupied[win.workspaceId]) occupied[win.workspaceId].set(key, win.id);
+    }
+
+    const getFirstFreeIn = (workspaceId: string): GridSlot | null => {
+      const preset = state.workspaceLayout[workspaceId] ?? "2x2";
+      const slots = getLayoutSlots(preset);
+      const occ = occupied[workspaceId];
+      if (!occ) return null;
+      for (const slot of slots) {
+        if (!occ.has(slotKey(slot))) return slot;
+      }
+      return null;
+    };
+
+    const assignToSlot = (win: { id: string; workspaceId: string }, workspaceId: string, slot: GridSlot) => {
+      occupied[workspaceId].set(slotKey(slot), win.id);
+      const preset = state.workspaceLayout[workspaceId] ?? "2x2";
+      const bounds = getSlotBounds(preset, slot, area);
+      if (win.workspaceId !== workspaceId) setWindowWorkspace(win.id, workspaceId);
+      move(win.id, bounds.x, bounds.y);
+      resize(win.id, bounds.width, bounds.height);
+      setWindowGridSlot(win.id, slot);
+    };
+
+    for (const win of floating) {
+      let slot = getFirstFreeIn(win.workspaceId);
+      let targetWsId = win.workspaceId;
+      if (!slot) {
+        for (const ws of state.workspaces) {
+          if (ws.id === win.workspaceId) continue;
+          slot = getFirstFreeIn(ws.id);
+          if (slot) {
+            targetWsId = ws.id;
+            break;
+          }
+        }
+      }
+      if (!slot) {
+        const newWs = addWorkspace();
+        targetWsId = newWs.id;
+        occupied[targetWsId] = new Map();
+        slot = getLayoutSlots("2x2")[0] ?? { row: 0, col: 0 };
+      }
+      assignToSlot(win, targetWsId, slot);
+    }
+  }, [
+    state.gridModeEnabled,
+    state.workspaces,
+    state.workspaceLayout,
+    windows,
+    move,
+    resize,
+    setWindowGridSlot,
+    setWindowWorkspace,
+    addWorkspace,
+  ]);
 
   // Re-snap grid windows when their workspace's layout changes. If new layout has fewer slots,
   // overflow windows move to the next workspace with a free slot (in order).
