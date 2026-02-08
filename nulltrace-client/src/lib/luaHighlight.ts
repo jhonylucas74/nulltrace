@@ -3,13 +3,24 @@
  * Used for editor overlay (same font/size as textarea).
  */
 
+/** Lua 5.1 / Luau keywords */
 const LUA_KEYWORDS = new Set([
   "and", "break", "do", "else", "elseif", "end", "false", "for", "function",
   "goto", "if", "in", "local", "nil", "not", "or", "repeat", "return",
   "then", "true", "until", "while",
+  // Luau extras
+  "type", "export", "continue",
 ]);
 
-export type TokenType = "keyword" | "string" | "comment" | "number" | "default";
+/** Common Lua/Luau built-in globals (highlighted as builtin) */
+const LUA_BUILTINS = new Set([
+  "print", "type", "pairs", "ipairs", "next", "tostring", "tonumber",
+  "string", "table", "math", "io", "os", "debug", "coroutine", "package",
+  "require", "assert", "error", "pcall", "xpcall", "select", "unpack",
+  "rawget", "rawset", "getmetatable", "setmetatable", "rawequal", "rawlen",
+]);
+
+export type TokenType = "keyword" | "string" | "comment" | "number" | "builtin" | "default";
 
 interface Token {
   type: TokenType;
@@ -89,12 +100,16 @@ function tokenize(line: string): Token[] {
       i = j;
       continue;
     }
-    // Identifier or keyword
+    // Identifier, keyword, or builtin
     if (/[a-zA-Z_]/.test(line[i])) {
       let j = i;
       while (j < n && /[a-zA-Z0-9_]/.test(line[j])) j++;
       const word = line.slice(i, j);
-      const type = LUA_KEYWORDS.has(word) ? "keyword" : "default";
+      const type = LUA_KEYWORDS.has(word)
+        ? "keyword"
+        : LUA_BUILTINS.has(word)
+          ? "builtin"
+          : "default";
       tokens.push({ type, value: word });
       i = j;
       continue;

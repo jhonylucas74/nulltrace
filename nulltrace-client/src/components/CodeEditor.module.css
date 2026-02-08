@@ -292,6 +292,38 @@
   white-space: nowrap;
 }
 
+.runBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--term-green, #50fa7b);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: opacity 0.15s, filter 0.15s;
+}
+
+.runBtn:hover {
+  opacity: 0.95;
+  filter: brightness(1.05);
+}
+
+.runBtn:active {
+  opacity: 0.9;
+}
+
+.editorBarPath {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .savedBadge {
   flex-shrink: 0;
   font-size: 0.7rem;
@@ -306,10 +338,19 @@
   100% { opacity: 0; }
 }
 
+/* Editor + Console column layout */
+.editorAndConsole {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 /* Editor with line-number gutter */
 .editorWithGutter {
   flex: 1;
-  min-height: 0;
+  min-height: 120px;
   display: flex;
   overflow: hidden;
 }
@@ -369,6 +410,9 @@
 .highlightLayer :global(.luau-number) {
   color: var(--term-yellow);
 }
+.highlightLayer :global(.luau-builtin) {
+  color: var(--term-blue, #89b4fa);
+}
 
 .textarea {
   position: absolute;
@@ -405,6 +449,106 @@
   font-size: 0.9rem;
   color: var(--text-muted);
   text-align: center;
+}
+
+/* Console panel (bottom of editor area) */
+.consolePanel {
+  flex-shrink: 0;
+  height: 180px;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.consoleHeader {
+  flex-shrink: 0;
+  padding: 0.35rem 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.consoleOutput {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.5rem 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.consoleEmpty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.consoleLine_stdout {
+  color: var(--text-primary);
+  margin-bottom: 0.15rem;
+}
+
+.consoleLine_stderr {
+  color: var(--text-error, #e74c3c);
+  margin-bottom: 0.15rem;
+}
+
+.consoleLine_system {
+  color: var(--text-muted);
+  margin-bottom: 0.15rem;
+}
+
+.consoleInputRow {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+}
+
+.consoleInputPrompt {
+  color: var(--term-green);
+  font-weight: 600;
+}
+
+.consoleInput {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  outline: none;
+}
+
+.consoleInput:focus {
+  border-color: var(--accent);
+}
+
+.consoleSubmitBtn {
+  flex-shrink: 0;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.consoleSubmitBtn:hover {
+  opacity: 0.9;
 }
 
 /* Modal content (New File form) */

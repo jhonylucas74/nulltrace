@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Play } from "lucide-react";
 import {
   getChildren,
   getHomePath,
@@ -36,6 +37,11 @@ export default function CodeEditor() {
   const highlightRef = useRef<HTMLDivElement | null>(null);
   const menuBarRef = useRef<HTMLDivElement | null>(null);
   const [saveFeedback, setSaveFeedback] = useState(false);
+  const [consoleLogs, setConsoleLogs] = useState<Array<{ type: "stdout" | "stderr" | "system"; text: string }>>([]);
+  const [consoleInputPending, setConsoleInputPending] = useState(false);
+  const [consoleInputValue, setConsoleInputValue] = useState("");
+  const consoleEndRef = useRef<HTMLDivElement | null>(null);
+  const pendingTabSelectionRef = useRef<number | null>(null);
   const { openFilePicker } = useFilePicker();
 
   useEffect(() => {
@@ -141,6 +147,34 @@ export default function CodeEditor() {
     if (activeFilePath) setFileContent(activeFilePath, value);
   }
 
+  /** Insert tab at cursor; prevent default so focus does not leave the textarea. */
+  function handleEditorKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key !== "Tab") return;
+    e.preventDefault();
+    const ta = editorRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const tab = "  "; /* 2 spaces per Tab */
+    const before = editorContent.slice(0, start);
+    const after = editorContent.slice(end);
+    const nextContent = before + tab + after;
+    pendingTabSelectionRef.current = start + tab.length;
+    setEditorContent(nextContent);
+    if (activeFilePath) setFileContent(activeFilePath, nextContent);
+  }
+
+  useEffect(() => {
+    if (pendingTabSelectionRef.current === null) return;
+    const pos = pendingTabSelectionRef.current;
+    pendingTabSelectionRef.current = null;
+    const ta = editorRef.current;
+    if (ta) {
+      ta.focus();
+      ta.setSelectionRange(pos, pos);
+    }
+  }, [editorContent]);
+
   function handleTextareaScroll() {
     const top = editorRef.current?.scrollTop ?? 0;
     if (gutterRef.current) gutterRef.current.scrollTop = top;
@@ -148,6 +182,45 @@ export default function CodeEditor() {
   }
 
   const lineCount = Math.max(1, editorContent.split("\n").length);
+
+  /** Simulate script run: capture print() output and io.read() requests for console. */
+  const runScript = useCallback(() => {
+    if (!activeFilePath) return;
+    const name = activeFilePath.split("/").pop() ?? activeFilePath;
+    setConsoleLogs((prev) => [...prev, { type: "system", text: `> Running ${name}...` }]);
+    const content = editorContent;
+
+    // Simple extraction of print("...") or print('...') (single-line strings only)
+    const printDouble = /print\s*\(\s*"((?:[^"\\]|\\.)*)"\s*\)/g;
+    const printSingle = /print\s*\(\s*'((?:[^'\\]|\\.)*)'\s*\)/g;
+    let m: RegExpExecArray | null;
+    const printed: string[] = [];
+    while ((m = printDouble.exec(content)) !== null) printed.push(m[1].replace(/\\n/g, "\n").replace(/\\t/g, "\t"));
+    while ((m = printSingle.exec(content)) !== null) printed.push(m[1].replace(/\\n/g, "\n").replace(/\\t/g, "\t"));
+
+    printed.forEach((line) =>
+      setConsoleLogs((prev) => [...prev, { type: "stdout", text: line }])
+    );
+
+    const hasRead = /\bio\s*\.\s*read\s*\(/.test(content) || /\bio\.read\s*\(/.test(content);
+    if (hasRead) {
+      setConsoleInputPending(true);
+    } else {
+      setConsoleLogs((prev) => [...prev, { type: "system", text: "Done." }]);
+    }
+  }, [activeFilePath, editorContent]);
+
+  useEffect(() => {
+    consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [consoleLogs, consoleInputPending]);
+
+  const submitConsoleInput = useCallback(() => {
+    const value = consoleInputValue.trim();
+    setConsoleLogs((prev) => [...prev, { type: "stdout", text: value || "(empty input)" }]);
+    setConsoleInputValue("");
+    setConsoleInputPending(false);
+    setConsoleLogs((prev) => [...prev, { type: "system", text: "Done." }]);
+  }, [consoleInputValue]);
 
   function renderTree(path: string, depth: number): React.ReactNode {
     const children = getChildren(path);
@@ -329,40 +402,97 @@ export default function CodeEditor() {
           ) : activeFilePath ? (
             <>
               <div className={styles.editorBar}>
-                {activeFilePath}
+                <button
+                  type="button"
+                  className={styles.runBtn}
+                  onClick={runScript}
+                  title="Run script"
+                  aria-label="Run script"
+                >
+                  <Play size={14} />
+                  Run
+                </button>
+                <span className={styles.editorBarPath}>{activeFilePath}</span>
                 {saveFeedback && <span className={styles.savedBadge}>Saved</span>}
               </div>
-              <div className={styles.editorWithGutter}>
-                <div
-                  ref={gutterRef}
-                  className={styles.gutter}
-                  style={{ lineHeight: LINE_HEIGHT, fontSize: EDITOR_FONT_SIZE }}
-                >
-                  {Array.from({ length: lineCount }, (_, i) => (
-                    <div key={i} className={styles.gutterLine}>
-                      {i + 1}
-                    </div>
-                  ))}
-                </div>
-                <div className={styles.editorScrollWrap}>
-                  {useLuaHighlight && (
-                    <div
-                      ref={highlightRef}
-                      className={styles.highlightLayer}
-                      style={{ lineHeight: LINE_HEIGHT, fontSize: EDITOR_FONT_SIZE }}
-                      aria-hidden
-                      dangerouslySetInnerHTML={{ __html: highlightLua(editorContent) }}
-                    />
-                  )}
-                  <textarea
-                    ref={editorRef}
-                    className={`${styles.textarea} ${useLuaHighlight ? styles.luaHighlight : ""}`}
-                    value={editorContent}
-                    onChange={handleEditorChange}
-                    onScroll={handleTextareaScroll}
-                    spellCheck={false}
+              <div className={styles.editorAndConsole}>
+                <div className={styles.editorWithGutter}>
+                  <div
+                    ref={gutterRef}
+                    className={styles.gutter}
                     style={{ lineHeight: LINE_HEIGHT, fontSize: EDITOR_FONT_SIZE }}
-                  />
+                  >
+                    {Array.from({ length: lineCount }, (_, i) => (
+                      <div key={i} className={styles.gutterLine}>
+                        {i + 1}
+                      </div>
+                    ))}
+                  </div>
+                  <div className={styles.editorScrollWrap}>
+                    {useLuaHighlight && (
+                      <div
+                        ref={highlightRef}
+                        className={styles.highlightLayer}
+                        style={{ lineHeight: LINE_HEIGHT, fontSize: EDITOR_FONT_SIZE }}
+                        aria-hidden
+                        dangerouslySetInnerHTML={{ __html: highlightLua(editorContent) }}
+                      />
+                    )}
+                    <textarea
+                      ref={editorRef}
+                      className={`${styles.textarea} ${useLuaHighlight ? styles.luaHighlight : ""}`}
+                      value={editorContent}
+                      onChange={handleEditorChange}
+                      onKeyDown={handleEditorKeyDown}
+                      onScroll={handleTextareaScroll}
+                      spellCheck={false}
+                      style={{ lineHeight: LINE_HEIGHT, fontSize: EDITOR_FONT_SIZE }}
+                    />
+                  </div>
+                </div>
+                <div className={styles.consolePanel}>
+                  <div className={styles.consoleHeader}>Console</div>
+                  <div className={styles.consoleOutput}>
+                    {consoleLogs.length === 0 ? (
+                      <div className={styles.consoleEmpty}>Output and input requests will appear here.</div>
+                    ) : (
+                      consoleLogs.map((entry, i) => (
+                        <div
+                          key={i}
+                          className={
+                            entry.type === "stderr"
+                              ? styles.consoleLine_stderr
+                              : entry.type === "system"
+                                ? styles.consoleLine_system
+                                : styles.consoleLine_stdout
+                          }
+                          data-type={entry.type}
+                        >
+                          {entry.text}
+                        </div>
+                      ))
+                    )}
+                    <div ref={consoleEndRef} />
+                  </div>
+                  {consoleInputPending && (
+                    <div className={styles.consoleInputRow}>
+                      <span className={styles.consoleInputPrompt}>&gt;</span>
+                      <input
+                        type="text"
+                        className={styles.consoleInput}
+                        value={consoleInputValue}
+                        onChange={(e) => setConsoleInputValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") submitConsoleInput();
+                        }}
+                        placeholder="Enter value for io.read()..."
+                        aria-label="Script input"
+                      />
+                      <button type="button" className={styles.consoleSubmitBtn} onClick={submitConsoleInput}>
+                        Submit
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </>
