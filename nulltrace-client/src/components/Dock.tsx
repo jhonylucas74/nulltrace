@@ -5,9 +5,14 @@ import type { WindowType } from "../contexts/WindowManagerContext";
 import { LAUNCHABLE_APPS, AppsIcon, getAppTitle } from "../lib/appList";
 import styles from "./Dock.module.css";
 
-/** Apps shown on the dock: exclude Theme, Wallet, and Pixel Art (launcher only). */
+/** Apps shown on the dock: exclude Theme, Wallet, Pixel Art, Sysinfo, Shortcuts (launcher only). */
 const DOCK_LAUNCHABLE = LAUNCHABLE_APPS.filter(
-  (app) => app.type !== "theme" && app.type !== "wallet" && app.type !== "pixelart" && app.type !== "sysinfo"
+  (app) =>
+    app.type !== "theme" &&
+    app.type !== "wallet" &&
+    app.type !== "pixelart" &&
+    app.type !== "sysinfo" &&
+    app.type !== "shortcuts"
 );
 
 /** Dock order: dock apps first, All Apps last. */

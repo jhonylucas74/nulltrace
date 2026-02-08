@@ -1,0 +1,123 @@
+.app {
+  height: 100%;
+  min-height: 240px;
+  padding: 1rem 1.25rem;
+  overflow: auto;
+  background: var(--bg-primary);
+}
+
+.intro {
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  width: 100%;
+}
+
+.topBar {
+  margin-bottom: 1rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.restoreAllBtn {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.restoreAllBtn:hover {
+  color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  text-align: left;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid transparent;
+  border-radius: var(--border-radius-sm);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.row:hover {
+  background: var(--bg-surface);
+}
+
+.rowRecording {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.label {
+  flex: 0 0 180px;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.keys {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 28px;
+}
+
+.keyIconWrap {
+  flex-shrink: 0;
+}
+
+.recordingHint {
+  font-size: 0.85rem;
+  color: var(--accent);
+  font-style: italic;
+}
+
+.rowActions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.resetBtn,
+.editBtn {
+  flex-shrink: 0;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.resetBtn:hover:not(:disabled),
+.editBtn:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.resetBtn:disabled,
+.editBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

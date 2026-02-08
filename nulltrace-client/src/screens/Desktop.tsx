@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Palette, Cpu } from "lucide-react";
+import { Palette, Cpu, Keyboard } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WindowManagerProvider, useWindowManager } from "../contexts/WindowManagerContext";
 import { WorkspaceLayoutProvider, useWorkspaceLayout, getWorkspaceArea, getSlotBounds } from "../contexts/WorkspaceLayoutContext";
 import { FilePickerProvider, useFilePicker, getDefaultInitialPath } from "../contexts/FilePickerContext";
 import { AppLauncherProvider, useAppLauncher } from "../contexts/AppLauncherContext";
+import { ShortcutsProvider } from "../contexts/ShortcutsContext";
 import type { WindowType } from "../contexts/WindowManagerContext";
 import TopBar from "../components/TopBar";
 import AppLauncher from "../components/AppLauncher";
@@ -23,6 +24,8 @@ import EmailApp from "../components/EmailApp";
 import WalletApp from "../components/WalletApp";
 import PixelArtApp from "../components/PixelArtApp";
 import SysinfoApp from "../components/SysinfoApp";
+import ShortcutsApp from "../components/ShortcutsApp";
+import ShortcutsHandler from "../components/ShortcutsHandler";
 import FilePicker from "../components/FilePicker";
 import styles from "./Desktop.module.css";
 
@@ -132,6 +135,10 @@ function SysinfoIcon() {
   return <Cpu size={12} />;
 }
 
+function ShortcutsIcon() {
+  return <Keyboard size={12} />;
+}
+
 const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   terminal: <TerminalIcon />,
   explorer: <ExplorerIcon />,
@@ -145,6 +152,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   wallet: <WalletIcon />,
   pixelart: <PixelArtIcon />,
   sysinfo: <SysinfoIcon />,
+  shortcuts: <ShortcutsIcon />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -386,13 +394,17 @@ function DesktopContent() {
     if (win.type === "sysinfo") {
       return <SysinfoApp />;
     }
+    if (win.type === "shortcuts") {
+      return <ShortcutsApp />;
+    }
     return <PlaceholderContent title={win.title} />;
   }
 
   return (
-    <div className={styles.desktop}>
-      <div className={styles.wallpaper} />
-      <TopBar />
+    <ShortcutsProvider>
+      <div className={styles.desktop}>
+        <div className={styles.wallpaper} />
+        <TopBar />
       {filePickerOpen && filePickerOptions && (
         <FilePicker
           open={true}
@@ -477,7 +489,9 @@ function DesktopContent() {
         ))}
       </div>
       <Dock username={username} />
-    </div>
+      </div>
+      <ShortcutsHandler />
+    </ShortcutsProvider>
   );
 }
 
