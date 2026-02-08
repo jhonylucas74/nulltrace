@@ -30,7 +30,7 @@ import {
   formatCardNumber,
   type VirtualCard,
 } from "../lib/walletCards";
-import { WalletProvider, useWallet, parseAmount, applyAmountMask } from "../contexts/WalletContext";
+import { useWallet, parseAmount, applyAmountMask } from "../contexts/WalletContext";
 import styles from "./WalletApp.module.css";
 
 type StatementPeriod = "today" | "7d" | "30d" | "all";
@@ -917,9 +917,5 @@ function NftsSection() {
 }
 
 export default function WalletApp() {
-  return (
-    <WalletProvider>
-      <WalletContent />
-    </WalletProvider>
-  );
+  return <WalletContent />;
 }

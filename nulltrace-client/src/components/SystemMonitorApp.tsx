@@ -7,6 +7,7 @@ import {
   MOCK_PROCESSES,
   type MockProcess,
 } from "../lib/systemMonitorData";
+import { useNullCloudOptional } from "../contexts/NullCloudContext";
 import styles from "./SystemMonitorApp.module.css";
 
 type Section = "resources" | "processes";
@@ -50,19 +51,48 @@ function SparklineChart({ values, className }: { values: number[]; className?: s
   );
 }
 
+/** Derive memory/disk from NullCloud localMachine or fallback to mock. */
+function useResourceTotals() {
+  const nullcloud = useNullCloudOptional();
+  const mockMem = getMockMemory();
+  const mockDisk = getMockDisk();
+  const mockMemRatio = mockMem.totalGib > 0 ? mockMem.usedGib / mockMem.totalGib : 0.25;
+  const mockDiskTotal = mockDisk.usedGib + mockDisk.freeGib;
+  const mockDiskUsedRatio = mockDiskTotal > 0 ? mockDisk.usedGib / mockDiskTotal : 0.12;
+
+  if (nullcloud) {
+    const { localMachine } = nullcloud;
+    const usedGib = localMachine.ramGib * mockMemRatio;
+    const diskUsed = localMachine.diskTotalGib * mockDiskUsedRatio;
+    const diskFree = localMachine.diskTotalGib - diskUsed;
+    return {
+      memory: { usedGib, totalGib: localMachine.ramGib },
+      disk: { usedGib: diskUsed, freeGib: diskFree },
+      diskTotal: localMachine.diskTotalGib,
+    };
+  }
+  return {
+    memory: mockMem,
+    disk: mockDisk,
+    diskTotal: mockDiskTotal,
+  };
+}
+
 export default function SystemMonitorApp() {
   const [section, setSection] = useState<Section>("resources");
+  const resourceTotals = useResourceTotals();
   const [cpuHistory, setCpuHistory] = useState<number[]>(() => Array(CHART_POINTS).fill(getMockCpuPercent()));
   const [memoryHistory, setMemoryHistory] = useState<number[]>(() => {
-    const m = getMockMemory();
-    const pct = m.totalGib > 0 ? (m.usedGib / m.totalGib) * 100 : 0;
+    const pct = resourceTotals.memory.totalGib > 0
+      ? (resourceTotals.memory.usedGib / resourceTotals.memory.totalGib) * 100
+      : 0;
     return Array(CHART_POINTS).fill(pct);
   });
   const baseCpu = useRef(getMockCpuPercent());
   const memPctInitial = useMemo(() => {
-    const m = getMockMemory();
-    return m.totalGib > 0 ? (m.usedGib / m.totalGib) * 100 : 0;
-  }, []);
+    const t = resourceTotals.memory;
+    return t.totalGib > 0 ? (t.usedGib / t.totalGib) * 100 : 0;
+  }, [resourceTotals.memory.totalGib, resourceTotals.memory.usedGib]);
   const baseMemPct = useRef(memPctInitial);
 
   useEffect(() => {
@@ -77,9 +107,9 @@ export default function SystemMonitorApp() {
   }, [section]);
 
   const cpuPercent = cpuHistory[cpuHistory.length - 1] ?? getMockCpuPercent();
-  const memory = getMockMemory();
-  const disk = getMockDisk();
-  const diskTotal = disk.usedGib + disk.freeGib;
+  const memory = resourceTotals.memory;
+  const disk = resourceTotals.disk;
+  const diskTotal = resourceTotals.diskTotal;
   const diskUsedPercent = diskTotal > 0 ? (disk.usedGib / diskTotal) * 100 : 0;
 
   const processes = useMemo(() => [...MOCK_PROCESSES].sort((a, b) => b.cpuPercent - a.cpuPercent), []);

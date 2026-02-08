@@ -93,6 +93,8 @@ interface WalletContextValue {
   transfer: (currency: string, amount: number, recipientKey: string) => boolean;
   /** Execute conversion: deduct from, add to, append two transactions. */
   convert: (fromSymbol: string, toSymbol: string, fromAmount: number, rate: number) => boolean;
+  /** Pay (purchase): deduct balance and add a debit transaction. Returns true if successful. */
+  pay: (currency: string, amount: number, description: string) => boolean;
   /** Card (Fkebank): current debt in USD. */
   cardDebt: number;
   /** Card (Fkebank): credit limit in USD. */
@@ -185,6 +187,26 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     [balances]
   );
 
+  const pay = useCallback(
+    (currency: string, amount: number, description: string): boolean => {
+      const current = balances[currency] ?? 0;
+      if (amount <= 0 || amount > current) return false;
+      setBalances((prev) => ({ ...prev, [currency]: (prev[currency] ?? 0) - amount }));
+      const tx: WalletTransaction = {
+        id: nextTransactionId(),
+        type: "debit",
+        amount: `-${formatAmount(amount, currency)}`,
+        currency,
+        date: new Date().toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+        timestamp: Date.now(),
+        description,
+      };
+      setTransactions((prev) => [tx, ...prev]);
+      return true;
+    },
+    [balances]
+  );
+
   const value: WalletContextValue = useMemo(
     () => ({
       balances,
@@ -193,11 +215,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       getFormattedBalance,
       transfer,
       convert,
+      pay,
       cardDebt,
       cardLimit,
       cardTransactions,
     }),
-    [balances, transactions, balanceMeta, getFormattedBalance, transfer, convert, cardDebt, cardLimit, cardTransactions]
+    [balances, transactions, balanceMeta, getFormattedBalance, transfer, convert, pay, cardDebt, cardLimit, cardTransactions]
   );
 
   return (

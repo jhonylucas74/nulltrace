@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Palette, Cpu, Keyboard, Activity } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { WalletProvider } from "../contexts/WalletContext";
 import { WindowManagerProvider, useWindowManager } from "../contexts/WindowManagerContext";
 import { WorkspaceLayoutProvider, useWorkspaceLayout, getWorkspaceArea, getSlotBounds } from "../contexts/WorkspaceLayoutContext";
 import { FilePickerProvider, useFilePicker, getDefaultInitialPath } from "../contexts/FilePickerContext";
@@ -26,6 +27,8 @@ import PixelArtApp from "../components/PixelArtApp";
 import SysinfoApp from "../components/SysinfoApp";
 import ShortcutsApp from "../components/ShortcutsApp";
 import SystemMonitorApp from "../components/SystemMonitorApp";
+import { NullCloudProvider } from "../contexts/NullCloudContext";
+import NullCloudApp from "../components/NullCloudApp";
 import ShortcutsHandler from "../components/ShortcutsHandler";
 import FilePicker from "../components/FilePicker";
 import styles from "./Desktop.module.css";
@@ -144,6 +147,10 @@ function SysmonIcon() {
   return <Activity size={12} />;
 }
 
+function NullCloudIcon() {
+  return <Cloud size={12} />;
+}
+
 const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   terminal: <TerminalIcon />,
   explorer: <ExplorerIcon />,
@@ -159,6 +166,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   sysinfo: <SysinfoIcon />,
   shortcuts: <ShortcutsIcon />,
   sysmon: <SysmonIcon />,
+  nullcloud: <NullCloudIcon />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -406,6 +414,9 @@ function DesktopContent() {
     if (win.type === "sysmon") {
       return <SystemMonitorApp />;
     }
+    if (win.type === "nullcloud") {
+      return <NullCloudApp />;
+    }
     return <PlaceholderContent title={win.title} />;
   }
 
@@ -506,14 +517,18 @@ function DesktopContent() {
 
 export default function Desktop() {
   return (
-    <WindowManagerProvider>
-      <WorkspaceLayoutProvider>
-        <FilePickerProvider>
-          <AppLauncherProvider>
-            <DesktopContent />
-          </AppLauncherProvider>
-        </FilePickerProvider>
-      </WorkspaceLayoutProvider>
-    </WindowManagerProvider>
+    <WalletProvider>
+      <NullCloudProvider>
+        <WindowManagerProvider>
+          <WorkspaceLayoutProvider>
+            <FilePickerProvider>
+              <AppLauncherProvider>
+                <DesktopContent />
+              </AppLauncherProvider>
+            </FilePickerProvider>
+          </WorkspaceLayoutProvider>
+        </WindowManagerProvider>
+      </NullCloudProvider>
+    </WalletProvider>
   );
 }
