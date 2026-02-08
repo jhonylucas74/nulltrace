@@ -76,3 +76,22 @@
   border-radius: 50%;
   background: var(--accent);
 }
+
+@keyframes dockItemWalletImpact {
+  0% {
+    transform: translateZ(0) scale(1);
+    color: var(--text-secondary);
+  }
+  50% {
+    transform: translateZ(0) scale(1.2);
+    color: var(--term-green, #50fa7b);
+  }
+  100% {
+    transform: translateZ(0) scale(1);
+    color: var(--text-secondary);
+  }
+}
+
+.dockItemWalletImpact {
+  animation: dockItemWalletImpact 0.32s ease-out;
+}

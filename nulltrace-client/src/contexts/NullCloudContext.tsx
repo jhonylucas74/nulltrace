@@ -17,7 +17,7 @@ import {
   getInternetPlanById,
   generateVpsIp,
   nextBillingIn7Days,
-  nextVpsInstanceId,
+  getNextVpsInstanceId,
   CPU_UPGRADES,
   RAM_UPGRADES,
   DISK_UPGRADES,
@@ -123,18 +123,21 @@ export function NullCloudProvider({ children }: { children: React.ReactNode }) {
       const plan = getPlanById(planId);
       if (!plan) return null;
       if (!wallet.pay("USD", plan.weeklyPriceUsd, `NullCloud: VPS ${plan.name} (weekly)`)) return null;
-      const id = nextVpsInstanceId();
-      const vps: VpsInstance = {
-        id,
-        planId: plan.id,
-        ip: generateVpsIp(),
-        sshUser: "",
-        sshPassword: "",
-        createdAt: Date.now(),
-        nextBillingDate: nextBillingIn7Days(),
-      };
-      setVpsList((prev) => [...prev, vps]);
-      return id;
+      let createdId: string;
+      setVpsList((prev) => {
+        createdId = getNextVpsInstanceId(prev.map((v) => v.id));
+        const vps: VpsInstance = {
+          id: createdId,
+          planId: plan.id,
+          ip: generateVpsIp(),
+          sshUser: "",
+          sshPassword: "",
+          createdAt: Date.now(),
+          nextBillingDate: nextBillingIn7Days(),
+        };
+        return [...prev, vps];
+      });
+      return createdId!;
     },
     [wallet]
   );

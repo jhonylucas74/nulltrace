@@ -1,0 +1,15 @@
+---
+description: Payment feedback (fly-to-wallet) effect when user is charged
+globs:
+alwaysApply: true
+---
+
+# Payment feedback (fly-to-wallet) effect
+
+When implementing a flow that charges the user (e.g. `wallet.pay()` or any action that deducts balance), trigger the shared payment feedback effect so the user sees that the Wallet was affected.
+
+- **How:** In the **click handler** that performs the payment, after a **successful** payment, call `triggerFlyToWallet(event.clientX, event.clientY)` from `usePaymentFeedback()`. Pass the **same event** (or its coordinates) from the button/link click.
+- **Where:** Use `usePaymentFeedback()` from `contexts/PaymentFeedbackContext`. The Wallet app is fixed in the dock; the effect is implemented in that context and the Dock. New features only need to call `triggerFlyToWallet` after a successful pay.
+- **Do not** trigger on failed payment (e.g. insufficient balance). Only call `triggerFlyToWallet` when the payment/charge succeeds (e.g. when `wallet.pay()` or the app’s pay wrapper returns true).
+
+This pattern keeps payment feedback consistent across NullCloud and any future apps that charge the user.

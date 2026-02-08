@@ -28,6 +28,7 @@ import SysinfoApp from "../components/SysinfoApp";
 import ShortcutsApp from "../components/ShortcutsApp";
 import SystemMonitorApp from "../components/SystemMonitorApp";
 import { NullCloudProvider } from "../contexts/NullCloudContext";
+import { PaymentFeedbackProvider } from "../contexts/PaymentFeedbackContext";
 import NullCloudApp from "../components/NullCloudApp";
 import ShortcutsHandler from "../components/ShortcutsHandler";
 import FilePicker from "../components/FilePicker";
@@ -519,15 +520,17 @@ export default function Desktop() {
   return (
     <WalletProvider>
       <NullCloudProvider>
-        <WindowManagerProvider>
-          <WorkspaceLayoutProvider>
-            <FilePickerProvider>
-              <AppLauncherProvider>
-                <DesktopContent />
-              </AppLauncherProvider>
-            </FilePickerProvider>
-          </WorkspaceLayoutProvider>
-        </WindowManagerProvider>
+        <PaymentFeedbackProvider>
+          <WindowManagerProvider>
+            <WorkspaceLayoutProvider>
+              <FilePickerProvider>
+                <AppLauncherProvider>
+                  <DesktopContent />
+                </AppLauncherProvider>
+              </FilePickerProvider>
+            </WorkspaceLayoutProvider>
+          </WindowManagerProvider>
+        </PaymentFeedbackProvider>
       </NullCloudProvider>
     </WalletProvider>
   );

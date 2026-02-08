@@ -481,6 +481,17 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
+/* Inferior or current tier: show but faded and not purchasable */
+.productCardInferior {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.productCardInferior:hover {
+  border-color: var(--border-color);
+  box-shadow: none;
+}
+
 .productCardBadge {
   position: absolute;
   top: 0.5rem;

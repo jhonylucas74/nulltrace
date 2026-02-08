@@ -140,9 +140,14 @@ export function nextBillingIn7Days(): number {
   return d.getTime();
 }
 
-let nextVpsId = 1;
-export function nextVpsInstanceId(): string {
-  return `vps-${nextVpsId++}`;
+/** Next unique VPS id given existing instance ids (allows multiple VPS of the same plan). */
+export function getNextVpsInstanceId(existingIds: string[]): string {
+  let max = 0;
+  for (const id of existingIds) {
+    const m = id.match(/^vps-(\d+)$/);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `vps-${max + 1}`;
 }
 
 export function getPlanById(planId: string): VpsPlan | undefined {

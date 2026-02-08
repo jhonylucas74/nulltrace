@@ -2,6 +2,7 @@ import { useState } from "react";
 import { LayoutDashboard, ShoppingCart, Server, Monitor, Cpu, MemoryStick, HardDrive, Wifi, Globe, Calendar, KeyRound } from "lucide-react";
 import { useNullCloud } from "../contexts/NullCloudContext";
 import { useWallet } from "../contexts/WalletContext";
+import { usePaymentFeedback } from "../contexts/PaymentFeedbackContext";
 import { getPlanById } from "../lib/nullcloudData";
 import styles from "./NullCloudApp.module.css";
 
@@ -15,6 +16,7 @@ function formatBillingDate(ts: number): string {
 export default function NullCloudApp() {
   const cloud = useNullCloud();
   const wallet = useWallet();
+  const { triggerFlyToWallet } = usePaymentFeedback();
   const [section, setSection] = useState<Section>("overview");
   const [shopTab, setShopTab] = useState<ShopTab>("machine");
   const [newVpsId, setNewVpsId] = useState<string | null>(null);
@@ -34,12 +36,13 @@ export default function NullCloudApp() {
     }
   };
 
-  const handleSaveNewVpsCredentials = () => {
+  const handleSaveNewVpsCredentials = (e: React.MouseEvent) => {
     if (newVpsId && sshUser.trim()) {
       cloud.setVpsCredentials(newVpsId, sshUser.trim(), sshPassword);
       setNewVpsId(null);
       setSshUser("");
       setSshPassword("");
+      triggerFlyToWallet(e.clientX, e.clientY);
     }
   };
 
@@ -59,8 +62,11 @@ export default function NullCloudApp() {
     }
   };
 
-  const handleUpgradeVps = (vpsId: string, newPlanId: string) => {
-    if (cloud.upgradeVps(vpsId, newPlanId)) setUpgradeVpsId(null);
+  const handleUpgradeVps = (vpsId: string, newPlanId: string, clientX: number, clientY: number) => {
+    if (cloud.upgradeVps(vpsId, newPlanId)) {
+      setUpgradeVpsId(null);
+      triggerFlyToWallet(clientX, clientY);
+    }
   };
 
   const newVps = newVpsId ? cloud.vpsList.find((v) => v.id === newVpsId) : null;
@@ -216,7 +222,7 @@ export default function NullCloudApp() {
                                 type="button"
                                 className={`${styles.btn} ${styles.btnPrimary}`}
                                 disabled={usdBalance < p.weeklyPriceUsd}
-                                onClick={() => handleUpgradeVps(vps.id, p.id)}
+                                onClick={(e) => handleUpgradeVps(vps.id, p.id, e.clientX, e.clientY)}
                               >
                                 {p.name} — ${p.weeklyPriceUsd}/wk
                               </button>
@@ -270,39 +276,45 @@ export default function NullCloudApp() {
                     </div>
                   </div>
                   <div className={styles.productGrid}>
-                    {cloud.cpuUpgrades
-                      .filter((o) => o.value > cloud.localMachine.cpuCores)
-                      .map((o) => (
-                        <div key={o.value} className={styles.productCard}>
+                    {cloud.cpuUpgrades.map((o) => {
+                      const isInferior = o.value <= cloud.localMachine.cpuCores;
+                      return (
+                        <div
+                          key={o.value}
+                          className={`${styles.productCard} ${isInferior ? styles.productCardInferior : ""}`.trim()}
+                        >
                           <div className={styles.productCardHeader}>
                             <span className={styles.productCardTitle}>{o.label}</span>
                           </div>
                           <div className={styles.productCardSpecs}>
-                            {cloud.localMachine.cpuCores} → {o.value} vCPU
+                            {isInferior
+                              ? `${o.value} vCPU`
+                              : `${cloud.localMachine.cpuCores} → ${o.value} vCPU`}
                           </div>
                           <div className={styles.productCardPrice}>
                             {o.priceUsd === 0 ? "Free" : `$${o.priceUsd}`}
                           </div>
                           <div className={styles.productCardMeta}>One-time</div>
-                          <button
-                            type="button"
-                            className={styles.btnBuy}
-                            disabled={usdBalance < o.priceUsd}
-                            onClick={() => cloud.upgradeLocal({ cpuCores: o.value }, o.priceUsd)}
-                          >
-                            Add upgrade
-                          </button>
+                          {isInferior ? (
+                            <span className={styles.productCardPriceMuted}>
+                              {o.value === cloud.localMachine.cpuCores ? "Current" : "Lower tier"}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className={styles.btnBuy}
+                              disabled={usdBalance < o.priceUsd}
+                              onClick={(e) => {
+                                if (cloud.upgradeLocal({ cpuCores: o.value }, o.priceUsd))
+                                  triggerFlyToWallet(e.clientX, e.clientY);
+                              }}
+                            >
+                              Add upgrade
+                            </button>
+                          )}
                         </div>
-                      ))}
-                    {cloud.cpuUpgrades.filter((o) => o.value > cloud.localMachine.cpuCores).length === 0 && (
-                      <div className={styles.productCard}>
-                        <div className={styles.productCardHeader}>
-                          <span className={styles.productCardTitle}>Current</span>
-                        </div>
-                        <div className={styles.productCardSpecs}>Max: {cloud.localMachine.cpuCores} vCPU</div>
-                        <div className={styles.productCardPriceMuted}>No upgrade available</div>
-                      </div>
-                    )}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -317,39 +329,45 @@ export default function NullCloudApp() {
                     </div>
                   </div>
                   <div className={styles.productGrid}>
-                    {cloud.ramUpgrades
-                      .filter((o) => o.value > cloud.localMachine.ramGib)
-                      .map((o) => (
-                        <div key={o.value} className={styles.productCard}>
+                    {cloud.ramUpgrades.map((o) => {
+                      const isInferior = o.value <= cloud.localMachine.ramGib;
+                      return (
+                        <div
+                          key={o.value}
+                          className={`${styles.productCard} ${isInferior ? styles.productCardInferior : ""}`.trim()}
+                        >
                           <div className={styles.productCardHeader}>
                             <span className={styles.productCardTitle}>{o.label}</span>
                           </div>
                           <div className={styles.productCardSpecs}>
-                            {cloud.localMachine.ramGib} → {o.value} GiB RAM
+                            {isInferior
+                              ? `${o.value} GiB RAM`
+                              : `${cloud.localMachine.ramGib} → ${o.value} GiB RAM`}
                           </div>
                           <div className={styles.productCardPrice}>
                             {o.priceUsd === 0 ? "Free" : `$${o.priceUsd}`}
                           </div>
                           <div className={styles.productCardMeta}>One-time</div>
-                          <button
-                            type="button"
-                            className={styles.btnBuy}
-                            disabled={usdBalance < o.priceUsd}
-                            onClick={() => cloud.upgradeLocal({ ramGib: o.value }, o.priceUsd)}
-                          >
-                            Add upgrade
-                          </button>
+                          {isInferior ? (
+                            <span className={styles.productCardPriceMuted}>
+                              {o.value === cloud.localMachine.ramGib ? "Current" : "Lower tier"}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className={styles.btnBuy}
+                              disabled={usdBalance < o.priceUsd}
+                              onClick={(e) => {
+                                if (cloud.upgradeLocal({ ramGib: o.value }, o.priceUsd))
+                                  triggerFlyToWallet(e.clientX, e.clientY);
+                              }}
+                            >
+                              Add upgrade
+                            </button>
+                          )}
                         </div>
-                      ))}
-                    {cloud.ramUpgrades.filter((o) => o.value > cloud.localMachine.ramGib).length === 0 && (
-                      <div className={styles.productCard}>
-                        <div className={styles.productCardHeader}>
-                          <span className={styles.productCardTitle}>Current</span>
-                        </div>
-                        <div className={styles.productCardSpecs}>Max: {cloud.localMachine.ramGib} GiB</div>
-                        <div className={styles.productCardPriceMuted}>No upgrade available</div>
-                      </div>
-                    )}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -364,39 +382,45 @@ export default function NullCloudApp() {
                     </div>
                   </div>
                   <div className={styles.productGrid}>
-                    {cloud.diskUpgrades
-                      .filter((o) => o.value > cloud.localMachine.diskTotalGib)
-                      .map((o) => (
-                        <div key={o.value} className={styles.productCard}>
+                    {cloud.diskUpgrades.map((o) => {
+                      const isInferior = o.value <= cloud.localMachine.diskTotalGib;
+                      return (
+                        <div
+                          key={o.value}
+                          className={`${styles.productCard} ${isInferior ? styles.productCardInferior : ""}`.trim()}
+                        >
                           <div className={styles.productCardHeader}>
                             <span className={styles.productCardTitle}>{o.label}</span>
                           </div>
                           <div className={styles.productCardSpecs}>
-                            {cloud.localMachine.diskTotalGib} → {o.value} GiB
+                            {isInferior
+                              ? `${o.value} GiB`
+                              : `${cloud.localMachine.diskTotalGib} → ${o.value} GiB`}
                           </div>
                           <div className={styles.productCardPrice}>
                             {o.priceUsd === 0 ? "Free" : `$${o.priceUsd}`}
                           </div>
                           <div className={styles.productCardMeta}>One-time</div>
-                          <button
-                            type="button"
-                            className={styles.btnBuy}
-                            disabled={usdBalance < o.priceUsd}
-                            onClick={() => cloud.upgradeLocal({ diskTotalGib: o.value }, o.priceUsd)}
-                          >
-                            Add upgrade
-                          </button>
+                          {isInferior ? (
+                            <span className={styles.productCardPriceMuted}>
+                              {o.value === cloud.localMachine.diskTotalGib ? "Current" : "Lower tier"}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className={styles.btnBuy}
+                              disabled={usdBalance < o.priceUsd}
+                              onClick={(e) => {
+                                if (cloud.upgradeLocal({ diskTotalGib: o.value }, o.priceUsd))
+                                  triggerFlyToWallet(e.clientX, e.clientY);
+                              }}
+                            >
+                              Add upgrade
+                            </button>
+                          )}
                         </div>
-                      ))}
-                    {cloud.diskUpgrades.filter((o) => o.value > cloud.localMachine.diskTotalGib).length === 0 && (
-                      <div className={styles.productCard}>
-                        <div className={styles.productCardHeader}>
-                          <span className={styles.productCardTitle}>Current</span>
-                        </div>
-                        <div className={styles.productCardSpecs}>Max: {cloud.localMachine.diskTotalGib} GiB</div>
-                        <div className={styles.productCardPriceMuted}>No upgrade available</div>
-                      </div>
-                    )}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -435,7 +459,10 @@ export default function NullCloudApp() {
                                 type="button"
                                 className={styles.btnBuy}
                                 disabled={usdBalance < plan.weeklyPriceUsd}
-                                onClick={() => cloud.subscribeInternet(plan.id)}
+                                onClick={(e) => {
+                                  if (cloud.subscribeInternet(plan.id))
+                                    triggerFlyToWallet(e.clientX, e.clientY);
+                                }}
                               >
                                 Switch to this plan
                               </button>
@@ -555,7 +582,7 @@ export default function NullCloudApp() {
                                 type="button"
                                 className={`${styles.btn} ${styles.btnPrimary}`}
                                 disabled={usdBalance < p.weeklyPriceUsd}
-                                onClick={() => handleUpgradeVps(vps.id, p.id)}
+                                onClick={(e) => handleUpgradeVps(vps.id, p.id, e.clientX, e.clientY)}
                               >
                                 {p.name} — ${p.weeklyPriceUsd}/wk
                               </button>
@@ -605,7 +632,7 @@ export default function NullCloudApp() {
               <button
                 type="button"
                 className={`${styles.btn} ${styles.btnPrimary}`}
-                onClick={handleSaveNewVpsCredentials}
+                onClick={(e) => handleSaveNewVpsCredentials(e)}
                 disabled={!sshUser.trim()}
               >
                 Save
