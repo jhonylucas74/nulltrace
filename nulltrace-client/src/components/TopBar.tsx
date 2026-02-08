@@ -56,7 +56,10 @@ export default function TopBar() {
   return (
     <header className={styles.bar}>
       <div className={styles.left}>
-        <span className={styles.logo}>nulltrace</span>
+        <span className={styles.logo}>
+          <span className={styles.logoWordmarkNull}>null</span>
+          <span className={styles.logoWordmarkTrace}>trace</span>
+        </span>
       </div>
       <div className={styles.right}>
         <button

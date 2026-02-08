@@ -34,10 +34,39 @@
 }
 
 .logo {
-  font-weight: 700;
+  font-family: "Syne", var(--font-sans);
   font-size: 0.95rem;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.logoWordmarkNull,
+.logoWordmarkTrace {
+  display: inline-block;
+  vertical-align: baseline;
+  line-height: 1;
+}
+
+/* Same effect as login: "null" fades right (gradient) */
+.logoWordmarkNull {
+  font-weight: 300;
+  background: linear-gradient(
+    to right,
+    var(--text-primary) 0%,
+    var(--text-primary) 30%,
+    color-mix(in srgb, var(--text-primary) 55%, transparent) 75%,
+    color-mix(in srgb, var(--text-primary) 18%, transparent) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* "trace" solid, bolder */
+.logoWordmarkTrace {
+  font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  margin-left: 0.04em;
 }
 
 .right {

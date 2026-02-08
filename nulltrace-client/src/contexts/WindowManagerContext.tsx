@@ -57,8 +57,8 @@ const PIXELART_PICKER_SIZE: WindowSize = { width: 420, height: 320 };
 const SOUND_WINDOW_SIZE: WindowSize = { width: 380, height: 320 };
 const NETWORK_WINDOW_SIZE: WindowSize = { width: 400, height: 280 };
 
-/** Email app: message list + read/compose panel. */
-const EMAIL_WINDOW_SIZE: WindowSize = { width: 640, height: 480 };
+/** Email app: message list + read/compose panel (large UI like pixel editor). */
+const EMAIL_WINDOW_SIZE: WindowSize = { width: 900, height: 600 };
 
 /** Wallet app: balance cards (Zorin-style). */
 const WALLET_WINDOW_SIZE: WindowSize = { width: 400, height: 340 };
