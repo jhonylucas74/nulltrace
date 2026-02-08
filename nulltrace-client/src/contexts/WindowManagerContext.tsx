@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 
-export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart";
+export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo";
 
 export interface WindowPosition {
   x: number;
@@ -63,6 +63,9 @@ const EMAIL_WINDOW_SIZE: WindowSize = { width: 640, height: 480 };
 /** Wallet app: balance cards (Zorin-style). */
 const WALLET_WINDOW_SIZE: WindowSize = { width: 400, height: 340 };
 
+/** System info (Nullfetch) app: ASCII art + info block. */
+const SYSINFO_WINDOW_SIZE: WindowSize = { width: 640, height: 400 };
+
 function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "browser" || type === "editor") return LARGE_WINDOW_SIZE;
   if (type === "pixelart") return PIXELART_PICKER_SIZE;
@@ -70,6 +73,7 @@ function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "network") return NETWORK_WINDOW_SIZE;
   if (type === "email") return EMAIL_WINDOW_SIZE;
   if (type === "wallet") return WALLET_WINDOW_SIZE;
+  if (type === "sysinfo") return SYSINFO_WINDOW_SIZE;
   return DEFAULT_SIZE;
 }
 
@@ -210,6 +214,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         email: "Mail",
         wallet: "Wallet",
         pixelart: "Pixel Art",
+        sysinfo: "Nullfetch",
       };
   const title = options?.title ?? defaultTitles[type];
       dispatch({

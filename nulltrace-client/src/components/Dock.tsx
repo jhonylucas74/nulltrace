@@ -6,7 +6,7 @@ import styles from "./Dock.module.css";
 
 /** Apps shown on the dock: exclude Theme, Wallet, and Pixel Art (launcher only). */
 const DOCK_LAUNCHABLE = LAUNCHABLE_APPS.filter(
-  (app) => app.type !== "theme" && app.type !== "wallet" && app.type !== "pixelart"
+  (app) => app.type !== "theme" && app.type !== "wallet" && app.type !== "pixelart" && app.type !== "sysinfo"
 );
 
 /** Dock order: dock apps + All Apps in the middle. */

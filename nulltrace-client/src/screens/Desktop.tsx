@@ -1,5 +1,5 @@
-import React from "react";
-import { Palette } from "lucide-react";
+import React, { useEffect, useRef } from "react";
+import { Palette, Cpu } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WindowManagerProvider, useWindowManager } from "../contexts/WindowManagerContext";
 import { FilePickerProvider, useFilePicker, getDefaultInitialPath } from "../contexts/FilePickerContext";
@@ -19,6 +19,7 @@ import NetworkManager from "../components/NetworkManager";
 import EmailApp from "../components/EmailApp";
 import WalletApp from "../components/WalletApp";
 import PixelArtApp from "../components/PixelArtApp";
+import SysinfoApp from "../components/SysinfoApp";
 import FilePicker from "../components/FilePicker";
 import styles from "./Desktop.module.css";
 
@@ -124,6 +125,10 @@ function PixelArtIcon() {
   return <Palette size={12} />;
 }
 
+function SysinfoIcon() {
+  return <Cpu size={12} />;
+}
+
 const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   terminal: <TerminalIcon />,
   explorer: <ExplorerIcon />,
@@ -136,6 +141,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   email: <MailIcon />,
   wallet: <WalletIcon />,
   pixelart: <PixelArtIcon />,
+  sysinfo: <SysinfoIcon />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -149,9 +155,16 @@ function PlaceholderContent({ title }: { title: string }) {
 
 function DesktopContent() {
   const { username } = useAuth();
-  const { windows, focusedId, close, minimize, maximize, setFocus, move, resize } = useWindowManager();
+  const { windows, focusedId, close, minimize, maximize, setFocus, move, resize, open } = useWindowManager();
   const { isOpen: filePickerOpen, options: filePickerOptions, closeFilePicker } = useFilePicker();
   const { isOpen: appLauncherOpen } = useAppLauncher();
+  const hasOpenedSysinfoRef = useRef(false);
+
+  useEffect(() => {
+    if (!username || hasOpenedSysinfoRef.current) return;
+    hasOpenedSysinfoRef.current = true;
+    open("sysinfo");
+  }, [username, open]);
 
   function renderWindowContent(win: { id: string; type: WindowType; title: string }) {
     if (win.type === "terminal") {
@@ -183,6 +196,9 @@ function DesktopContent() {
     }
     if (win.type === "pixelart") {
       return <PixelArtApp windowId={win.id} />;
+    }
+    if (win.type === "sysinfo") {
+      return <SysinfoApp />;
     }
     return <PlaceholderContent title={win.title} />;
   }
