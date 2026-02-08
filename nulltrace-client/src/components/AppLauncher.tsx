@@ -63,11 +63,12 @@ export default function AppLauncher() {
           {filtered.length === 0 ? (
             <p className={styles.empty}>No results</p>
           ) : (
-            filtered.map((app) => (
+            filtered.map((app, index) => (
               <button
                 key={app.type}
                 type="button"
                 className={styles.appItem}
+                style={{ animationDelay: `${index * 45}ms` }}
                 onClick={() => handleAppClick(app.type)}
               >
                 <span className={styles.appIcon}>{app.icon}</span>

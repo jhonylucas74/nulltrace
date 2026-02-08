@@ -9,11 +9,10 @@ const DOCK_LAUNCHABLE = LAUNCHABLE_APPS.filter(
   (app) => app.type !== "theme" && app.type !== "wallet" && app.type !== "pixelart" && app.type !== "sysinfo"
 );
 
-/** Dock order: dock apps + All Apps in the middle. */
+/** Dock order: dock apps first, All Apps last. */
 const DOCK_APPS = [
-  ...DOCK_LAUNCHABLE.slice(0, 3),
+  ...DOCK_LAUNCHABLE,
   { type: "apps" as const, label: "All Apps", icon: <AppsIcon /> },
-  ...DOCK_LAUNCHABLE.slice(3),
 ];
 
 interface DockProps {
