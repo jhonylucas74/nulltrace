@@ -12,7 +12,8 @@ const DOCK_LAUNCHABLE = LAUNCHABLE_APPS.filter(
     app.type !== "wallet" &&
     app.type !== "pixelart" &&
     app.type !== "sysinfo" &&
-    app.type !== "shortcuts"
+    app.type !== "shortcuts" &&
+    app.type !== "sysmon"
 );
 
 /** Dock order: dock apps first, All Apps last. */

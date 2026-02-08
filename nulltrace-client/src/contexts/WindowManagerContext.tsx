@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 
-export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts";
+export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon";
 
 export interface WindowPosition {
   x: number;
@@ -82,6 +82,9 @@ const SYSINFO_WINDOW_SIZE: WindowSize = { width: 640, height: 400 };
 /** Shortcuts app: list + edit bindings. */
 const SHORTCUTS_WINDOW_SIZE: WindowSize = { width: 560, height: 420 };
 
+/** System Monitor app: resources + processes. */
+const SYSMON_WINDOW_SIZE: WindowSize = { width: 520, height: 480 };
+
 function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "browser" || type === "editor") return LARGE_WINDOW_SIZE;
   if (type === "pixelart") return PIXELART_PICKER_SIZE;
@@ -91,6 +94,7 @@ function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "wallet") return WALLET_WINDOW_SIZE;
   if (type === "sysinfo") return SYSINFO_WINDOW_SIZE;
   if (type === "shortcuts") return SHORTCUTS_WINDOW_SIZE;
+  if (type === "sysmon") return SYSMON_WINDOW_SIZE;
   return DEFAULT_SIZE;
 }
 
@@ -253,6 +257,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         pixelart: "Pixel Art",
         sysinfo: "Nullfetch",
         shortcuts: "Shortcuts",
+        sysmon: "System Monitor",
       };
       const title = options?.title ?? defaultTitles[type];
       const workspaceId = options?.workspaceId ?? "";

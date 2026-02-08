@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Palette, Cpu, Keyboard } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WindowManagerProvider, useWindowManager } from "../contexts/WindowManagerContext";
 import { WorkspaceLayoutProvider, useWorkspaceLayout, getWorkspaceArea, getSlotBounds } from "../contexts/WorkspaceLayoutContext";
@@ -25,6 +25,7 @@ import WalletApp from "../components/WalletApp";
 import PixelArtApp from "../components/PixelArtApp";
 import SysinfoApp from "../components/SysinfoApp";
 import ShortcutsApp from "../components/ShortcutsApp";
+import SystemMonitorApp from "../components/SystemMonitorApp";
 import ShortcutsHandler from "../components/ShortcutsHandler";
 import FilePicker from "../components/FilePicker";
 import styles from "./Desktop.module.css";
@@ -139,6 +140,10 @@ function ShortcutsIcon() {
   return <Keyboard size={12} />;
 }
 
+function SysmonIcon() {
+  return <Activity size={12} />;
+}
+
 const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   terminal: <TerminalIcon />,
   explorer: <ExplorerIcon />,
@@ -153,6 +158,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   pixelart: <PixelArtIcon />,
   sysinfo: <SysinfoIcon />,
   shortcuts: <ShortcutsIcon />,
+  sysmon: <SysmonIcon />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -396,6 +402,9 @@ function DesktopContent() {
     }
     if (win.type === "shortcuts") {
       return <ShortcutsApp />;
+    }
+    if (win.type === "sysmon") {
+      return <SystemMonitorApp />;
     }
     return <PlaceholderContent title={win.title} />;
   }
