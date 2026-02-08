@@ -645,42 +645,6 @@ function CardSection() {
       </div>
       {cardTab === "cards" && (
         <>
-          <div className={styles.cardSummaryBlock}>
-            <div className={styles.cardSummaryRow}>
-              <span className={styles.cardSummaryLabel}>Current debt</span>
-              <span className={styles.cardSummaryValue}>
-                {wallet.cardDebt.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-              </span>
-            </div>
-            <div className={styles.cardSummaryRow}>
-              <span className={styles.cardSummaryLabel}>Credit limit</span>
-              <span className={styles.cardSummaryValue}>
-                {wallet.cardLimit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-              </span>
-            </div>
-            <div className={styles.cardLimitProgressWrap}>
-              <div className={styles.cardLimitProgressTrack}>
-                <div
-                  className={`${styles.cardLimitProgressFill} ${usagePercent >= 80 ? styles.cardLimitProgressFillHigh : ""}`}
-                  style={{ width: `${usagePercent}%` }}
-                  role="progressbar"
-                  aria-valuenow={usagePercent}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-label="Limit usage"
-                />
-              </div>
-              <div className={styles.cardLimitProgressLabel}>
-                {wallet.cardDebt.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of{" "}
-                {wallet.cardLimit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                {wallet.cardLimit > 0 && ` (${usagePercent}%)`}
-              </div>
-            </div>
-          </div>
-          <div className={styles.cardBillingNote}>
-            <span className={styles.cardBillingLabel}>Next invoice charge (Fkebank):</span>{" "}
-            <span className={styles.cardBillingDate}>{nextChargeStr}</span>
-          </div>
           <div className={styles.virtualCardList}>
             {cards.map((card) => (
               <div key={card.id} className={styles.virtualCard}>
@@ -742,6 +706,42 @@ function CardSection() {
       )}
       {cardTab === "statement" && (
         <div className={styles.cardStatementSection}>
+          <div className={styles.cardSummaryBlock}>
+            <div className={styles.cardSummaryRow}>
+              <span className={styles.cardSummaryLabel}>Current debt</span>
+              <span className={styles.cardSummaryValue}>
+                {wallet.cardDebt.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+              </span>
+            </div>
+            <div className={styles.cardSummaryRow}>
+              <span className={styles.cardSummaryLabel}>Credit limit</span>
+              <span className={styles.cardSummaryValue}>
+                {wallet.cardLimit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+              </span>
+            </div>
+            <div className={styles.cardLimitProgressWrap}>
+              <div className={styles.cardLimitProgressTrack}>
+                <div
+                  className={`${styles.cardLimitProgressFill} ${usagePercent >= 80 ? styles.cardLimitProgressFillHigh : ""}`}
+                  style={{ width: `${usagePercent}%` }}
+                  role="progressbar"
+                  aria-valuenow={usagePercent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Limit usage"
+                />
+              </div>
+              <div className={styles.cardLimitProgressLabel}>
+                {wallet.cardDebt.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of{" "}
+                {wallet.cardLimit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                {wallet.cardLimit > 0 && ` (${usagePercent}%)`}
+              </div>
+            </div>
+          </div>
+          <div className={styles.cardBillingNote}>
+            <span className={styles.cardBillingLabel}>Next invoice charge (Fkebank):</span>{" "}
+            <span className={styles.cardBillingDate}>{nextChargeStr}</span>
+          </div>
           <h3 className={styles.cardStatementTitle}>Card statement</h3>
           {wallet.cardTransactions.length === 0 ? (
             <p className={styles.cardStatementEmpty}>No card transactions yet.</p>
