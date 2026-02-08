@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WalletProvider } from "../contexts/WalletContext";
 import { WindowManagerProvider, useWindowManager } from "../contexts/WindowManagerContext";
@@ -29,7 +29,9 @@ import ShortcutsApp from "../components/ShortcutsApp";
 import SystemMonitorApp from "../components/SystemMonitorApp";
 import { NullCloudProvider } from "../contexts/NullCloudContext";
 import { PaymentFeedbackProvider } from "../contexts/PaymentFeedbackContext";
+import { HackerboardProvider } from "../contexts/HackerboardContext";
 import NullCloudApp from "../components/NullCloudApp";
+import HackerboardApp from "../components/HackerboardApp";
 import ShortcutsHandler from "../components/ShortcutsHandler";
 import FilePicker from "../components/FilePicker";
 import styles from "./Desktop.module.css";
@@ -152,6 +154,10 @@ function NullCloudIcon() {
   return <Cloud size={12} />;
 }
 
+function HackerboardIcon() {
+  return <Trophy size={12} />;
+}
+
 const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   terminal: <TerminalIcon />,
   explorer: <ExplorerIcon />,
@@ -168,6 +174,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   shortcuts: <ShortcutsIcon />,
   sysmon: <SysmonIcon />,
   nullcloud: <NullCloudIcon />,
+  hackerboard: <HackerboardIcon />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -418,6 +425,9 @@ function DesktopContent() {
     if (win.type === "nullcloud") {
       return <NullCloudApp />;
     }
+    if (win.type === "hackerboard") {
+      return <HackerboardApp />;
+    }
     return <PlaceholderContent title={win.title} />;
   }
 
@@ -520,17 +530,19 @@ export default function Desktop() {
   return (
     <WalletProvider>
       <NullCloudProvider>
-        <PaymentFeedbackProvider>
-          <WindowManagerProvider>
-            <WorkspaceLayoutProvider>
-              <FilePickerProvider>
-                <AppLauncherProvider>
-                  <DesktopContent />
-                </AppLauncherProvider>
-              </FilePickerProvider>
-            </WorkspaceLayoutProvider>
-          </WindowManagerProvider>
-        </PaymentFeedbackProvider>
+        <HackerboardProvider>
+          <PaymentFeedbackProvider>
+            <WindowManagerProvider>
+              <WorkspaceLayoutProvider>
+                <FilePickerProvider>
+                  <AppLauncherProvider>
+                    <DesktopContent />
+                  </AppLauncherProvider>
+                </FilePickerProvider>
+              </WorkspaceLayoutProvider>
+            </WindowManagerProvider>
+          </PaymentFeedbackProvider>
+        </HackerboardProvider>
       </NullCloudProvider>
     </WalletProvider>
   );

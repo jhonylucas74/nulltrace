@@ -1,5 +1,5 @@
 import React from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy } from "lucide-react";
 import type { WindowType } from "../contexts/WindowManagerContext";
 
 export interface LaunchableApp {
@@ -106,6 +106,10 @@ function NullCloudIcon() {
   return <Cloud size={24} />;
 }
 
+function HackerboardIcon() {
+  return <Trophy size={24} />;
+}
+
 /** Launchable apps shown in the app launcher grid (excludes All Apps itself). */
 export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "terminal", label: "Terminal", icon: <TerminalIcon /> },
@@ -120,6 +124,7 @@ export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "shortcuts", label: "Shortcuts", icon: <ShortcutsIcon /> },
   { type: "sysmon", label: "System Monitor", icon: <SysmonIcon /> },
   { type: "nullcloud", label: "NullCloud", icon: <NullCloudIcon /> },
+  { type: "hackerboard", label: "Hackerboard", icon: <HackerboardIcon /> },
 ];
 
 /** Default window title for a given app type (optional username for Terminal). */
@@ -141,6 +146,7 @@ export function getAppTitle(type: WindowType, username?: string | null): string 
     shortcuts: "Shortcuts",
     sysmon: "System Monitor",
     nullcloud: "NullCloud",
+    hackerboard: "Hackerboard",
   };
   return titles[type];
 }

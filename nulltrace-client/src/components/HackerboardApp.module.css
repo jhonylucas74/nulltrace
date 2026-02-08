@@ -1,0 +1,1328 @@
+/* Hackerboard: feed-first social + rankings */
+.app {
+  display: flex;
+  height: 100%;
+  min-height: 200px;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 140px;
+  flex-shrink: 0;
+  padding: 0.5rem 0;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.sidebarTitle {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 0.4rem 0.75rem;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.navItem:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.navItemActive {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.navIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Feed */
+.feedArea {
+  flex: 1;
+  overflow: auto;
+  padding: 0.75rem 1rem;
+}
+
+.feedHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.feedLive {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--term-green, #50fa7b);
+}
+
+.feedLiveDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: feedPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes feedPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.feedTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Compose box (X/Bluesky style) */
+.compose {
+  margin-bottom: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.composeReplyTo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.composeCancelReply {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.composeCancelReply:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.composeTextarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 8px);
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+  margin-bottom: 0.5rem;
+}
+
+.composeTextarea::placeholder {
+  color: var(--text-muted);
+}
+
+.composeTextarea:focus {
+  border-color: var(--accent);
+}
+
+.composeActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.composeBtn {
+  padding: 0.4rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.composeBtn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.composeBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.postCard {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 8px);
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
+  animation: postEnter 0.25s ease-out;
+}
+
+@keyframes postEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.postRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.postContent {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.postReplyTo {
+  margin: 0 0 0.2rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.postReplyTo:hover {
+  color: var(--accent);
+}
+
+.postMeta {
+  margin: 0 0 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.postCardReply {
+  border-left: 3px solid var(--border-color);
+  margin-left: 0.25rem;
+}
+
+.postIcon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+}
+
+.postIconHacked {
+  background: color-mix(in srgb, var(--term-red, #ff5555) 25%, transparent);
+  color: var(--term-red, #ff5555);
+}
+
+.postIconMission {
+  background: color-mix(in srgb, var(--term-green, #50fa7b) 25%, transparent);
+  color: var(--term-green, #50fa7b);
+}
+
+.postIconSystem {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.postIconUser {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+
+/* Clickable user icon in post (navigate to profile) */
+.postIconLink {
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: inherit;
+  transition: transform 0.15s, opacity 0.15s;
+}
+
+.postIconLink:hover {
+  opacity: 0.9;
+  transform: scale(1.05);
+}
+
+.postBody {
+  flex: 1;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.postTime {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.35rem;
+}
+
+.postContent .postBody {
+  margin: 0;
+}
+
+.postActions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.postActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.postActionBtn:hover {
+  color: var(--accent);
+}
+
+.postActionBtnLiked {
+  color: var(--term-red, #ff5555);
+}
+
+.postActionBtnLiked:hover {
+  color: var(--term-red, #ff5555);
+  opacity: 0.9;
+}
+
+.postActionBtnActive {
+  color: var(--accent);
+}
+
+/* Thread (replies under a post) */
+.thread {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+  margin-left: calc(28px + 0.75rem);
+}
+
+.threadReply {
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.35rem;
+  background: color-mix(in srgb, var(--bg-primary) 70%, var(--bg-surface));
+  border-radius: var(--border-radius-sm, 6px);
+  border-left: 3px solid var(--border-color);
+}
+
+.threadReplyMeta {
+  margin: 0 0 0.2rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.threadReplyBody {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.threadReplyForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.threadReplyInput {
+  width: 100%;
+  min-height: 56px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+  resize: vertical;
+  outline: none;
+}
+
+.threadReplyInput:focus {
+  border-color: var(--accent);
+}
+
+.threadReplyInput::placeholder {
+  color: var(--text-muted);
+}
+
+.threadReplyBtn {
+  align-self: flex-end;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+}
+
+.threadReplyBtn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.threadReplyBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Rankings */
+.rankingsArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 1rem;
+}
+
+.rankingsTabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 0 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.rankTab {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.rankTab:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.rankTabActive {
+  background: var(--accent-muted);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.searchWrap {
+  padding: 0.5rem 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.searchInput {
+  width: 100%;
+  max-width: 280px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.searchInput::placeholder {
+  color: var(--text-muted);
+}
+
+.searchInput:focus {
+  border-color: var(--accent);
+}
+
+.youCard {
+  background: linear-gradient(135deg, var(--accent-muted) 0%, var(--bg-tertiary) 100%);
+  border: 1px solid var(--accent);
+  border-radius: var(--border-radius-sm, 8px);
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.youLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.youRank {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.youPoints {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.rankList {
+  flex: 1;
+  overflow: auto;
+  padding-bottom: 0.5rem;
+}
+
+.rankRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--border-radius-sm, 6px);
+  margin-bottom: 0.15rem;
+  transition: background 0.15s;
+}
+
+.rankRow:hover {
+  background: var(--bg-tertiary);
+}
+
+.rankRowYou {
+  background: var(--accent-muted);
+  border: 1px solid var(--border-color);
+}
+
+.rankNum {
+  width: 2rem;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.rankRowYou .rankNum {
+  color: var(--accent);
+}
+
+.rankName {
+  flex: 1;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.rankPoints {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* Faction row: name + member count */
+.factionMembers {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.emptyState {
+  padding: 2rem 1rem;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+/* Messages (DM) */
+.messagesArea {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.conversationList {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.messagesHeader {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.messagesTitle {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.newMessageBtn {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--accent);
+  background: var(--accent-muted);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+}
+
+.newMessageBtn:hover {
+  opacity: 0.9;
+}
+
+.newMessagePicker {
+  max-height: 200px;
+  overflow: auto;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.conversationItem {
+  display: block;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.conversationItem:hover {
+  background: var(--bg-tertiary);
+}
+
+.conversationItemSelected {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.conversationItemName {
+  font-weight: 500;
+}
+
+.conversationPane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.conversationPlaceholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.conversationPaneHeader {
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.conversationPaneTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.messageList {
+  flex: 1;
+  overflow: auto;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.messageBubble {
+  max-width: 85%;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--border-radius-sm, 8px);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  align-self: flex-start;
+}
+
+.messageBubbleSelf {
+  align-self: flex-end;
+  background: var(--accent-muted);
+  border-color: var(--accent);
+}
+
+.messageSender {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 0.2rem;
+}
+
+.messageBody {
+  margin: 0 0 0.25rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.messageTime {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.messageInputWrap {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+}
+
+.messageInput {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+  outline: none;
+}
+
+.messageInput:focus {
+  border-color: var(--accent);
+}
+
+.messageSendBtn {
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+}
+
+.messageSendBtn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.messageSendBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Group (faction) */
+.groupArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 1rem;
+}
+
+.groupEmptyState {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.groupTitle {
+  padding: 0.75rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.groupMessageList {
+  flex: 1;
+  overflow: auto;
+  padding: 0.75rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Group: no faction — centered card */
+.groupNoFaction {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  min-height: 280px;
+}
+
+.groupNoFactionCard {
+  width: 100%;
+  max-width: 400px;
+  padding: 2rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 12px);
+  text-align: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+.groupNoFactionIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 1.25rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg-tertiary));
+  color: var(--accent);
+}
+
+.groupNoFactionTitle {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.groupNoFactionText {
+  margin: 0 0 1.5rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.groupNoFactionFormWrap {
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 8px);
+  text-align: left;
+}
+
+.groupNoFactionFormWrap .createFactionTitle {
+  margin-top: 0;
+}
+
+.groupNoFactionHint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Profile section */
+.profileArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: 0 1rem;
+}
+
+.profileHeader {
+  padding: 0.5rem 0 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.profileBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.profileBack:hover {
+  color: var(--accent);
+  background: var(--bg-tertiary);
+}
+
+.profileInfo {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.profileUsername {
+  margin: 0 0 0.25rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.profileMeta {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.profileMessageBtn {
+  padding: 0.45rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.profileMessageBtn:hover {
+  opacity: 0.9;
+}
+
+.profilePosts {
+  padding: 1rem 0;
+}
+
+.profilePostsTitle {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.profilePostCard {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 8px);
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.profilePostCard .postMeta {
+  margin: 0 0 0.35rem;
+}
+
+.profilePostCard .postBody {
+  margin: 0;
+}
+
+/* Feed: clickable author */
+.postAuthorLink {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.postAuthorLink:hover {
+  text-decoration: underline;
+}
+
+/* Rankings: profile button */
+.rankProfileBtn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  color: var(--accent);
+  background: var(--accent-muted);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+}
+
+.rankProfileBtn:hover {
+  opacity: 0.9;
+}
+
+/* Group: create faction (no faction) */
+.createFactionBlock {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 8px);
+  max-width: 320px;
+}
+
+.createFactionTitle {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.createFactionForm {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.createFactionInput {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+  outline: none;
+}
+
+.createFactionInput:focus {
+  border-color: var(--accent);
+}
+
+.createFactionBtn {
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+}
+
+.createFactionBtn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.createFactionBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Group: Chat | Manage tabs */
+.groupTabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 0;
+  flex-shrink: 0;
+}
+
+.groupTab,
+.groupTabActive {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.groupTab {
+  color: var(--text-secondary);
+}
+
+.groupTab:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.groupTabActive {
+  background: var(--accent-muted);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Group: Members tab (all members can see) */
+.membersArea {
+  padding: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.membersSectionTitle {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.memberList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.memberItem {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius-sm, 6px);
+}
+
+.inviteMemberBtn {
+  padding: 0.45rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--accent-muted);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.inviteMemberBtn:hover {
+  opacity: 0.9;
+}
+
+.invitePickerList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.invitePickerItem {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.invitePickerItem:hover {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.invitePickerCancel {
+  margin-top: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+}
+
+.invitePickerCancel:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.leaveFactionWrap {
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.leaveFactionBtn {
+  padding: 0.45rem 1rem;
+  font-size: 0.85rem;
+  color: var(--term-red, #ff5555);
+  background: color-mix(in srgb, var(--term-red, #ff5555) 15%, transparent);
+  border: 1px solid var(--term-red, #ff5555);
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+}
+
+.leaveFactionBtn:hover {
+  opacity: 0.9;
+}
+
+.leaveConfirmText {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.leaveConfirmBtn {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--bg-primary);
+  background: var(--term-red, #ff5555);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+}
+
+.leaveConfirmBtn:hover {
+  opacity: 0.9;
+}
+
+.leaveCancelBtn {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+}
+
+.leaveCancelBtn:hover {
+  opacity: 0.9;
+}
+
+/* DM: faction invite card */
+.dmInviteCard {
+  max-width: 85%;
+  padding: 0.75rem 1rem;
+  border-radius: var(--border-radius-sm, 8px);
+  background: var(--bg-surface);
+  border: 1px solid var(--accent);
+  align-self: flex-start;
+}
+
+.dmInviteText {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.dmInviteText strong {
+  color: var(--accent);
+}
+
+.dmInviteActions {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.dmInviteAccept {
+  padding: 0.35rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--term-green, #50fa7b);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+}
+
+.dmInviteAccept:hover {
+  opacity: 0.9;
+}
+
+.dmInviteDecline {
+  padding: 0.35rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+}
+
+.dmInviteDecline:hover {
+  opacity: 0.9;
+}

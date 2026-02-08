@@ -19,12 +19,16 @@ const DOCK_LAUNCHABLE = LAUNCHABLE_APPS.filter(
 );
 
 const WALLET_APP = LAUNCHABLE_APPS.find((a) => a.type === "wallet")!;
+const HACKERBOARD_APP = LAUNCHABLE_APPS.find((a) => a.type === "hackerboard")!;
 
-/** Dock order: dock apps (no Wallet in list), then Wallet fixed, then All Apps. */
-const DOCK_APPS_WITHOUT_WALLET = DOCK_LAUNCHABLE.filter((a) => a.type !== "wallet");
+/** Dock order: dock apps (no Wallet, no Hackerboard), then Wallet, then Hackerboard, then All Apps. */
+const DOCK_APPS_WITHOUT_WALLET_OR_HACKERBOARD = DOCK_LAUNCHABLE.filter(
+  (a) => a.type !== "wallet" && a.type !== "hackerboard"
+);
 const DOCK_APPS = [
-  ...DOCK_APPS_WITHOUT_WALLET,
+  ...DOCK_APPS_WITHOUT_WALLET_OR_HACKERBOARD,
   WALLET_APP,
+  HACKERBOARD_APP,
   { type: "apps" as const, label: "All Apps", icon: <AppsIcon /> },
 ];
 
