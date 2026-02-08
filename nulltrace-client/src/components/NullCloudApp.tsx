@@ -567,28 +567,11 @@ export default function NullCloudApp() {
                         <button
                           type="button"
                           className={styles.btn}
-                          onClick={() => setUpgradeVpsId(upgradeVpsId === vps.id ? null : vps.id)}
+                          onClick={() => setUpgradeVpsId(vps.id)}
                         >
-                          Upgrade plan
+                          Change plan
                         </button>
                       </div>
-                      {upgradeVpsId === vps.id && (
-                        <div className={styles.vpsActions} style={{ marginTop: "0.5rem" }}>
-                          {cloud.vpsPlans
-                            .filter((p) => p.id !== vps.planId)
-                            .map((p) => (
-                              <button
-                                key={p.id}
-                                type="button"
-                                className={`${styles.btn} ${styles.btnPrimary}`}
-                                disabled={usdBalance < p.weeklyPriceUsd}
-                                onClick={(e) => handleUpgradeVps(vps.id, p.id, e.clientX, e.clientY)}
-                              >
-                                {p.name} — ${p.weeklyPriceUsd}/wk
-                              </button>
-                            ))}
-                        </div>
-                      )}
                     </li>
                   );
                 })}
@@ -597,6 +580,74 @@ export default function NullCloudApp() {
           </>
         )}
       </main>
+
+      {/* Modal: change VPS plan (upgrade or downgrade) */}
+      {upgradeVpsId && (() => {
+        const vps = cloud.vpsList.find((v) => v.id === upgradeVpsId);
+        if (!vps) return null;
+        const currentPlan = getPlanById(vps.planId);
+        const plansSorted = [...cloud.vpsPlans].sort((a, b) => a.weeklyPriceUsd - b.weeklyPriceUsd);
+        return (
+          <div className={styles.modalOverlay} onClick={() => setUpgradeVpsId(null)}>
+            <div className={styles.planModal} onClick={(e) => e.stopPropagation()}>
+              <div className={styles.planModalHeader}>
+                <h3 className={styles.planModalTitle}>Change VPS plan</h3>
+                <p className={styles.planModalSubtitle}>
+                  Choose a plan to upgrade or downgrade. You’ll be charged the new plan’s weekly rate.
+                </p>
+                <p className={styles.planModalVpsInfo}>
+                  <Globe size={14} className={styles.planModalVpsIcon} />
+                  {vps.ip} · current: {currentPlan?.name ?? vps.planId}
+                </p>
+              </div>
+              <ul className={styles.planList}>
+                {plansSorted.map((plan) => {
+                  const isCurrent = plan.id === vps.planId;
+                  const isUpgrade = plan.weeklyPriceUsd > (currentPlan?.weeklyPriceUsd ?? 0);
+                  const canAfford = usdBalance >= plan.weeklyPriceUsd;
+                  return (
+                    <li
+                      key={plan.id}
+                      className={`${styles.planRow} ${isCurrent ? styles.planRowCurrent : ""}`}
+                    >
+                      <div className={styles.planRowMain}>
+                        <span className={styles.planName}>
+                          {plan.name}
+                          {plan.badge && <span className={styles.planBadge}>{plan.badge}</span>}
+                        </span>
+                        <span className={styles.planSpecs}>
+                          {plan.cpuCores} vCPU · {plan.ramGib} GiB RAM · {plan.diskGib} GiB
+                        </span>
+                      </div>
+                      <div className={styles.planRowRight}>
+                        <span className={styles.planPrice}>${plan.weeklyPriceUsd}/wk</span>
+                        {isCurrent ? (
+                          <span className={styles.planCurrentLabel}>Current</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className={styles.planSwitchBtn}
+                            disabled={!canAfford}
+                            onClick={(e) => handleUpgradeVps(vps.id, plan.id, e.clientX, e.clientY)}
+                          >
+                            {isUpgrade ? "Upgrade" : "Downgrade"}
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className={styles.planModalFooter}>
+                <span className={styles.planBalance}>Balance: ${usdBalance.toFixed(2)} USD</span>
+                <button type="button" className={styles.btn} onClick={() => setUpgradeVpsId(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal: new VPS — show IP and set SSH */}
       {newVpsId && newVps && (

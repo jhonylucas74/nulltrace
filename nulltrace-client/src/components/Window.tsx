@@ -77,7 +77,7 @@ export default function Window({
   const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const resizeStart = useRef({ x: 0, y: 0, width: 0, height: 0 });
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
-  const { workspaces, moveWindowToWorkspace } = useWorkspaceLayout();
+  const { workspaces, moveWindowToWorkspace, gridModeEnabled } = useWorkspaceLayout();
 
   useEffect(() => {
     if (!workspaceMenuOpen) return;
@@ -231,22 +231,26 @@ export default function Window({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            className={styles.minBtn}
-            onClick={() => onMinimize(id)}
-            aria-label="Minimize"
-          >
-            —
-          </button>
-          <button
-            type="button"
-            className={styles.maxBtn}
-            onClick={() => onMaximize(id)}
-            aria-label={maximized ? "Restore" : "Maximize"}
-          >
-            {maximized ? "❐" : "□"}
-          </button>
+          {!gridModeEnabled && (
+            <>
+              <button
+                type="button"
+                className={styles.minBtn}
+                onClick={() => onMinimize(id)}
+                aria-label="Minimize"
+              >
+                —
+              </button>
+              <button
+                type="button"
+                className={styles.maxBtn}
+                onClick={() => onMaximize(id)}
+                aria-label={maximized ? "Restore" : "Maximize"}
+              >
+                {maximized ? "❐" : "□"}
+              </button>
+            </>
+          )}
           <button
             type="button"
             className={styles.closeBtn}

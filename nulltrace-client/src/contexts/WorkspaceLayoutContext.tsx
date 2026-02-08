@@ -462,14 +462,6 @@ export function WorkspaceLayoutProvider({ children }: { children: React.ReactNod
     }
   }, [state.workspaceLayout, state.workspaces, windows, move, resize, setWindowGridSlot, setWindowWorkspace, addWorkspace]);
 
-  const moveWindowToWorkspace = useCallback(
-    (winId: string, workspaceId: string) => {
-      setWindowWorkspace(winId, workspaceId);
-      dispatch({ type: "setActiveWorkspace", payload: workspaceId });
-    },
-    [setWindowWorkspace]
-  );
-
   const getFirstFreeSlot = useCallback(
     (workspaceId: string): { workspaceId: string; slot: GridSlot } | null => {
       const preset = getLayoutForWorkspace(workspaceId);
@@ -482,6 +474,43 @@ export function WorkspaceLayoutProvider({ children }: { children: React.ReactNod
       return null;
     },
     [windows, getLayoutForWorkspace]
+  );
+
+  const moveWindowToWorkspace = useCallback(
+    (winId: string, workspaceId: string) => {
+      if (state.gridModeEnabled) {
+        let slotResult = getFirstFreeSlot(workspaceId);
+        let targetWorkspaceId = workspaceId;
+        if (!slotResult) {
+          const newWs = addWorkspace();
+          targetWorkspaceId = newWs.id;
+          slotResult = getFirstFreeSlot(targetWorkspaceId);
+        }
+        if (slotResult) {
+          const area = getWorkspaceArea();
+          const preset = getLayoutForWorkspace(slotResult.workspaceId);
+          const bounds = getSlotBounds(preset, slotResult.slot, area);
+          setWindowWorkspace(winId, slotResult.workspaceId);
+          move(winId, bounds.x, bounds.y);
+          resize(winId, bounds.width, bounds.height);
+          setWindowGridSlot(winId, slotResult.slot);
+          dispatch({ type: "setActiveWorkspace", payload: slotResult.workspaceId });
+          return;
+        }
+      }
+      setWindowWorkspace(winId, workspaceId);
+      dispatch({ type: "setActiveWorkspace", payload: workspaceId });
+    },
+    [
+      state.gridModeEnabled,
+      setWindowWorkspace,
+      getFirstFreeSlot,
+      getLayoutForWorkspace,
+      addWorkspace,
+      move,
+      resize,
+      setWindowGridSlot,
+    ]
   );
 
   const getSlotAtPointCallback = useCallback(

@@ -37,11 +37,12 @@ interface DockProps {
 }
 
 export default function Dock({ username }: DockProps) {
-  const { openApp } = useWorkspaceLayout();
-  const { setFocus, getWindowIdsByType } = useWindowManager();
+  const { openApp, setActiveWorkspace, activeWorkspaceId, workspaces } = useWorkspaceLayout();
+  const { windows, setFocus, getWindowIdsByType } = useWindowManager();
   const { open: openAppLauncher } = useAppLauncher();
   const paymentFeedback = usePaymentFeedbackOptional();
   const walletIconRef = useRef<HTMLButtonElement>(null);
+  const firstWorkspaceId = workspaces[0]?.id ?? "";
 
   useEffect(() => {
     paymentFeedback?.registerWalletIconElement(walletIconRef.current ?? null);
@@ -55,7 +56,15 @@ export default function Dock({ username }: DockProps) {
     }
     const ids = getWindowIdsByType(type);
     if (ids.length > 0) {
-      setFocus(ids[ids.length - 1]);
+      const winId = ids[ids.length - 1];
+      const win = windows.find((w) => w.id === winId);
+      if (win) {
+        const targetWorkspaceId = win.workspaceId === "" ? firstWorkspaceId : win.workspaceId;
+        if (targetWorkspaceId && targetWorkspaceId !== activeWorkspaceId) {
+          setActiveWorkspace(targetWorkspaceId);
+        }
+      }
+      setFocus(winId);
     } else {
       openApp(type, { title: getAppTitle(type, username) });
     }

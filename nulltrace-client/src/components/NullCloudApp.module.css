@@ -623,6 +623,179 @@
   width: 100%;
 }
 
+/* Plan change modal (upgrade/downgrade) — never taller than viewport */
+.planModal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 0;
+  max-width: 440px;
+  width: 100%;
+  max-height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.planModalHeader {
+  padding: 1.25rem 1.25rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.planModalTitle {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.planModalSubtitle {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.planModalVpsInfo {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.planModalVpsIcon {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.planList {
+  list-style: none;
+  margin: 0;
+  padding: 0.75rem 1.25rem;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.planRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.35rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 8px);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.planRow:last-child {
+  margin-bottom: 0;
+}
+
+.planRow:hover {
+  background: var(--bg-tertiary);
+}
+
+.planRowCurrent {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
+}
+
+.planRowMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.planName {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.planBadge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.planSpecs {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.planRowRight {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.planPrice {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.planCurrentLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.planSwitchBtn {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.planSwitchBtn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.planSwitchBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.planModalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.planBalance {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
 .modalTitle {
   margin: 0 0 0.5rem;
   font-size: 1rem;
