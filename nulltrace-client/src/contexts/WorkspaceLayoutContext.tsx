@@ -143,7 +143,7 @@ export function getWorkspaceArea(): WorkspaceArea {
   };
 }
 
-/** Returns the slot that contains the given client coordinates, or null. Converts client to workspace-relative when area.workspaceViewportTop is set. */
+/** Returns the slot that contains the given client coordinates, or null. Converts client Y to area coords using workspaceViewportTop when set. */
 export function getSlotAtPoint(
   area: WorkspaceArea,
   preset: LayoutPreset,

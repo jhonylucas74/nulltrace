@@ -352,13 +352,19 @@ function DesktopContent() {
       if (otherId) {
         const otherWin = windows.find((w) => w.id === otherId);
         if (!otherWin) return;
-        const sourceBounds = { x: lastX, y: lastY, width: draggedWin.size.width, height: draggedWin.size.height };
         move(id, bounds.x, bounds.y);
         resize(id, bounds.width, bounds.height);
         setWindowGridSlot(id, slot);
-        move(otherId, sourceBounds.x, sourceBounds.y);
-        resize(otherId, sourceBounds.width, sourceBounds.height);
-        setWindowGridSlot(otherId, draggedWin.gridSlot);
+        if (draggedWin.gridSlot != null) {
+          const otherBounds = getSlotBounds(layoutPreset, draggedWin.gridSlot, area);
+          move(otherId, otherBounds.x, otherBounds.y);
+          resize(otherId, otherBounds.width, otherBounds.height);
+          setWindowGridSlot(otherId, draggedWin.gridSlot);
+        } else {
+          move(otherId, lastX, lastY);
+          resize(otherId, draggedWin.size.width, draggedWin.size.height);
+          setWindowGridSlot(otherId, undefined);
+        }
       } else {
         move(id, bounds.x, bounds.y);
         resize(id, bounds.width, bounds.height);

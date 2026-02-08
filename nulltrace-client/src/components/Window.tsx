@@ -124,16 +124,14 @@ export default function Window({
   );
 
   const handlePointerUp = useCallback(
-    (_e: React.PointerEvent) => {
+    (e: React.PointerEvent) => {
       if (isDragging && onDragEnd) {
-        const centerClientX = position.x + size.width / 2;
-        const centerClientY = position.y + size.height / 2;
-        onDragEnd(id, position.x, position.y, centerClientX, centerClientY);
+        onDragEnd(id, position.x, position.y, e.clientX, e.clientY);
       }
       setIsDragging(false);
       setIsResizing(false);
     },
-    [id, isDragging, position, size, onDragEnd]
+    [id, isDragging, position, onDragEnd]
   );
 
   const handleResizePointerDown = useCallback(
