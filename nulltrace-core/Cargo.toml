@@ -1,0 +1,29 @@
+[package]
+name = "nulltrace-core"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "stress"
+path = "src/main.rs"
+
+[[bin]]
+name = "cluster"
+path = "src/cluster/main.rs"
+
+[[bin]]
+name = "server"
+path = "src/server/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+mlua = { version = "0.11.1", features = ["async", "serialize", "luau"] }
+uuid = { version = "1", features = ["v4"] }
+sysinfo = "0.29"
+dashmap = "5"
+tonic = "0.9"
+prost = "0.11"
+redis = "0.23"
+
+[build-dependencies]
+tonic-build = "0.9"

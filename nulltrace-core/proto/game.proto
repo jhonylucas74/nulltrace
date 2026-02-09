@@ -1,0 +1,14 @@
+syntax = "proto3";
+package game;
+
+service GameService {
+  rpc SayHello (HelloRequest) returns (HelloResponse);
+}
+
+message HelloRequest {
+  string player_name = 1;
+}
+
+message HelloResponse {
+  string greeting = 1;
+}
