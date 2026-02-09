@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useWindowManager } from "../contexts/WindowManagerContext";
+import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
 import styles from "./TopBar.module.css";
 
 export default function TopBar() {
@@ -10,7 +11,8 @@ export default function TopBar() {
   const userMenuRef = useRef<HTMLDivElement>(null);
   const { username, logout } = useAuth();
   const navigate = useNavigate();
-  const { open, setFocus, getWindowIdsByType } = useWindowManager();
+  const { setFocus, getWindowIdsByType } = useWindowManager();
+  const { openApp } = useWorkspaceLayout();
 
   useEffect(() => {
     const id = setInterval(() => setTime(formatTime(new Date())), 1000);
@@ -40,7 +42,7 @@ export default function TopBar() {
     if (ids.length > 0) {
       setFocus(ids[ids.length - 1]);
     } else {
-      open("sound", { title: "Sound" });
+      openApp("sound", { title: "Sound" });
     }
   }
 
@@ -49,7 +51,7 @@ export default function TopBar() {
     if (ids.length > 0) {
       setFocus(ids[ids.length - 1]);
     } else {
-      open("network", { title: "Network" });
+      openApp("network", { title: "Network" });
     }
   }
 
