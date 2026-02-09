@@ -1,5 +1,5 @@
 import React from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag } from "lucide-react";
 import type { WindowType } from "../contexts/WindowManagerContext";
 
 export interface LaunchableApp {
@@ -120,6 +120,10 @@ function TraceRouteIcon() {
   return <Route size={24} />;
 }
 
+function StoreIcon() {
+  return <ShoppingBag size={24} />;
+}
+
 /** Launchable apps shown in the app launcher grid (excludes All Apps itself). */
 export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "terminal", label: "Terminal", icon: <TerminalIcon /> },
@@ -139,6 +143,7 @@ export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "wallpaper", label: "Background", icon: <BackgroundIcon /> },
   { type: "settings", label: "Settings", icon: <SettingsIcon /> },
   { type: "traceroute", label: "TraceRoute", icon: <TraceRouteIcon /> },
+  { type: "store", label: "Store", icon: <StoreIcon /> },
 ];
 
 /** Get launchable app entry by type (for dock icon/label). */
@@ -170,6 +175,8 @@ export function getAppTitle(type: WindowType, username?: string | null): string 
     wallpaper: "Background",
     settings: "Settings",
     traceroute: "TraceRoute",
+    store: "Store",
+    minesweeper: "Minesweeper",
   };
   return titles[type];
 }

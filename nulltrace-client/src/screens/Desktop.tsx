@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Grid3X3 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WalletProvider } from "../contexts/WalletContext";
 import { WindowManagerProvider, useWindowManager, getDefaultSizeForType } from "../contexts/WindowManagerContext";
@@ -7,6 +7,7 @@ import { WorkspaceLayoutProvider, useWorkspaceLayout, getWorkspaceArea, getSlotB
 import { useStartupConfig } from "../contexts/StartupConfigContext";
 import { FilePickerProvider, useFilePicker, getDefaultInitialPath } from "../contexts/FilePickerContext";
 import { AppLauncherProvider, useAppLauncher } from "../contexts/AppLauncherContext";
+import { InstalledAppsProvider } from "../contexts/InstalledAppsContext";
 import { NotificationProvider, useNotification } from "../contexts/NotificationContext";
 import { ShortcutsProvider } from "../contexts/ShortcutsContext";
 import type { WindowType } from "../contexts/WindowManagerContext";
@@ -40,6 +41,8 @@ import StartupSettingsApp from "../components/StartupSettingsApp";
 import BackgroundApp from "../components/BackgroundApp";
 import SettingsApp from "../components/SettingsApp";
 import TraceRouteApp from "../components/TraceRouteApp";
+import StoreApp from "../components/StoreApp";
+import MinesweeperApp from "../components/MinesweeperApp";
 import ShortcutsHandler from "../components/ShortcutsHandler";
 import FilePicker from "../components/FilePicker";
 import { getAppTitle } from "../lib/appList";
@@ -186,6 +189,8 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   wallpaper: <WallpaperIcon />,
   settings: <Settings size={12} />,
   traceroute: <Route size={12} />,
+  store: <ShoppingBag size={12} />,
+  minesweeper: <Grid3X3 size={12} />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -542,6 +547,12 @@ function DesktopContent() {
     if (win.type === "traceroute") {
       return <TraceRouteApp />;
     }
+    if (win.type === "store") {
+      return <StoreApp />;
+    }
+    if (win.type === "minesweeper") {
+      return <MinesweeperApp />;
+    }
     return <PlaceholderContent title={win.title} />;
   }
 
@@ -685,7 +696,9 @@ export default function Desktop() {
                   <FilePickerProvider>
                     <NotificationProvider>
                       <AppLauncherProvider>
-                        <DesktopContent />
+                        <InstalledAppsProvider>
+                          <DesktopContent />
+                        </InstalledAppsProvider>
                       </AppLauncherProvider>
                     </NotificationProvider>
                   </FilePickerProvider>

@@ -4,11 +4,13 @@ import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
 import { useAppLauncher } from "../contexts/AppLauncherContext";
 import { usePaymentFeedbackOptional } from "../contexts/PaymentFeedbackContext";
 import type { WindowType } from "../contexts/WindowManagerContext";
+import { useInstalledApps } from "../contexts/InstalledAppsContext";
 import { LAUNCHABLE_APPS, AppsIcon, getAppTitle, getAppByType } from "../lib/appList";
+import { STORE_CATALOG } from "../lib/storeCatalog";
 import type { LaunchableApp } from "../lib/appList";
 import styles from "./Dock.module.css";
 
-/** Fixed dock apps: exclude Theme, Pixel Art, Sysinfo, Shortcuts, Sysmon, Nullcloud, Startup, Code, Wallpaper, Hackerboard, Settings, TraceRoute. */
+/** Fixed dock apps: exclude Theme, Pixel Art, Sysinfo, Shortcuts, Sysmon, Nullcloud, Startup, Code, Wallpaper, Hackerboard, Settings, TraceRoute, Store. */
 const FIXED_DOCK_APPS: LaunchableApp[] = LAUNCHABLE_APPS.filter(
   (app) =>
     app.type !== "theme" &&
@@ -22,7 +24,8 @@ const FIXED_DOCK_APPS: LaunchableApp[] = LAUNCHABLE_APPS.filter(
     app.type !== "wallpaper" &&
     app.type !== "hackerboard" &&
     app.type !== "settings" &&
-    app.type !== "traceroute"
+    app.type !== "traceroute" &&
+    app.type !== "store"
 );
 
 const ALL_APPS_ENTRY: LaunchableApp = { type: "apps", label: "All Apps", icon: <AppsIcon /> };
@@ -31,10 +34,19 @@ interface DockProps {
   username?: string | null;
 }
 
+function getAppEntryForDock(type: WindowType, isInstalled: (t: WindowType) => boolean): LaunchableApp | undefined {
+  const builtIn = getAppByType(type);
+  if (builtIn) return builtIn;
+  if (!isInstalled(type)) return undefined;
+  const entry = STORE_CATALOG.find((e) => e.type === type);
+  return entry ? { type: entry.type, label: entry.name, icon: entry.icon } : undefined;
+}
+
 export default function Dock({ username }: DockProps) {
   const { openApp, setActiveWorkspace, activeWorkspaceId, workspaces } = useWorkspaceLayout();
   const { windows, setFocus, getWindowIdsByType } = useWindowManager();
   const { open: openAppLauncher } = useAppLauncher();
+  const { isInstalled } = useInstalledApps();
   const paymentFeedback = usePaymentFeedbackOptional();
   const walletIconRef = useRef<HTMLButtonElement>(null);
   const firstWorkspaceId = workspaces[0]?.id ?? "";
@@ -48,10 +60,10 @@ export default function Dock({ username }: DockProps) {
     }
     const temporary = runningOrder
       .filter((type) => !fixedTypes.has(type))
-      .map((type) => getAppByType(type))
+      .map((type) => getAppEntryForDock(type, isInstalled))
       .filter((app): app is LaunchableApp => app != null);
     return [...FIXED_DOCK_APPS, ...temporary, ALL_APPS_ENTRY];
-  }, [windows]);
+  }, [windows, isInstalled]);
 
   useEffect(() => {
     paymentFeedback?.registerWalletIconElement(walletIconRef.current ?? null);

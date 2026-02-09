@@ -1,0 +1,133 @@
+/* Minesweeper: same app pattern as ShortcutsApp */
+.app {
+  height: 100%;
+  min-height: 240px;
+  padding: 1rem 1.25rem;
+  overflow: auto;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+}
+
+.toolbar {
+  flex-shrink: 0;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.timer {
+  font-size: 0.85rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.hint {
+  flex-shrink: 0;
+  margin: 0 0 1rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.gameArea {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.modalText {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.newGameBtn {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.newGameBtn:hover {
+  color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.status {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.statusLost {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 9), 32px);
+  gap: 2px;
+  width: fit-content;
+  flex-shrink: 0;
+}
+
+.cell {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s, filter 0.1s;
+}
+
+.cell:hover:not(:disabled) {
+  background: var(--bg-surface);
+  filter: brightness(1.05);
+}
+
+.cell:disabled {
+  cursor: default;
+}
+
+.cell_hidden {
+  background: var(--bg-secondary);
+}
+
+.cell_flagged {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.cell_revealed {
+  background: var(--bg-surface);
+  cursor: default;
+}
+
+.cell_mine {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.cell_revealed.cell_mine {
+  background: var(--accent-muted);
+  color: var(--accent);
+}

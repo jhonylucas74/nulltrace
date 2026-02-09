@@ -21,6 +21,7 @@ const ALLOWED_STARTUP_APP_TYPES: WindowType[] = [
   "sysmon",
   "nullcloud",
   "hackerboard",
+  "store",
 ];
 
 export interface StartupConfig {

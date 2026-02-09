@@ -1,22 +1,39 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
 import { useAppLauncher } from "../contexts/AppLauncherContext";
 import { useAuth } from "../contexts/AuthContext";
+import { useInstalledApps } from "../contexts/InstalledAppsContext";
 import { LAUNCHABLE_APPS, getAppTitle } from "../lib/appList";
+import { STORE_CATALOG, isBuiltInLauncherApp } from "../lib/storeCatalog";
+import type { LaunchableApp } from "../lib/appList";
 import styles from "./AppLauncher.module.css";
+
+/** Built-in apps plus installed store-only apps (label + icon from catalog). */
+function useLaunchableAppsList(): LaunchableApp[] {
+  const { installedAppTypes } = useInstalledApps();
+  return useMemo(() => {
+    const builtInTypes = new Set(LAUNCHABLE_APPS.map((a) => a.type));
+    const installedSet = new Set(installedAppTypes);
+    const installedOnly = STORE_CATALOG.filter(
+      (entry) => !builtInTypes.has(entry.type) && installedSet.has(entry.type)
+    ).map((entry) => ({ type: entry.type, label: entry.name, icon: entry.icon }));
+    return [...LAUNCHABLE_APPS, ...installedOnly];
+  }, [installedAppTypes]);
+}
 
 export default function AppLauncher() {
   const { isOpen, close } = useAppLauncher();
   const { openApp } = useWorkspaceLayout();
   const { username } = useAuth();
+  const launchableApps = useLaunchableAppsList();
   const [searchTerm, setSearchTerm] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const filtered = searchTerm.trim()
-    ? LAUNCHABLE_APPS.filter((app) =>
+    ? launchableApps.filter((app) =>
         app.label.toLowerCase().includes(searchTerm.trim().toLowerCase())
       )
-    : LAUNCHABLE_APPS;
+    : launchableApps;
 
   useEffect(() => {
     if (isOpen) {
@@ -34,7 +51,7 @@ export default function AppLauncher() {
     return () => document.removeEventListener("keydown", handleEscape);
   }, [isOpen, close]);
 
-  function handleAppClick(type: (typeof LAUNCHABLE_APPS)[number]["type"]) {
+  function handleAppClick(type: LaunchableApp["type"]) {
     openApp(type, { title: getAppTitle(type, username) });
     close();
   }

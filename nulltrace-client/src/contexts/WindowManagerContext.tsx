@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 
-export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard" | "startup" | "wallpaper" | "settings" | "traceroute";
+export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard" | "startup" | "wallpaper" | "settings" | "traceroute" | "store" | "minesweeper";
 
 export interface WindowPosition {
   x: number;
@@ -103,6 +103,12 @@ const SETTINGS_WINDOW_SIZE: WindowSize = { width: 560, height: 520 };
 /** TraceRoute app: world map and route visualization. */
 const TRACEROUTE_WINDOW_SIZE: WindowSize = { width: 880, height: 560 };
 
+/** Store app: discover and install apps. */
+const STORE_WINDOW_SIZE: WindowSize = { width: 720, height: 520 };
+
+/** Minesweeper app: classic grid game. */
+const MINESWEEPER_WINDOW_SIZE: WindowSize = { width: 400, height: 480 };
+
 export function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "browser" || type === "editor") return LARGE_WINDOW_SIZE;
   if (type === "pixelart") return PIXELART_PICKER_SIZE;
@@ -119,6 +125,8 @@ export function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "wallpaper") return WALLPAPER_WINDOW_SIZE;
   if (type === "settings") return SETTINGS_WINDOW_SIZE;
   if (type === "traceroute") return TRACEROUTE_WINDOW_SIZE;
+  if (type === "store") return STORE_WINDOW_SIZE;
+  if (type === "minesweeper") return MINESWEEPER_WINDOW_SIZE;
   return DEFAULT_SIZE;
 }
 
