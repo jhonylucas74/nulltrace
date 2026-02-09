@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 
-export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard" | "startup" | "wallpaper" | "settings";
+export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard" | "startup" | "wallpaper" | "settings" | "traceroute";
 
 export interface WindowPosition {
   x: number;
@@ -100,6 +100,9 @@ const WALLPAPER_WINDOW_SIZE: WindowSize = { width: 560, height: 520 };
 /** Settings app: preferences and window config. */
 const SETTINGS_WINDOW_SIZE: WindowSize = { width: 560, height: 520 };
 
+/** TraceRoute app: world map and route visualization. */
+const TRACEROUTE_WINDOW_SIZE: WindowSize = { width: 880, height: 560 };
+
 export function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "browser" || type === "editor") return LARGE_WINDOW_SIZE;
   if (type === "pixelart") return PIXELART_PICKER_SIZE;
@@ -115,6 +118,7 @@ export function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "startup") return STARTUP_WINDOW_SIZE;
   if (type === "wallpaper") return WALLPAPER_WINDOW_SIZE;
   if (type === "settings") return SETTINGS_WINDOW_SIZE;
+  if (type === "traceroute") return TRACEROUTE_WINDOW_SIZE;
   return DEFAULT_SIZE;
 }
 
@@ -283,6 +287,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         startup: "Startup",
         wallpaper: "Background",
         settings: "Settings",
+        traceroute: "TraceRoute",
       };
       const title = options?.title ?? defaultTitles[type];
       const workspaceId = options?.workspaceId ?? "";

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WalletProvider } from "../contexts/WalletContext";
 import { WindowManagerProvider, useWindowManager, getDefaultSizeForType } from "../contexts/WindowManagerContext";
@@ -39,6 +39,7 @@ import HackerboardApp from "../components/HackerboardApp";
 import StartupSettingsApp from "../components/StartupSettingsApp";
 import BackgroundApp from "../components/BackgroundApp";
 import SettingsApp from "../components/SettingsApp";
+import TraceRouteApp from "../components/TraceRouteApp";
 import ShortcutsHandler from "../components/ShortcutsHandler";
 import FilePicker from "../components/FilePicker";
 import { getAppTitle } from "../lib/appList";
@@ -184,6 +185,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   startup: <Rocket size={12} />,
   wallpaper: <WallpaperIcon />,
   settings: <Settings size={12} />,
+  traceroute: <Route size={12} />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -536,6 +538,9 @@ function DesktopContent() {
     }
     if (win.type === "settings") {
       return <SettingsApp />;
+    }
+    if (win.type === "traceroute") {
+      return <TraceRouteApp />;
     }
     return <PlaceholderContent title={win.title} />;
   }
