@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 
-export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard" | "startup";
+export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard" | "startup" | "wallpaper";
 
 export interface WindowPosition {
   x: number;
@@ -94,6 +94,9 @@ const HACKERBOARD_WINDOW_SIZE: WindowSize = { width: 600, height: 700 };
 /** Startup settings app: programs at login and grid defaults. */
 const STARTUP_WINDOW_SIZE: WindowSize = { width: 520, height: 480 };
 
+/** Background app: wallpaper picker from Pexels. */
+const WALLPAPER_WINDOW_SIZE: WindowSize = { width: 560, height: 520 };
+
 export function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "browser" || type === "editor") return LARGE_WINDOW_SIZE;
   if (type === "pixelart") return PIXELART_PICKER_SIZE;
@@ -107,6 +110,7 @@ export function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "nullcloud") return NULLCLOUD_WINDOW_SIZE;
   if (type === "hackerboard") return HACKERBOARD_WINDOW_SIZE;
   if (type === "startup") return STARTUP_WINDOW_SIZE;
+  if (type === "wallpaper") return WALLPAPER_WINDOW_SIZE;
   return DEFAULT_SIZE;
 }
 
@@ -273,6 +277,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         nullcloud: "NullCloud",
         hackerboard: "Hackerboard",
         startup: "Startup",
+        wallpaper: "Background",
       };
       const title = options?.title ?? defaultTitles[type];
       const workspaceId = options?.workspaceId ?? "";

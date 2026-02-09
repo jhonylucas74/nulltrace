@@ -42,9 +42,39 @@
   pointer-events: none;
 }
 
+.wallpaperNoGrid::after {
+  display: none;
+}
+
 @keyframes wallpaperDrift {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.75; transform: scale(1.08); }
+}
+
+/* Circle reveal when changing wallpaper */
+@keyframes wallpaperReveal {
+  from {
+    clip-path: circle(0 at 50% 50%);
+  }
+  to {
+    clip-path: circle(150vmax at 50% 50%);
+  }
+}
+
+.wallpaperReveal {
+  position: fixed;
+  inset: 0;
+  z-index: 0.5;
+  animation: wallpaperReveal 0.7s ease-out forwards;
+  pointer-events: none;
+}
+
+.wallpaperRevealGradient {
+  background:
+    radial-gradient(ellipse 100% 60% at 85% 15%, rgba(125, 207, 255, 0.1), transparent 50%),
+    radial-gradient(ellipse 70% 70% at 15% 85%, rgba(187, 154, 247, 0.08), transparent 50%),
+    radial-gradient(ellipse 120% 80% at 50% 50%, rgba(36, 40, 59, 0.6) 0%, transparent 50%),
+    linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
 }
 
 .workspace {

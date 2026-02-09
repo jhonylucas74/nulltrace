@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WalletProvider } from "../contexts/WalletContext";
 import { WindowManagerProvider, useWindowManager, getDefaultSizeForType } from "../contexts/WindowManagerContext";
@@ -31,9 +31,11 @@ import SystemMonitorApp from "../components/SystemMonitorApp";
 import { NullCloudProvider } from "../contexts/NullCloudContext";
 import { PaymentFeedbackProvider } from "../contexts/PaymentFeedbackContext";
 import { HackerboardProvider } from "../contexts/HackerboardContext";
+import { WallpaperProvider, useWallpaper } from "../contexts/WallpaperContext";
 import NullCloudApp from "../components/NullCloudApp";
 import HackerboardApp from "../components/HackerboardApp";
 import StartupSettingsApp from "../components/StartupSettingsApp";
+import BackgroundApp from "../components/BackgroundApp";
 import ShortcutsHandler from "../components/ShortcutsHandler";
 import FilePicker from "../components/FilePicker";
 import { getAppTitle } from "../lib/appList";
@@ -161,6 +163,10 @@ function HackerboardIcon() {
   return <Trophy size={12} />;
 }
 
+function WallpaperIcon() {
+  return <Image size={12} />;
+}
+
 const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   terminal: <TerminalIcon />,
   explorer: <ExplorerIcon />,
@@ -179,6 +185,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   nullcloud: <NullCloudIcon />,
   hackerboard: <HackerboardIcon />,
   startup: <Rocket size={12} />,
+  wallpaper: <WallpaperIcon />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -223,7 +230,44 @@ function DesktopContent() {
     dotCenterY: number;
   } | null>(null);
 
+  const { wallpaperUrl, gridEnabled } = useWallpaper();
+  const [displayUrl, setDisplayUrl] = useState<string | null>(() => wallpaperUrl ?? null);
+  const [transitionToUrl, setTransitionToUrl] = useState<string | null>(null);
+  const [transitionToGradient, setTransitionToGradient] = useState(false);
+  const loadingUrlRef = useRef<string | null>(null);
+  const [revealTrigger, setRevealTrigger] = useState(0);
+
   const WORKSPACE_DROP_ZONE_THRESHOLD = 80;
+
+  // Preload image then start circle-reveal so the image is in cache before animating
+  useEffect(() => {
+    if (transitionToUrl !== null || transitionToGradient) return;
+    if (wallpaperUrl === displayUrl) return;
+    if (wallpaperUrl != null) {
+      if (loadingUrlRef.current !== null) return;
+      const urlToLoad = wallpaperUrl;
+      loadingUrlRef.current = urlToLoad;
+      const img = new window.Image();
+      img.onload = () => {
+        loadingUrlRef.current = null;
+        setTransitionToUrl(urlToLoad);
+      };
+      img.onerror = () => {
+        loadingUrlRef.current = null;
+        setTransitionToUrl(urlToLoad);
+      };
+      img.src = urlToLoad;
+    } else {
+      setTransitionToGradient(true);
+    }
+  }, [wallpaperUrl, displayUrl, transitionToUrl, transitionToGradient, revealTrigger]);
+
+  const handleWallpaperRevealEnd = useCallback(() => {
+    setDisplayUrl(transitionToGradient ? null : transitionToUrl);
+    setTransitionToUrl(null);
+    setTransitionToGradient(false);
+    setRevealTrigger((t) => t + 1);
+  }, [transitionToUrl, transitionToGradient]);
 
   // Reset startup state when user logs in (so we run the sequence again); clear when they log out.
   useEffect(() => {
@@ -488,13 +532,48 @@ function DesktopContent() {
     if (win.type === "startup") {
       return <StartupSettingsApp />;
     }
+    if (win.type === "wallpaper") {
+      return <BackgroundApp />;
+    }
     return <PlaceholderContent title={win.title} />;
   }
+
+  const wallpaperStyle =
+    displayUrl != null
+      ? {
+          backgroundImage: `url(${displayUrl})`,
+          backgroundSize: "cover" as const,
+          backgroundPosition: "center" as const,
+          backgroundRepeat: "no-repeat" as const,
+        }
+      : undefined;
+
+  const isRevealing = transitionToUrl !== null || transitionToGradient;
 
   return (
     <ShortcutsProvider>
       <div className={styles.desktop}>
-        <div className={styles.wallpaper} />
+        <div
+          className={`${styles.wallpaper} ${!gridEnabled ? styles.wallpaperNoGrid : ""}`}
+          style={wallpaperStyle}
+        />
+        {isRevealing && (
+          <div
+            className={`${styles.wallpaperReveal} ${transitionToGradient ? styles.wallpaperRevealGradient : ""}`}
+            style={
+              transitionToUrl != null
+                ? {
+                    backgroundImage: `url(${transitionToUrl})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                    backgroundRepeat: "no-repeat",
+                  }
+                : undefined
+            }
+            onAnimationEnd={handleWallpaperRevealEnd}
+            aria-hidden
+          />
+        )}
         <TopBar />
       {filePickerOpen && filePickerOptions && (
         <FilePicker
@@ -592,15 +671,17 @@ export default function Desktop() {
       <NullCloudProvider>
         <HackerboardProvider>
           <PaymentFeedbackProvider>
-            <WindowManagerProvider>
-              <WorkspaceLayoutProvider>
-                <FilePickerProvider>
-                  <AppLauncherProvider>
-                    <DesktopContent />
-                  </AppLauncherProvider>
-                </FilePickerProvider>
-              </WorkspaceLayoutProvider>
-            </WindowManagerProvider>
+            <WallpaperProvider>
+              <WindowManagerProvider>
+                <WorkspaceLayoutProvider>
+                  <FilePickerProvider>
+                    <AppLauncherProvider>
+                      <DesktopContent />
+                    </AppLauncherProvider>
+                  </FilePickerProvider>
+                </WorkspaceLayoutProvider>
+              </WindowManagerProvider>
+            </WallpaperProvider>
           </PaymentFeedbackProvider>
         </HackerboardProvider>
       </NullCloudProvider>
