@@ -8,7 +8,7 @@ import { LAUNCHABLE_APPS, AppsIcon, getAppTitle, getAppByType } from "../lib/app
 import type { LaunchableApp } from "../lib/appList";
 import styles from "./Dock.module.css";
 
-/** Fixed dock apps: exclude Theme, Pixel Art, Sysinfo, Shortcuts, Sysmon, Nullcloud, Startup, Code, Wallpaper, Hackerboard. */
+/** Fixed dock apps: exclude Theme, Pixel Art, Sysinfo, Shortcuts, Sysmon, Nullcloud, Startup, Code, Wallpaper, Hackerboard, Settings. */
 const FIXED_DOCK_APPS: LaunchableApp[] = LAUNCHABLE_APPS.filter(
   (app) =>
     app.type !== "theme" &&
@@ -20,7 +20,8 @@ const FIXED_DOCK_APPS: LaunchableApp[] = LAUNCHABLE_APPS.filter(
     app.type !== "startup" &&
     app.type !== "editor" &&
     app.type !== "wallpaper" &&
-    app.type !== "hackerboard"
+    app.type !== "hackerboard" &&
+    app.type !== "settings"
 );
 
 const ALL_APPS_ENTRY: LaunchableApp = { type: "apps", label: "All Apps", icon: <AppsIcon /> };

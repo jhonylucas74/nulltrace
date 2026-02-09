@@ -331,3 +331,70 @@
 .createUser:hover {
   color: var(--accent);
 }
+
+/* Power button: bottom-right corner, OS-style (e.g. login / lock screen) */
+.powerWrap {
+  position: absolute;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 1;
+}
+
+.powerBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.powerBtn:hover {
+  color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.powerBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-muted);
+}
+
+.powerDropdown {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 0.5rem;
+  min-width: 160px;
+  padding: 0.25rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 10;
+}
+
+.powerDropdownItem {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s, background 0.15s;
+}
+
+.powerDropdownItem:hover {
+  color: var(--term-red);
+  background: rgba(243, 139, 168, 0.15);
+}

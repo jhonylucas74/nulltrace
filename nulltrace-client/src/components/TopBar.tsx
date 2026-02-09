@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { Settings } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useWindowManager } from "../contexts/WindowManagerContext";
 import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
@@ -55,6 +56,15 @@ export default function TopBar() {
     }
   }
 
+  function handleSettingsClick() {
+    const ids = getWindowIdsByType("settings");
+    if (ids.length > 0) {
+      setFocus(ids[ids.length - 1]);
+    } else {
+      openApp("settings", { title: "Settings" });
+    }
+  }
+
   return (
     <header className={styles.bar}>
       <div className={styles.left}>
@@ -83,6 +93,15 @@ export default function TopBar() {
           <SoundIcon />
         </button>
         <span className={styles.clock}>{time}</span>
+        <button
+          type="button"
+          className={styles.iconBtn}
+          onClick={handleSettingsClick}
+          title="Settings"
+          aria-label="Settings"
+        >
+          <Settings size={18} />
+        </button>
         <div className={styles.userMenuWrap} ref={userMenuRef}>
           <button
             type="button"

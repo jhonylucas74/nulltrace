@@ -1,5 +1,5 @@
 import React from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings } from "lucide-react";
 import type { WindowType } from "../contexts/WindowManagerContext";
 
 export interface LaunchableApp {
@@ -118,6 +118,10 @@ function BackgroundIcon() {
   return <Image size={24} />;
 }
 
+function SettingsIcon() {
+  return <Settings size={24} />;
+}
+
 /** Launchable apps shown in the app launcher grid (excludes All Apps itself). */
 export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "terminal", label: "Terminal", icon: <TerminalIcon /> },
@@ -135,6 +139,7 @@ export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "hackerboard", label: "Hackerboard", icon: <HackerboardIcon /> },
   { type: "startup", label: "Startup", icon: <StartupIcon /> },
   { type: "wallpaper", label: "Background", icon: <BackgroundIcon /> },
+  { type: "settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 
 /** Get launchable app entry by type (for dock icon/label). */
@@ -164,6 +169,7 @@ export function getAppTitle(type: WindowType, username?: string | null): string 
     hackerboard: "Hackerboard",
     startup: "Startup",
     wallpaper: "Background",
+    settings: "Settings",
   };
   return titles[type];
 }

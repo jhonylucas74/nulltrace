@@ -133,11 +133,46 @@
   color: var(--text-primary);
 }
 
+/* OS-like checkbox: same as LayoutPanel / Grid layout */
 .gridOption input {
-  accent-color: var(--accent);
-  width: 1rem;
-  height: 1rem;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-surface);
   cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s, background 0.15s;
+  margin: 0;
+}
+
+.gridOption input:hover {
+  border-color: var(--text-muted);
+}
+
+.gridOption input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-muted);
+}
+
+.gridOption input:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.gridOption input:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+  border: solid var(--bg-surface);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 
 .gridOptionLabel {

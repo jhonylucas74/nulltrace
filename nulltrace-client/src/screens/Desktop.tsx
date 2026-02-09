@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WalletProvider } from "../contexts/WalletContext";
 import { WindowManagerProvider, useWindowManager, getDefaultSizeForType } from "../contexts/WindowManagerContext";
@@ -36,6 +36,7 @@ import NullCloudApp from "../components/NullCloudApp";
 import HackerboardApp from "../components/HackerboardApp";
 import StartupSettingsApp from "../components/StartupSettingsApp";
 import BackgroundApp from "../components/BackgroundApp";
+import SettingsApp from "../components/SettingsApp";
 import ShortcutsHandler from "../components/ShortcutsHandler";
 import FilePicker from "../components/FilePicker";
 import { getAppTitle } from "../lib/appList";
@@ -186,6 +187,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   hackerboard: <HackerboardIcon />,
   startup: <Rocket size={12} />,
   wallpaper: <WallpaperIcon />,
+  settings: <Settings size={12} />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -534,6 +536,9 @@ function DesktopContent() {
     }
     if (win.type === "wallpaper") {
       return <BackgroundApp />;
+    }
+    if (win.type === "settings") {
+      return <SettingsApp />;
     }
     return <PlaceholderContent title={win.title} />;
   }
