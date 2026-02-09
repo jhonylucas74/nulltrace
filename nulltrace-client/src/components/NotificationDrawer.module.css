@@ -65,7 +65,9 @@
 }
 
 .item {
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
   width: 100%;
   padding: 0.75rem 1.25rem;
   text-align: left;
@@ -78,6 +80,32 @@
 
 .item:hover {
   background: var(--bg-tertiary);
+}
+
+.itemContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.itemClearBtn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.itemClearBtn:hover {
+  color: var(--term-red);
+  background: rgba(243, 139, 168, 0.15);
 }
 
 .itemTitle {
