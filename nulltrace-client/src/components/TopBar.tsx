@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Settings } from "lucide-react";
+import { Settings, Bell } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { useNotification } from "../contexts/NotificationContext";
 import { useWindowManager } from "../contexts/WindowManagerContext";
 import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
 import styles from "./TopBar.module.css";
@@ -14,6 +15,7 @@ export default function TopBar() {
   const navigate = useNavigate();
   const { setFocus, getWindowIdsByType } = useWindowManager();
   const { openApp } = useWorkspaceLayout();
+  const { unreadCount, isDrawerOpen, openDrawer, closeDrawer } = useNotification();
 
   useEffect(() => {
     const id = setInterval(() => setTime(formatTime(new Date())), 1000);
@@ -65,6 +67,11 @@ export default function TopBar() {
     }
   }
 
+  function handleNotificationClick() {
+    if (isDrawerOpen) closeDrawer();
+    else openDrawer();
+  }
+
   return (
     <header className={styles.bar}>
       <div className={styles.left}>
@@ -74,6 +81,22 @@ export default function TopBar() {
         </span>
       </div>
       <div className={styles.right}>
+        <button
+          type="button"
+          className={styles.notificationBtn}
+          onClick={handleNotificationClick}
+          title="Notifications"
+          aria-label="Notifications"
+          aria-expanded={isDrawerOpen}
+          aria-haspopup="true"
+        >
+          <Bell size={18} />
+          {unreadCount > 0 && (
+            <span className={styles.notificationBadge}>
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </button>
         <button
           type="button"
           className={styles.iconBtn}

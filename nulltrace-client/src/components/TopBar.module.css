@@ -77,6 +77,40 @@
   color: var(--text-muted);
 }
 
+.notificationBtn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.notificationBtn:hover {
+  color: var(--accent);
+}
+
+.notificationBadge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border-radius: 8px;
+}
+
 .iconBtn {
   display: flex;
   align-items: center;

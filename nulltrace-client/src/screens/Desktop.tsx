@@ -7,10 +7,12 @@ import { WorkspaceLayoutProvider, useWorkspaceLayout, getWorkspaceArea, getSlotB
 import { useStartupConfig } from "../contexts/StartupConfigContext";
 import { FilePickerProvider, useFilePicker, getDefaultInitialPath } from "../contexts/FilePickerContext";
 import { AppLauncherProvider, useAppLauncher } from "../contexts/AppLauncherContext";
+import { NotificationProvider, useNotification } from "../contexts/NotificationContext";
 import { ShortcutsProvider } from "../contexts/ShortcutsContext";
 import type { WindowType } from "../contexts/WindowManagerContext";
 import TopBar from "../components/TopBar";
 import AppLauncher from "../components/AppLauncher";
+import NotificationDrawer from "../components/NotificationDrawer";
 import Dock from "../components/Dock";
 import LayoutPanel from "../components/LayoutPanel";
 import WorkspaceDots from "../components/WorkspaceDots";
@@ -218,6 +220,7 @@ function DesktopContent() {
   const { startupAppTypes, centerFirstWindow } = useStartupConfig();
   const { isOpen: filePickerOpen, options: filePickerOptions, closeFilePicker } = useFilePicker();
   const { isOpen: appLauncherOpen } = useAppLauncher();
+  const { isDrawerOpen } = useNotification();
   const hasRunStartupRef = useRef(false);
   const prevUsernameRef = useRef<string | null>(null);
   const [startupStep, setStartupStep] = useState(0);
@@ -596,6 +599,7 @@ function DesktopContent() {
         />
       )}
       {appLauncherOpen && <AppLauncher />}
+      {isDrawerOpen && <NotificationDrawer />}
       {draggingWindowId && workspaceDropTarget && typeof window !== "undefined" && (
         <div className={styles.workspaceDropOverlay} aria-hidden>
           <div
@@ -680,9 +684,11 @@ export default function Desktop() {
               <WindowManagerProvider>
                 <WorkspaceLayoutProvider>
                   <FilePickerProvider>
-                    <AppLauncherProvider>
-                      <DesktopContent />
-                    </AppLauncherProvider>
+                    <NotificationProvider>
+                      <AppLauncherProvider>
+                        <DesktopContent />
+                      </AppLauncherProvider>
+                    </NotificationProvider>
                   </FilePickerProvider>
                 </WorkspaceLayoutProvider>
               </WindowManagerProvider>
