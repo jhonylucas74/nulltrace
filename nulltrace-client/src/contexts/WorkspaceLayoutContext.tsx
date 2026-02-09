@@ -42,10 +42,11 @@ function reducer(state: WorkspaceLayoutState, action: WorkspaceLayoutAction): Wo
       return { ...state, activeWorkspaceId: action.payload };
     case "addWorkspace": {
       const ws = action.payload;
+      const defaultPreset = getGridDefaultsFromStorage().defaultLayoutPreset;
       return {
         ...state,
         workspaces: [...state.workspaces, ws],
-        workspaceLayout: { ...state.workspaceLayout, [ws.id]: "2x2" },
+        workspaceLayout: { ...state.workspaceLayout, [ws.id]: defaultPreset },
       };
     }
     case "removeWorkspace": {
@@ -200,9 +201,27 @@ const INITIAL_WORKSPACES: Workspace[] = [
   { id: "ws-4", label: "Workspace 4" },
 ];
 
-const INITIAL_WORKSPACE_LAYOUT: Record<string, LayoutPreset> = Object.fromEntries(
-  INITIAL_WORKSPACES.map((ws) => [ws.id, "2x2"])
-);
+/** Read grid defaults from localStorage (same key as StartupConfigContext). */
+function getGridDefaultsFromStorage(): { gridEnabledByDefault: boolean; defaultLayoutPreset: LayoutPreset } {
+  if (typeof window === "undefined")
+    return { gridEnabledByDefault: false, defaultLayoutPreset: "2x2" };
+  try {
+    const raw = localStorage.getItem("nulltrace-startup-config");
+    if (!raw) return { gridEnabledByDefault: false, defaultLayoutPreset: "2x2" };
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const gridEnabledByDefault =
+      typeof parsed.gridEnabledByDefault === "boolean" ? parsed.gridEnabledByDefault : false;
+    const defaultLayoutPreset = ["3x2", "2x2", "2x1", "2+1", "1+2", "1x1"].includes(
+      parsed.defaultLayoutPreset as string
+    )
+      ? (parsed.defaultLayoutPreset as LayoutPreset)
+      : "2x2";
+    return { gridEnabledByDefault, defaultLayoutPreset };
+  } catch {
+    return { gridEnabledByDefault: false, defaultLayoutPreset: "2x2" };
+  }
+}
+
 
 /** Returns a map of slot key "row,col" to window id for the given workspace (excluding optional window). */
 export function getOccupiedSlots(
@@ -244,13 +263,21 @@ const WorkspaceLayoutContext = createContext<WorkspaceLayoutValue | null>(null);
 
 let nextWorkspaceNum = 5;
 
-export function WorkspaceLayoutProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, {
-    gridModeEnabled: false,
-    workspaceLayout: INITIAL_WORKSPACE_LAYOUT,
+function getInitialWorkspaceLayoutState(): WorkspaceLayoutState {
+  const { gridEnabledByDefault, defaultLayoutPreset } = getGridDefaultsFromStorage();
+  const workspaceLayout = Object.fromEntries(
+    INITIAL_WORKSPACES.map((ws) => [ws.id, defaultLayoutPreset])
+  );
+  return {
+    gridModeEnabled: gridEnabledByDefault,
+    workspaceLayout,
     workspaces: INITIAL_WORKSPACES,
     activeWorkspaceId: INITIAL_WORKSPACES[0].id,
-  });
+  };
+}
+
+export function WorkspaceLayoutProvider({ children }: { children: React.ReactNode }) {
+  const [state, dispatch] = useReducer(reducer, undefined, () => getInitialWorkspaceLayoutState());
 
   const { windows, open: wmOpen, setWindowWorkspace, move, resize, setWindowGridSlot } = useWindowManager();
 

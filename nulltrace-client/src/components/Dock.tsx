@@ -7,7 +7,7 @@ import type { WindowType } from "../contexts/WindowManagerContext";
 import { LAUNCHABLE_APPS, AppsIcon, getAppTitle } from "../lib/appList";
 import styles from "./Dock.module.css";
 
-/** Apps shown on the dock: exclude Theme, Pixel Art, Sysinfo, Shortcuts, Sysmon, Nullcloud. */
+/** Apps shown on the dock: exclude Theme, Pixel Art, Sysinfo, Shortcuts, Sysmon, Nullcloud, Startup. */
 const DOCK_LAUNCHABLE = LAUNCHABLE_APPS.filter(
   (app) =>
     app.type !== "theme" &&
@@ -15,13 +15,14 @@ const DOCK_LAUNCHABLE = LAUNCHABLE_APPS.filter(
     app.type !== "sysinfo" &&
     app.type !== "shortcuts" &&
     app.type !== "sysmon" &&
-    app.type !== "nullcloud"
+    app.type !== "nullcloud" &&
+    app.type !== "startup"
 );
 
 const WALLET_APP = LAUNCHABLE_APPS.find((a) => a.type === "wallet")!;
 const HACKERBOARD_APP = LAUNCHABLE_APPS.find((a) => a.type === "hackerboard")!;
 
-/** Dock order: dock apps (no Wallet, no Hackerboard), then Wallet, then Hackerboard, then All Apps. */
+/** Dock order: dock apps (no Wallet, Hackerboard), then Wallet, Hackerboard, then All Apps. */
 const DOCK_APPS_WITHOUT_WALLET_OR_HACKERBOARD = DOCK_LAUNCHABLE.filter(
   (a) => a.type !== "wallet" && a.type !== "hackerboard"
 );

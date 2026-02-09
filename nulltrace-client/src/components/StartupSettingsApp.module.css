@@ -1,0 +1,313 @@
+/* Startup: sidebar + main, same pattern as Hackerboard */
+.app {
+  display: flex;
+  height: 100%;
+  min-height: 200px;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 140px;
+  flex-shrink: 0;
+  padding: 0.5rem 0;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.sidebarTitle {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 0.4rem 0.75rem;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.navItem:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.navItemActive {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.navIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content {
+  flex: 1;
+  overflow: auto;
+  padding: 0.75rem 1rem;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hint {
+  margin: 0 0 1rem 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  margin-bottom: 0.75rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 8px);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.row:hover {
+  background: var(--bg-tertiary);
+}
+
+.rowLabel {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.rowActions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.iconBtn {
+  padding: 0.25rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.iconBtn:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.iconBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.addRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.addProgramSelect {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 1.75rem 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  color: var(--text-primary);
+  background-color: var(--bg-secondary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236c7086' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.addProgramSelect:hover {
+  border-color: var(--text-muted);
+}
+
+.addProgramSelect:focus {
+  border-color: var(--accent);
+}
+
+.addProgramSelect option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.addBtn {
+  padding: 0.45rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.addBtn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.addBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Cards for options (Grid section) */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 8px);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.checkLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  margin-bottom: 0.35rem;
+}
+
+.checkLabel:last-of-type {
+  margin-bottom: 0;
+}
+
+.checkbox {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+.cardHint {
+  margin: 0.35rem 0 0 1.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.presetWrap {
+  margin-top: 0.75rem;
+}
+
+.presetLabel {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.presetSelect {
+  padding: 0.5rem 1.75rem 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  color: var(--text-primary);
+  background-color: var(--bg-secondary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236c7086' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  min-width: 120px;
+  outline: none;
+  transition: border-color 0.15s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.presetSelect:hover {
+  border-color: var(--text-muted);
+}
+
+.presetSelect:focus {
+  border-color: var(--accent);
+}
+
+.presetSelect:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.presetSelect option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.emptyState {
+  padding: 1.5rem 0;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}

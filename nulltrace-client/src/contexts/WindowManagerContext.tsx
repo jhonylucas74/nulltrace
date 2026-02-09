@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 
-export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard";
+export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard" | "startup";
 
 export interface WindowPosition {
   x: number;
@@ -91,7 +91,10 @@ const NULLCLOUD_WINDOW_SIZE: WindowSize = { width: 560, height: 640 };
 /** Hackerboard app: feed and rankings. */
 const HACKERBOARD_WINDOW_SIZE: WindowSize = { width: 600, height: 700 };
 
-function getDefaultSizeForType(type: WindowType): WindowSize {
+/** Startup settings app: programs at login and grid defaults. */
+const STARTUP_WINDOW_SIZE: WindowSize = { width: 520, height: 480 };
+
+export function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "browser" || type === "editor") return LARGE_WINDOW_SIZE;
   if (type === "pixelart") return PIXELART_PICKER_SIZE;
   if (type === "sound") return SOUND_WINDOW_SIZE;
@@ -103,6 +106,7 @@ function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "sysmon") return SYSMON_WINDOW_SIZE;
   if (type === "nullcloud") return NULLCLOUD_WINDOW_SIZE;
   if (type === "hackerboard") return HACKERBOARD_WINDOW_SIZE;
+  if (type === "startup") return STARTUP_WINDOW_SIZE;
   return DEFAULT_SIZE;
 }
 
@@ -268,6 +272,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         sysmon: "System Monitor",
         nullcloud: "NullCloud",
         hackerboard: "Hackerboard",
+        startup: "Startup",
       };
       const title = options?.title ?? defaultTitles[type];
       const workspaceId = options?.workspaceId ?? "";

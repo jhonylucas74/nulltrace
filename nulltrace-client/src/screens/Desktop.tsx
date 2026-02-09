@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WalletProvider } from "../contexts/WalletContext";
-import { WindowManagerProvider, useWindowManager } from "../contexts/WindowManagerContext";
+import { WindowManagerProvider, useWindowManager, getDefaultSizeForType } from "../contexts/WindowManagerContext";
 import { WorkspaceLayoutProvider, useWorkspaceLayout, getWorkspaceArea, getSlotBounds } from "../contexts/WorkspaceLayoutContext";
+import { useStartupConfig } from "../contexts/StartupConfigContext";
 import { FilePickerProvider, useFilePicker, getDefaultInitialPath } from "../contexts/FilePickerContext";
 import { AppLauncherProvider, useAppLauncher } from "../contexts/AppLauncherContext";
 import { ShortcutsProvider } from "../contexts/ShortcutsContext";
@@ -32,8 +33,10 @@ import { PaymentFeedbackProvider } from "../contexts/PaymentFeedbackContext";
 import { HackerboardProvider } from "../contexts/HackerboardContext";
 import NullCloudApp from "../components/NullCloudApp";
 import HackerboardApp from "../components/HackerboardApp";
+import StartupSettingsApp from "../components/StartupSettingsApp";
 import ShortcutsHandler from "../components/ShortcutsHandler";
 import FilePicker from "../components/FilePicker";
+import { getAppTitle } from "../lib/appList";
 import styles from "./Desktop.module.css";
 
 function TerminalIcon() {
@@ -175,6 +178,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   sysmon: <SysmonIcon />,
   nullcloud: <NullCloudIcon />,
   hackerboard: <HackerboardIcon />,
+  startup: <Rocket size={12} />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -193,6 +197,7 @@ function DesktopContent() {
     activeWorkspaceId,
     workspaces,
     openApp,
+    setActiveWorkspace,
     gridModeEnabled,
     layoutPreset,
     getSlotAtPoint,
@@ -201,9 +206,12 @@ function DesktopContent() {
     getLayoutForWorkspace,
     moveWindowToWorkspace,
   } = useWorkspaceLayout();
+  const { startupAppTypes, centerFirstWindow } = useStartupConfig();
   const { isOpen: filePickerOpen, options: filePickerOptions, closeFilePicker } = useFilePicker();
   const { isOpen: appLauncherOpen } = useAppLauncher();
-  const hasOpenedSysinfoRef = useRef(false);
+  const hasRunStartupRef = useRef(false);
+  const prevUsernameRef = useRef<string | null>(null);
+  const [startupStep, setStartupStep] = useState(0);
   const [snapPreview, setSnapPreview] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const leftBottomRef = useRef<HTMLDivElement>(null);
   const [draggingWindowId, setDraggingWindowId] = useState<string | null>(null);
@@ -217,6 +225,19 @@ function DesktopContent() {
 
   const WORKSPACE_DROP_ZONE_THRESHOLD = 80;
 
+  // Reset startup state when user logs in (so we run the sequence again); clear when they log out.
+  useEffect(() => {
+    if (username) {
+      if (prevUsernameRef.current !== username) {
+        prevUsernameRef.current = username;
+        setStartupStep(0);
+      }
+    } else {
+      prevUsernameRef.current = null;
+      hasRunStartupRef.current = false;
+    }
+  }, [username]);
+
   const firstWorkspaceId = workspaces[0]?.id ?? "";
   const visibleWindows = windows.filter(
     (w) =>
@@ -225,11 +246,41 @@ function DesktopContent() {
       (w.workspaceId === activeWorkspaceId || (w.workspaceId === "" && activeWorkspaceId === firstWorkspaceId))
   );
 
+  // Open startup apps one at a time so grid mode assigns each to its own slot. Schedule next open
+  // after current tick so React has committed the new window to state before we ask for the next slot.
+  // When done, focus workspace 1.
   useEffect(() => {
-    if (!username || hasOpenedSysinfoRef.current) return;
-    hasOpenedSysinfoRef.current = true;
-    openApp("sysinfo");
-  }, [username, openApp]);
+    if (!username || hasRunStartupRef.current || startupAppTypes.length === 0) return;
+    if (startupStep >= startupAppTypes.length) {
+      hasRunStartupRef.current = true;
+      const ws1 = workspaces[0]?.id;
+      if (ws1) setActiveWorkspace(ws1);
+      return;
+    }
+    const type = startupAppTypes[startupStep];
+    const isFirst = startupStep === 0;
+    const title = getAppTitle(type, username);
+    const dockBottom = 6;
+    const dockHeight = 56;
+    const safeBottom = dockBottom + dockHeight;
+    const availableHeight = typeof window !== "undefined" ? window.innerHeight - safeBottom : 400;
+    if (isFirst && centerFirstWindow && !gridModeEnabled && typeof window !== "undefined") {
+      const size = getDefaultSizeForType(type);
+      const centerX = Math.max(0, (window.innerWidth - size.width) / 2);
+      const centerY = Math.max(0, Math.min((availableHeight - size.height) / 2, availableHeight - size.height));
+      openApp(type, { title, position: { x: centerX, y: centerY }, size });
+    } else {
+      openApp(type, { title });
+    }
+    const next = startupStep + 1;
+    if (next < startupAppTypes.length) {
+      const t = setTimeout(() => setStartupStep(next), 0);
+      return () => clearTimeout(t);
+    }
+    hasRunStartupRef.current = true;
+    const ws1 = workspaces[0]?.id;
+    if (ws1) setActiveWorkspace(ws1);
+  }, [username, startupAppTypes, startupStep, openApp, centerFirstWindow, gridModeEnabled, workspaces, setActiveWorkspace]);
 
   useEffect(() => {
     if (!gridModeEnabled) setSnapPreview(null);
@@ -433,6 +484,9 @@ function DesktopContent() {
     }
     if (win.type === "hackerboard") {
       return <HackerboardApp />;
+    }
+    if (win.type === "startup") {
+      return <StartupSettingsApp />;
     }
     return <PlaceholderContent title={win.title} />;
   }
