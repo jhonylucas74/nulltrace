@@ -1,0 +1,646 @@
+/* Codelab: LeetCode-style coding challenge app */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 280px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono), monospace;
+  overflow: hidden;
+}
+
+/* ─── LIST VIEW ──────────────────────────────────── */
+
+.listView {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.headerTitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.searchWrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.65rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  transition: border-color 0.15s;
+}
+
+.searchWrap:focus-within {
+  border-color: var(--accent);
+}
+
+.searchIcon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+.searchInput::placeholder {
+  color: var(--text-muted);
+}
+
+/* Filter pills row */
+.filters {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.filterPill {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.filterPill:hover {
+  background: var(--bg-surface);
+  border-color: var(--accent);
+}
+
+.filterPillActive {
+  background: var(--accent-muted);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Challenge list */
+.challengeList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.5rem 0;
+}
+
+.challengeRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.challengeRow:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.challengeIndex {
+  flex-shrink: 0;
+  width: 1.5rem;
+  text-align: right;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.challengeTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.badge {
+  flex-shrink: 0;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+}
+
+.badgeEasy {
+  color: var(--term-green);
+  background: rgba(80, 250, 123, 0.12);
+}
+
+.badgeMedium {
+  color: var(--term-yellow);
+  background: rgba(241, 196, 15, 0.12);
+}
+
+.badgeHard {
+  color: var(--term-red, #e74c3c);
+  background: rgba(231, 76, 60, 0.12);
+}
+
+.solvedIcon {
+  flex-shrink: 0;
+  color: var(--term-green);
+}
+
+.emptyState {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+/* ─── CHALLENGE VIEW ─────────────────────────────── */
+
+.challengeView {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.challengeHeader {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.backBtn:hover {
+  background: var(--bg-surface);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.challengeHeaderTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.challengeHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.runBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--term-green, #50fa7b);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: opacity 0.15s, filter 0.15s;
+}
+
+.runBtn:hover {
+  opacity: 0.95;
+  filter: brightness(1.05);
+}
+
+.runBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.submitBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: opacity 0.15s, filter 0.15s;
+}
+
+.submitBtn:hover {
+  opacity: 0.95;
+  filter: brightness(1.05);
+}
+
+.submitBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Split panels */
+.splitBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Left: problem description */
+.descriptionPanel {
+  width: 40%;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.descriptionContent {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
+}
+
+.descTitle {
+  margin: 0 0 0.15rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.descBadge {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+}
+
+.descText {
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.descSectionTitle {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.descExamples {
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  white-space: pre-wrap;
+  font-family: var(--font-mono), monospace;
+}
+
+.descTestCases {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.testCaseItem {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+}
+
+.testCaseLabel {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.15rem;
+}
+
+/* Right: code editor + console */
+.editorPanel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-terminal, var(--bg-primary));
+}
+
+.editorAndConsole {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Editor with line gutter */
+.editorWithGutter {
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  overflow: hidden;
+}
+
+.gutter {
+  flex-shrink: 0;
+  width: 3.5em;
+  padding: 0.75rem 0.5rem 0.75rem 0.75rem;
+  font-family: var(--font-mono), monospace;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  overflow: hidden;
+  overflow-y: auto;
+  user-select: none;
+}
+
+.gutterLine {
+  text-align: right;
+  white-space: pre;
+}
+
+.editorScrollWrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-terminal, var(--bg-primary));
+}
+
+.highlightLayer {
+  position: absolute;
+  inset: 0;
+  padding: 0.75rem 0.75rem 0.75rem 1rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre;
+  overflow: auto;
+  pointer-events: none;
+  word-wrap: normal;
+}
+
+/* Lua/Luau syntax highlight colors */
+.highlightLayer :global(.luau-keyword) {
+  color: var(--accent);
+}
+.highlightLayer :global(.luau-string) {
+  color: var(--term-green);
+}
+.highlightLayer :global(.luau-comment) {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.highlightLayer :global(.luau-number) {
+  color: var(--term-yellow);
+}
+.highlightLayer :global(.luau-builtin) {
+  color: var(--term-blue, #89b4fa);
+}
+
+.textarea {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  padding: 0.75rem 0.75rem 0.75rem 1rem;
+  font-family: var(--font-mono), monospace;
+  color: var(--text-primary);
+  background: var(--bg-terminal, var(--bg-primary));
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: auto;
+}
+
+.textareaHighlight {
+  color: transparent;
+  caret-color: var(--text-primary);
+  background: transparent;
+}
+
+.textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* Console panel (bottom of editor area) */
+.consolePanel {
+  flex-shrink: 0;
+  height: 180px;
+  min-height: 100px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.8rem;
+}
+
+.consoleHeader {
+  flex-shrink: 0;
+  padding: 0.35rem 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.consoleOutput {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.consoleEmpty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.consoleLine {
+  margin-bottom: 0.15rem;
+  color: var(--text-primary);
+}
+
+.consoleLineSystem {
+  margin-bottom: 0.15rem;
+  color: var(--text-muted);
+}
+
+.consoleLineError {
+  margin-bottom: 0.15rem;
+  color: var(--term-red, #e74c3c);
+}
+
+/* Test result rows in console */
+.testResult {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.testResult:last-child {
+  border-bottom: none;
+}
+
+.testResultIcon {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.testPass {
+  color: var(--term-green);
+}
+
+.testFail {
+  color: var(--term-red, #e74c3c);
+}
+
+.testResultBody {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+}
+
+.testResultLabel {
+  font-weight: 600;
+  margin-bottom: 0.15rem;
+}
+
+.testResultDetail {
+  color: var(--text-muted);
+}
+
+/* Success overlay */
+.successOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.3s ease-out;
+}
+
+.successIcon {
+  color: var(--term-green);
+}
+
+.successTitle {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--term-green);
+}
+
+.successSubtitle {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.successBtn {
+  margin-top: 0.5rem;
+  padding: 0.4rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.successBtn:hover {
+  opacity: 0.9;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

@@ -10,7 +10,7 @@ import { STORE_CATALOG } from "../lib/storeCatalog";
 import type { LaunchableApp } from "../lib/appList";
 import styles from "./Dock.module.css";
 
-/** Fixed dock apps: exclude Theme, Pixel Art, Sysinfo, Shortcuts, Sysmon, Nullcloud, Startup, Code, Wallpaper, Hackerboard, Settings, TraceRoute, Store. */
+/** Fixed dock apps: exclude Theme, Pixel Art, Sysinfo, Shortcuts, Sysmon, Nullcloud, Startup, Code, Wallpaper, Hackerboard, Settings, TraceRoute, Store, Packet. */
 const FIXED_DOCK_APPS: LaunchableApp[] = LAUNCHABLE_APPS.filter(
   (app) =>
     app.type !== "theme" &&
@@ -25,7 +25,8 @@ const FIXED_DOCK_APPS: LaunchableApp[] = LAUNCHABLE_APPS.filter(
     app.type !== "hackerboard" &&
     app.type !== "settings" &&
     app.type !== "traceroute" &&
-    app.type !== "store"
+    app.type !== "store" &&
+    app.type !== "packet"
 );
 
 const ALL_APPS_ENTRY: LaunchableApp = { type: "apps", label: "All Apps", icon: <AppsIcon /> };

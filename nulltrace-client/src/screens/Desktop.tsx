@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Grid3X3 } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Grid3X3, Package, GraduationCap } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WalletProvider } from "../contexts/WalletContext";
 import { WindowManagerProvider, useWindowManager, getDefaultSizeForType } from "../contexts/WindowManagerContext";
@@ -45,6 +45,8 @@ import StoreApp from "../components/StoreApp";
 import MinesweeperApp from "../components/MinesweeperApp";
 import ShortcutsHandler from "../components/ShortcutsHandler";
 import FilePicker from "../components/FilePicker";
+import PacketApp from "../components/PacketApp";
+import CodelabApp from "../components/CodelabApp";
 import { getAppTitle } from "../lib/appList";
 import styles from "./Desktop.module.css";
 
@@ -191,6 +193,8 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   traceroute: <Route size={12} />,
   store: <ShoppingBag size={12} />,
   minesweeper: <Grid3X3 size={12} />,
+  packet: <Package size={12} />,
+  codelab: <GraduationCap size={12} />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -553,17 +557,23 @@ function DesktopContent() {
     if (win.type === "minesweeper") {
       return <MinesweeperApp />;
     }
+    if (win.type === "packet") {
+      return <PacketApp />;
+    }
+    if (win.type === "codelab") {
+      return <CodelabApp />;
+    }
     return <PlaceholderContent title={win.title} />;
   }
 
   const wallpaperStyle =
     displayUrl != null
       ? {
-          backgroundImage: `url(${displayUrl})`,
-          backgroundSize: "cover" as const,
-          backgroundPosition: "center" as const,
-          backgroundRepeat: "no-repeat" as const,
-        }
+        backgroundImage: `url(${displayUrl})`,
+        backgroundSize: "cover" as const,
+        backgroundPosition: "center" as const,
+        backgroundRepeat: "no-repeat" as const,
+      }
       : undefined;
 
   const isRevealing = transitionToUrl !== null || transitionToGradient;
@@ -581,11 +591,11 @@ function DesktopContent() {
             style={
               transitionToUrl != null
                 ? {
-                    backgroundImage: `url(${transitionToUrl})`,
-                    backgroundSize: "cover",
-                    backgroundPosition: "center",
-                    backgroundRepeat: "no-repeat",
-                  }
+                  backgroundImage: `url(${transitionToUrl})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                  backgroundRepeat: "no-repeat",
+                }
                 : undefined
             }
             onAnimationEnd={handleWallpaperRevealEnd}
@@ -593,91 +603,91 @@ function DesktopContent() {
           />
         )}
         <TopBar />
-      {filePickerOpen && filePickerOptions && (
-        <FilePicker
-          open={true}
-          mode={filePickerOptions.mode}
-          initialPath={filePickerOptions.initialPath ?? getDefaultInitialPath()}
-          onSelect={(path) => {
-            filePickerOptions.onSelect(path);
-            closeFilePicker();
-          }}
-          onCancel={() => {
-            filePickerOptions.onCancel?.();
-            closeFilePicker();
-          }}
-        />
-      )}
-      {appLauncherOpen && <AppLauncher />}
-      {isDrawerOpen && <NotificationDrawer />}
-      {draggingWindowId && workspaceDropTarget && typeof window !== "undefined" && (
-        <div className={styles.workspaceDropOverlay} aria-hidden>
-          <div
-            className={styles.workspaceDropGhostDot}
-            style={{ left: dragCursorX, top: dragCursorY }}
-          />
-          <svg
-            className={styles.workspaceDropLine}
-            viewBox={`0 0 ${window.innerWidth} ${window.innerHeight}`}
-            preserveAspectRatio="none"
-          >
-            <line
-              x1={dragCursorX}
-              y1={dragCursorY}
-              x2={workspaceDropTarget.dotCenterX}
-              y2={workspaceDropTarget.dotCenterY}
-              stroke="var(--accent)"
-              strokeWidth="2"
-              strokeDasharray="6 4"
-            />
-          </svg>
-        </div>
-      )}
-      <div className={styles.leftBottom} ref={leftBottomRef}>
-        <LayoutPanel />
-        <WorkspaceDots highlightedWorkspaceId={workspaceDropTarget?.workspaceId ?? null} />
-      </div>
-      <div className={styles.workspace}>
-        {gridModeEnabled && snapPreview && (
-          <div
-            className={styles.gridSnapPreview}
-            style={{
-              left: snapPreview.x,
-              top: snapPreview.y,
-              width: snapPreview.width,
-              height: snapPreview.height,
+        {filePickerOpen && filePickerOptions && (
+          <FilePicker
+            open={true}
+            mode={filePickerOptions.mode}
+            initialPath={filePickerOptions.initialPath ?? getDefaultInitialPath()}
+            onSelect={(path) => {
+              filePickerOptions.onSelect(path);
+              closeFilePicker();
             }}
-            aria-hidden
+            onCancel={() => {
+              filePickerOptions.onCancel?.();
+              closeFilePicker();
+            }}
           />
         )}
-        {visibleWindows.map((win) => (
-          <Window
-            key={win.id}
-            id={win.id}
-            title={win.title}
-            position={win.position}
-            size={win.size}
-            onMove={move}
-            onResize={resize}
-            onClose={close}
-            onMinimize={minimize}
-            onMaximize={maximize}
-            focused={focusedId === win.id}
-            onFocus={() => setFocus(win.id)}
-            minimized={win.minimized}
-            maximized={win.maximized}
-            zIndex={win.zIndex}
-            icon={WINDOW_ICONS[win.type]}
-            onDragStart={handleDragStart}
-            onDragMove={handleDragMove}
-            onDragEnd={handleDragEnd}
-            dragGhost={draggingWindowId === win.id && workspaceDropTarget !== null}
-          >
-            {renderWindowContent(win)}
-          </Window>
-        ))}
-      </div>
-      <Dock username={username} />
+        {appLauncherOpen && <AppLauncher />}
+        {isDrawerOpen && <NotificationDrawer />}
+        {draggingWindowId && workspaceDropTarget && typeof window !== "undefined" && (
+          <div className={styles.workspaceDropOverlay} aria-hidden>
+            <div
+              className={styles.workspaceDropGhostDot}
+              style={{ left: dragCursorX, top: dragCursorY }}
+            />
+            <svg
+              className={styles.workspaceDropLine}
+              viewBox={`0 0 ${window.innerWidth} ${window.innerHeight}`}
+              preserveAspectRatio="none"
+            >
+              <line
+                x1={dragCursorX}
+                y1={dragCursorY}
+                x2={workspaceDropTarget.dotCenterX}
+                y2={workspaceDropTarget.dotCenterY}
+                stroke="var(--accent)"
+                strokeWidth="2"
+                strokeDasharray="6 4"
+              />
+            </svg>
+          </div>
+        )}
+        <div className={styles.leftBottom} ref={leftBottomRef}>
+          <LayoutPanel />
+          <WorkspaceDots highlightedWorkspaceId={workspaceDropTarget?.workspaceId ?? null} />
+        </div>
+        <div className={styles.workspace}>
+          {gridModeEnabled && snapPreview && (
+            <div
+              className={styles.gridSnapPreview}
+              style={{
+                left: snapPreview.x,
+                top: snapPreview.y,
+                width: snapPreview.width,
+                height: snapPreview.height,
+              }}
+              aria-hidden
+            />
+          )}
+          {visibleWindows.map((win) => (
+            <Window
+              key={win.id}
+              id={win.id}
+              title={win.title}
+              position={win.position}
+              size={win.size}
+              onMove={move}
+              onResize={resize}
+              onClose={close}
+              onMinimize={minimize}
+              onMaximize={maximize}
+              focused={focusedId === win.id}
+              onFocus={() => setFocus(win.id)}
+              minimized={win.minimized}
+              maximized={win.maximized}
+              zIndex={win.zIndex}
+              icon={WINDOW_ICONS[win.type]}
+              onDragStart={handleDragStart}
+              onDragMove={handleDragMove}
+              onDragEnd={handleDragEnd}
+              dragGhost={draggingWindowId === win.id && workspaceDropTarget !== null}
+            >
+              {renderWindowContent(win)}
+            </Window>
+          ))}
+        </div>
+        <Dock username={username} />
       </div>
       <ShortcutsHandler />
     </ShortcutsProvider>

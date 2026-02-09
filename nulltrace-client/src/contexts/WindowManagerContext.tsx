@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 
-export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard" | "startup" | "wallpaper" | "settings" | "traceroute" | "store" | "minesweeper";
+export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard" | "startup" | "wallpaper" | "settings" | "traceroute" | "store" | "minesweeper" | "packet" | "codelab";
 
 export interface WindowPosition {
   x: number;
@@ -109,6 +109,12 @@ const STORE_WINDOW_SIZE: WindowSize = { width: 720, height: 520 };
 /** Minesweeper app: classic grid game. */
 const MINESWEEPER_WINDOW_SIZE: WindowSize = { width: 400, height: 480 };
 
+/** Packet app: wide for columns. */
+const PACKET_WINDOW_SIZE: WindowSize = { width: 800, height: 500 };
+
+/** Codelab app: needs space for split editor layout. */
+const CODELAB_WINDOW_SIZE: WindowSize = { width: 960, height: 640 };
+
 export function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "browser" || type === "editor") return LARGE_WINDOW_SIZE;
   if (type === "pixelart") return PIXELART_PICKER_SIZE;
@@ -127,9 +133,10 @@ export function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "traceroute") return TRACEROUTE_WINDOW_SIZE;
   if (type === "store") return STORE_WINDOW_SIZE;
   if (type === "minesweeper") return MINESWEEPER_WINDOW_SIZE;
+  if (type === "packet") return PACKET_WINDOW_SIZE;
+  if (type === "codelab") return CODELAB_WINDOW_SIZE;
   return DEFAULT_SIZE;
 }
-
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 
@@ -259,21 +266,21 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         options?.position ??
         (typeof window !== "undefined"
           ? (() => {
-              const dockBottom = 6;
-              const dockHeight = 56;
-              const safeBottom = dockBottom + dockHeight;
-              const availableHeight = window.innerHeight - safeBottom;
-              const centerX = (window.innerWidth - size.width) / 2;
-              const centerY = (availableHeight - size.height) / 2;
-              const cascadeOffset = 28;
-              const n = state.windows.length;
-              const y = centerY + n * cascadeOffset;
-              const yClamped = Math.max(0, Math.min(y, availableHeight - size.height));
-              return {
-                x: Math.max(0, centerX),
-                y: yClamped,
-              };
-            })()
+            const dockBottom = 6;
+            const dockHeight = 56;
+            const safeBottom = dockBottom + dockHeight;
+            const availableHeight = window.innerHeight - safeBottom;
+            const centerX = (window.innerWidth - size.width) / 2;
+            const centerY = (availableHeight - size.height) / 2;
+            const cascadeOffset = 28;
+            const n = state.windows.length;
+            const y = centerY + n * cascadeOffset;
+            const yClamped = Math.max(0, Math.min(y, availableHeight - size.height));
+            return {
+              x: Math.max(0, centerX),
+              y: yClamped,
+            };
+          })()
           : { x: 60, y: 60 });
       const defaultTitles: Record<WindowType, string> = {
         terminal: "Terminal",
@@ -296,6 +303,10 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         wallpaper: "Background",
         settings: "Settings",
         traceroute: "TraceRoute",
+        store: "Store",
+        minesweeper: "Minesweeper",
+        packet: "Packet",
+        codelab: "Codelab",
       };
       const title = options?.title ?? defaultTitles[type];
       const workspaceId = options?.workspaceId ?? "";
