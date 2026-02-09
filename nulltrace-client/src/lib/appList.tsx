@@ -137,6 +137,11 @@ export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "wallpaper", label: "Background", icon: <BackgroundIcon /> },
 ];
 
+/** Get launchable app entry by type (for dock icon/label). */
+export function getAppByType(type: WindowType): LaunchableApp | undefined {
+  return LAUNCHABLE_APPS.find((a) => a.type === type);
+}
+
 /** Default window title for a given app type (optional username for Terminal). */
 export function getAppTitle(type: WindowType, username?: string | null): string {
   if (type === "terminal") return username ? `${username}@nulltrace` : "Terminal";
