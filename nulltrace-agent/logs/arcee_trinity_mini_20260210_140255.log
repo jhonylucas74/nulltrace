@@ -1,0 +1,424 @@
+======================================================================
+MODEL: Arcee Trinity Mini (arcee-ai/trinity-mini)
+Date: 2026-02-10 14:02:55
+======================================================================
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Mary Saints - HR Manager
+Tech: low | Age: 42
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: ERROR - Parse failed
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: ERROR - Parse failed
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: ERROR - Parse failed
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: ERROR - Parse failed
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: ERROR - Parse failed
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: ERROR - Parse failed
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: ERROR - Parse failed
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: ERROR - Parse failed
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: ERROR - Parse failed
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: ERROR - Parse failed
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: ERROR - Parse failed
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: ERROR - Parse failed
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: ERROR - Parse failed
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: ERROR - Parse failed
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: ERROR - Parse failed
+
+  Mary Saints => Det=0/15 Trick=0/15 OK=0/15 FP=0/15
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Charles Oliver - Junior Software Developer
+Tech: high | Age: 28
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: ERROR - Parse failed
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: ERROR - Parse failed
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: ERROR - Parse failed
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: ERROR - Parse failed
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: ERROR - Parse failed
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: ERROR - Parse failed
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: ERROR - Parse failed
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: ERROR - Parse failed
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: ERROR - Parse failed
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: ERROR - Parse failed
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: ERROR - Parse failed
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: ERROR - Parse failed
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: ERROR - Parse failed
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: ERROR - Parse failed
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: ERROR - Parse failed
+
+  Charles Oliver => Det=0/15 Trick=0/15 OK=0/15 FP=0/15
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Anna Ferrars - Finance Director
+Tech: medium | Age: 35
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: ERROR - Parse failed
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: ERROR - Parse failed
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: ERROR - Parse failed
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: ERROR - Parse failed
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: ERROR - Parse failed
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: ERROR - Parse failed
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: ERROR - Parse failed
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: ERROR - Parse failed
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: ERROR - Parse failed
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: ERROR - Parse failed
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: ERROR - Parse failed
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: ERROR - Parse failed
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: ERROR - Parse failed
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: ERROR - Parse failed
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: ERROR - Parse failed
+
+  Anna Ferrars => Det=0/15 Trick=0/15 OK=0/15 FP=0/15
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Robert Leman - Sales Director
+Tech: very_low | Age: 50
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: ERROR - Parse failed
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: ERROR - Parse failed
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: ERROR - Parse failed
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: ERROR - Parse failed
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: ERROR - Parse failed
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: ERROR - Parse failed
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: ERROR - Parse failed
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: ERROR - Parse failed
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: ERROR - Parse failed
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: ERROR - Parse failed
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: ERROR - Parse failed
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: ERROR - Parse failed
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: ERROR - Parse failed
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: ERROR - Parse failed
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: ERROR - Parse failed
+
+  Robert Leman => Det=0/15 Trick=0/15 OK=0/15 FP=0/15
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Julia Coast - IT Security Analyst
+Tech: expert | Age: 24
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: ERROR - Parse failed
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: ERROR - Parse failed
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: ERROR - Parse failed
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: ERROR - Parse failed
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: ERROR - Parse failed
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: ERROR - Parse failed
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: ERROR - Parse failed
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: ERROR - Parse failed
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: ERROR - Parse failed
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: ERROR - Parse failed
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: ERROR - Parse failed
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: ERROR - Parse failed
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: ERROR - Parse failed
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: ERROR - Parse failed
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: ERROR - Parse failed
+
+  Julia Coast => Det=0/15 Trick=0/15 OK=0/15 FP=0/15
+
+======================================================================
+SUMMARY: Arcee Trinity Mini
+Detection Rate: 0.0%  |  Trick Rate: 0.0%
+Total Cost: $0.0032 | Parse Errors: 0
+Det=0 Trick=0 OK=0 FP=0 Neutral=0 Err=75 P_Err=0
+  EASY: 0/25 detected, 0/25 tricked
+  MEDIUM: 0/25 detected, 0/25 tricked
+  HARD: 0/25 detected, 0/25 tricked
+======================================================================

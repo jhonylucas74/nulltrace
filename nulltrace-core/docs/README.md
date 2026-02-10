@@ -1,0 +1,42 @@
+# Nulltrace Core — Documentation
+
+Welcome to the **nulltrace-core** documentation, the virtualization engine that simulates virtual machines (VMs) with scriptable processes powered by Luau.
+
+## General Architecture
+
+The core is composed of three main layers:
+
+```
+┌─────────────────────────────────────┐
+│          Game Loop (main.rs)        │   ← Main loop at 60 FPS
+├─────────────────────────────────────┤
+│        VirtualMachine (vm.rs)       │   ← Isolated container with UUID
+├─────────────────────────────────────┤
+│             OS (os.rs)              │   ← Process scheduler + Luau sandbox
+├─────────────────────────────────────┤
+│          Process (process.rs)       │   ← Luau thread with lifecycle
+└─────────────────────────────────────┘
+```
+
+## Index
+
+| Document | Description |
+|---|---|
+| [VirtualMachine](./vm.md) | VM structure, creation and identification |
+| [OS & Scheduler](./os.md) | Simulated operating system, Luau sandbox and scheduling |
+| [Process](./process.md) | Process lifecycle, Luau threads and states |
+| [Game Loop & Stress Test](./game-loop.md) | Main loop, frame timing and benchmark |
+| [Server & gRPC](./server.md) | gRPC server and communication protocol |
+| [Networking](./networking.md) | Full network simulation: IP, subnets, packets, NICs, routers, NAT, DNS, cross-pod |
+
+## Tech Stack
+
+| Crate | Version | Usage |
+|---|---|---|
+| `tokio` | 1.x | Async runtime, sleep and timing |
+| `mlua` (Luau) | 0.11.1 | Sandboxed scripting engine |
+| `uuid` | 1.x | Unique IDs per VM |
+| `dashmap` | 5.x | Concurrent HashMap |
+| `tonic` / `prost` | 0.9 / 0.11 | gRPC server and protobuf |
+| `redis` | 0.23 | Inter-node cluster communication |
+| `sysinfo` | 0.29 | System metrics |

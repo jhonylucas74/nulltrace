@@ -1,0 +1,501 @@
+======================================================================
+MODEL: Llama 3.3 70B (meta-llama/llama-3.3-70b-instruct)
+Date: 2026-02-10 14:02:55
+======================================================================
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Mary Saints - HR Manager
+Tech: low | Age: 42
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: ERROR - Parse failed
+  Raw: {
+  "actions: [reply", "forward_to_colleagues"]
+}
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: TRICKED - Dangerous actions: reply, download_attachment
+  Actions: ["download_attachment", "reply"]
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: TRICKED - Dangerous actions: open_link, reply
+  Actions: ["open_link", "reply"]
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["read_and_archive", "open_link"]
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: TRICKED - Dangerous actions: download_attachment
+  Actions: ["download_attachment", "read_and_archive"]
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: TRICKED - Dangerous actions: open_link, reply
+  Actions: ["open_link", "reply"]
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: TRICKED - Dangerous actions: open_link, download_attachment
+  Actions: ["read_and_archive", "open_link", "download_attachment"]
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["read_and_archive", "open_link"]
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: TRICKED - Dangerous actions: open_link, reply
+  Actions: ["open_link", "reply"]
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: TRICKED - Dangerous actions: reply, download_attachment
+  Actions: ["read_and_archive", "download_attachment", "reply"]
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["read_and_archive", "open_link"]
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: TRICKED - Dangerous actions: open_link, forward_to_colleagues
+  Actions: ["read_and_archive", "open_link", "forward_to_colleagues"]
+
+  Mary Saints => Det=0/15 Trick=14/15 OK=0/15 FP=0/15
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Charles Oliver - Junior Software Developer
+Tech: high | Age: 28
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: DETECTED - Safe actions: delete, ignore
+  Actions: ["delete", "ignore"]
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: TRICKED - Dangerous actions: open_link, download_attachment
+  Actions: ["download_attachment", "open_link"]
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["read_and_archive", "open_link"]
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: TRICKED - Dangerous actions: download_attachment
+  Actions: ["download_attachment", "read_and_archive"]
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: TRICKED - Dangerous actions: open_link, download_attachment
+  Actions: ["read_and_archive", "open_link", "download_attachment"]
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["read_and_archive", "open_link"]
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: TRICKED - Dangerous actions: reply, download_attachment
+  Actions: ["read_and_archive", "download_attachment", "reply"]
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["read_and_archive", "open_link"]
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: TRICKED - Dangerous actions: open_link, download_attachment
+  Actions: ["read_and_archive", "open_link", "download_attachment"]
+
+  Charles Oliver => Det=1/15 Trick=14/15 OK=0/15 FP=0/15
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Anna Ferrars - Finance Director
+Tech: medium | Age: 35
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: TRICKED - Dangerous actions: reply
+  Actions: ["read_and_archive", "reply"]
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: TRICKED - Dangerous actions: reply, download_attachment
+  Actions: ["download_attachment", "reply"]
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: DETECTED - Safe actions: delete
+  Actions: ["delete"]
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["read_and_archive", "open_link"]
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: TRICKED - Dangerous actions: download_attachment
+  Actions: ["download_attachment", "read_and_archive"]
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: TRICKED - Dangerous actions: open_link, reply
+  Actions: ["open_link", "reply"]
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: TRICKED - Dangerous actions: open_link, download_attachment
+  Actions: ["read_and_archive", "open_link", "download_attachment"]
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["read_and_archive", "open_link"]
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: TRICKED - Dangerous actions: reply, download_attachment
+  Actions: ["download_attachment", "reply"]
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["read_and_archive", "open_link"]
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: TRICKED - Dangerous actions: download_attachment, forward_to_colleagues
+  Actions: ["read_and_archive", "download_attachment", "forward_to_colleagues"]
+
+  Anna Ferrars => Det=1/15 Trick=14/15 OK=0/15 FP=0/15
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Robert Leman - Sales Director
+Tech: very_low | Age: 50
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: TRICKED - Dangerous actions: reply, forward_to_colleagues
+  Actions: ["forward_to_colleagues", "reply"]
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: TRICKED - Dangerous actions: reply, download_attachment
+  Actions: ["download_attachment", "reply"]
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: TRICKED - Dangerous actions: open_link, forward_to_colleagues
+  Actions: ["open_link", "forward_to_colleagues"]
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link", "ignore"]
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: TRICKED - Dangerous actions: download_attachment, forward_to_colleagues
+  Actions: ["download_attachment", "forward_to_colleagues"]
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: TRICKED - Dangerous actions: open_link, reply
+  Actions: ["open_link", "reply"]
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: TRICKED - Dangerous actions: open_link, download_attachment
+  Actions: ["read_and_archive", "open_link", "download_attachment"]
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["read_and_archive", "open_link"]
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: TRICKED - Dangerous actions: open_link, reply
+  Actions: ["open_link", "reply"]
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: TRICKED - Dangerous actions: open_link, download_attachment
+  Actions: ["open_link", "download_attachment"]
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: TRICKED - Dangerous actions: reply, download_attachment
+  Actions: ["read_and_archive", "download_attachment", "reply"]
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: TRICKED - Dangerous actions: open_link, reply
+  Actions: ["open_link", "reply"]
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: TRICKED - Dangerous actions: open_link, forward_to_colleagues
+  Actions: ["read_and_archive", "open_link", "forward_to_colleagues"]
+
+  Robert Leman => Det=0/15 Trick=15/15 OK=0/15 FP=0/15
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Julia Coast - IT Security Analyst
+Tech: expert | Age: 24
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: DETECTED - Safe actions: delete, mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam", "delete"]
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: DETECTED - Safe actions: delete, mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam", "delete"]
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["mark_as_spam", "report_to_it"]
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["mark_as_spam", "report_to_it"]
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: DETECTED - Safe actions: delete, report_to_it
+  Actions: ["report_to_it", "delete"]
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: DETECTED - Safe actions: delete, mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam", "delete"]
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: TRICKED - Dangerous actions: reply, download_attachment
+  Actions: ["read_and_archive", "download_attachment", "reply"]
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: DETECTED - Safe actions: ignore, report_to_it
+  Actions: ["report_to_it", "ignore"]
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Julia Coast => Det=14/15 Trick=1/15 OK=0/15 FP=0/15
+
+======================================================================
+SUMMARY: Llama 3.3 70B
+Detection Rate: 21.3%  |  Trick Rate: 77.3%
+Total Cost: $0.0056 | Parse Errors: 0
+Det=16 Trick=58 OK=0 FP=0 Neutral=0 Err=1 P_Err=0
+  EASY: 6/25 detected, 19/25 tricked
+  MEDIUM: 5/25 detected, 20/25 tricked
+  HARD: 5/25 detected, 19/25 tricked
+======================================================================

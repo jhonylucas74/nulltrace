@@ -1,0 +1,499 @@
+======================================================================
+MODEL: Llama 3.1 8B (meta-llama/llama-3.1-8b-instruct)
+Date: 2026-02-10 14:02:55
+======================================================================
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Mary Saints - HR Manager
+Tech: low | Age: 42
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["read_and_archive", "open_link"]
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Mary Saints => Det=0/15 Trick=1/15 OK=0/15 FP=0/15
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Charles Oliver - Junior Software Developer
+Tech: high | Age: 28
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Charles Oliver => Det=0/15 Trick=0/15 OK=0/15 FP=0/15
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Anna Ferrars - Finance Director
+Tech: medium | Age: 35
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: TRICKED - Dangerous actions: forward_to_colleagues
+  Actions: ["read_and_archive", "forward_to_colleagues"]
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: DETECTED - Safe actions: delete, mark_as_spam
+  Actions: ["mark_as_spam", "delete"]
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: DETECTED - Safe actions: mark_as_spam
+  Actions: ["mark_as_spam"]
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: TRICKED - Dangerous actions: download_attachment
+  Actions: ["download_attachment"]
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["mark_as_spam", "report_to_it"]
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Anna Ferrars => Det=3/15 Trick=2/15 OK=0/15 FP=0/15
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Robert Leman - Sales Director
+Tech: very_low | Age: 50
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: TRICKED - Dangerous actions: download_attachment
+  Actions: ["download_attachment"]
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: DETECTED - Safe actions: ignore
+  Actions: ["ignore"]
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: TRICKED - Dangerous actions: open_link
+  Actions: ["open_link"]
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: TRICKED - Dangerous actions: open_link, forward_to_colleagues
+  Actions: ["forward_to_colleagues", "open_link"]
+
+  Robert Leman => Det=1/15 Trick=5/15 OK=0/15 FP=0/15
+
+──────────────────────────────────────────────────────────────────────
+PERSONA: Julia Coast - IT Security Analyst
+Tech: expert | Age: 24
+──────────────────────────────────────────────────────────────────────
+
+  Email #16 | PHISHING | Diff: easy
+  From: CyberNova IT Security <security@cybern0va-corp.com>
+  Subject: URGENT: Your password expires in 2 hours
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #17 | PHISHING | Diff: hard
+  From: Richard Saints - CEO <richard.saints@cybernova.com>
+  Subject: Urgent payment - Confidential
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #18 | PHISHING | Diff: medium
+  From: TechVendor Global <invoices@techvendor-global.net>
+  Subject: Invoice #INV-2026-0892 - Due Today
+  RESULT: DETECTED - Safe actions: delete, mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam", "delete"]
+
+  Email #19 | PHISHING | Diff: easy
+  From: Microsoft 365 Admin <noreply@account-verification-microsoft.com>
+  Subject: Your Microsoft 365 account will be suspended
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #20 | PHISHING | Diff: easy
+  From: Rewards Program <promo@gift-rewards-center.com>
+  Subject: You won a $500 gift card!
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #21 | PHISHING | Diff: medium
+  From: LinkedIn <notifications@linkedln-professional.com>
+  Subject: You have 3 new connections and 1 message
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["mark_as_spam", "report_to_it"]
+
+  Email #22 | PHISHING | Diff: medium
+  From: CyberNova Printer - 3rd Floor <scanner@cybernova-internal.com>
+  Subject: Scanned document - Scan_20260210.pdf
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #23 | PHISHING | Diff: easy
+  From: FedEx <delivery@fedex-tracking-us.com>
+  Subject: Your package could not be delivered - Action required
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #24 | PHISHING | Diff: hard
+  From: IT Team - CyberNova <it@cybernova.com>
+  Subject: Mandatory security update - Endpoint Protection
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #25 | PHISHING | Diff: hard
+  From: HR - Benefits Program <hr-benefits@cybernova.com>
+  Subject: Mandatory enrollment update - Health plan
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #26 | PHISHING | Diff: easy
+  From: Internal Revenue Service <irs.refund@mail-irs-gov.com>
+  Subject: Tax refund available - SSN irregularity detected
+  RESULT: DETECTED - Safe actions: delete, mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam", "delete"]
+
+  Email #27 | PHISHING | Diff: medium
+  From: Dropbox <noreply@dropbox-share.net>
+  Subject: Richard Saints shared a file with you
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #28 | PHISHING | Diff: hard
+  From: Patricia Masters <patricia.masters@cybernova.com>
+  Subject: Re: Meeting notes from yesterday
+  RESULT: NEUTRAL - Neutral actions: read_and_archive
+  Actions: ["read_and_archive"]
+
+  Email #29 | PHISHING | Diff: medium
+  From: CyberNova HelpDesk <helpdesk@cybernova-support.freshdesk.com>
+  Subject: Ticket #TK-4892 - Action required
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Email #30 | PHISHING | Diff: hard
+  From: Mark Silvers <mark.silvers@cybernova.com>
+  Subject: Fwd: Interesting vendor proposal for the team
+  RESULT: DETECTED - Safe actions: mark_as_spam, report_to_it
+  Actions: ["report_to_it", "mark_as_spam"]
+
+  Julia Coast => Det=13/15 Trick=0/15 OK=0/15 FP=0/15
+
+======================================================================
+SUMMARY: Llama 3.1 8B
+Detection Rate: 22.7%  |  Trick Rate: 10.7%
+Total Cost: $0.0025 | Parse Errors: 0
+Det=17 Trick=8 OK=0 FP=0 Neutral=50 Err=0 P_Err=0
+  EASY: 8/25 detected, 3/25 tricked
+  MEDIUM: 4/25 detected, 3/25 tricked
+  HARD: 5/25 detected, 2/25 tricked
+======================================================================
