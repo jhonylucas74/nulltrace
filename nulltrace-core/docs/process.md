@@ -103,3 +103,9 @@ tick() → resume()
 ```
 
 This ensures that **no Lua script can freeze the system** — even infinite loops are interrupted by the forced yield.
+
+### Benchmark and Interrupt Rate
+
+The interrupt rate is controlled in `os.rs` (lines 29–34): the handler yields every **2 instructions** (`count % 2 == 0`). Each tick processes one resume per process, so you get roughly **~2 instructions per tick** per process.
+
+A benchmark script (`BENCHMARK_LOOP` in `bench_scripts.rs`) validates this behavior: a simple loop (e.g. summing 1..1000) completes within a reasonable tick count. The test `test_program_completes_within_reasonable_ticks` runs this script and asserts that the process finishes before the limit (100,000 ticks) and that stdout contains the expected result.

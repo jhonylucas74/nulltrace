@@ -32,6 +32,7 @@ The core is composed of three main layers:
 | [Game Loop & Stress Test](./game-loop.md) | Main loop, frame timing and benchmark |
 | [Server & gRPC](./server.md) | gRPC server and communication protocol |
 | [Networking](./networking.md) | Full network simulation: IP, subnets, packets, NICs, routers, NAT, DNS, cross-pod |
+| [Blob Store](./blob-store.md) | Content-addressable storage: deduplication and copy-on-write for file content |
 
 ## Testing
 

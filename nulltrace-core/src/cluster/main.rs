@@ -1,3 +1,4 @@
+mod bench_scripts;
 mod bin_programs;
 mod process;
 mod vm;

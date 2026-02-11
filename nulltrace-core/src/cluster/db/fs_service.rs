@@ -1,7 +1,15 @@
 #![allow(dead_code)]
 
+use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
+
+/// SHA-256 hash of content as hex string (64 chars).
+fn hash_content(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    format!("{:x}", hasher.finalize())
+}
 
 #[derive(Debug, Clone, FromRow)]
 pub struct FsEntry {
@@ -101,9 +109,10 @@ impl FsService {
 
         let row: Option<(Vec<u8>, Option<String>)> = sqlx::query_as(
             r#"
-            SELECT c.data, n.mime_type
+            SELECT b.data, n.mime_type
             FROM fs_contents c
             JOIN fs_nodes n ON n.id = c.node_id
+            JOIN blob_store b ON b.hash = c.content_hash
             WHERE c.node_id = $1
             "#,
         )
@@ -142,10 +151,20 @@ impl FsService {
         .await?;
 
         let size = data.len() as i64;
+        let hash = hash_content(data);
+
+        // Ensure blob exists (insert if not already present)
+        sqlx::query(
+            "INSERT INTO blob_store (hash, data) VALUES ($1, $2) ON CONFLICT (hash) DO NOTHING",
+        )
+        .bind(&hash)
+        .bind(data)
+        .execute(&self.pool)
+        .await?;
 
         match existing {
             Some(node_id) => {
-                // Update existing file
+                // Update existing file — point to new blob (copy-on-write: old blob untouched)
                 sqlx::query(
                     "UPDATE fs_nodes SET size_bytes = $1, mime_type = $2, updated_at = now() WHERE id = $3",
                 )
@@ -155,8 +174,8 @@ impl FsService {
                 .execute(&self.pool)
                 .await?;
 
-                sqlx::query("UPDATE fs_contents SET data = $1 WHERE node_id = $2")
-                    .bind(data)
+                sqlx::query("UPDATE fs_contents SET content_hash = $1 WHERE node_id = $2")
+                    .bind(&hash)
                     .bind(node_id)
                     .execute(&self.pool)
                     .await?;
@@ -181,9 +200,9 @@ impl FsService {
                 .fetch_one(&self.pool)
                 .await?;
 
-                sqlx::query("INSERT INTO fs_contents (node_id, data) VALUES ($1, $2)")
+                sqlx::query("INSERT INTO fs_contents (node_id, content_hash) VALUES ($1, $2)")
                     .bind(node_id)
-                    .bind(data)
+                    .bind(&hash)
                     .execute(&self.pool)
                     .await?;
 
@@ -283,6 +302,57 @@ impl FsService {
             .bind(var_id)
             .execute(&self.pool)
             .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Migrate existing fs_contents from inline data to blob_store (content-addressable).
+    /// Call after 007 migration, before 008. Idempotent if content_hash already set.
+    pub async fn migrate_fs_contents_to_blob_store(pool: &PgPool) -> Result<(), sqlx::Error> {
+        // Check if data column exists (pre-008 schema)
+        let has_data: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'fs_contents' AND column_name = 'data'
+            )
+            "#,
+        )
+        .fetch_one(pool)
+        .await?;
+
+        if !has_data {
+            return Ok(());
+        }
+
+        #[derive(Debug, sqlx::FromRow)]
+        struct Row {
+            node_id: Uuid,
+            data: Vec<u8>,
+        }
+
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT node_id, data FROM fs_contents WHERE content_hash IS NULL",
+        )
+        .fetch_all(pool)
+        .await?;
+
+        for row in rows {
+            let hash = hash_content(&row.data);
+            sqlx::query(
+                "INSERT INTO blob_store (hash, data) VALUES ($1, $2) ON CONFLICT (hash) DO NOTHING",
+            )
+            .bind(&hash)
+            .bind(&row.data)
+            .execute(pool)
+            .await?;
+
+            sqlx::query("UPDATE fs_contents SET content_hash = $1 WHERE node_id = $2")
+                .bind(&hash)
+                .bind(row.node_id)
+                .execute(pool)
+                .await?;
         }
 
         Ok(())
@@ -544,6 +614,93 @@ mod tests {
         assert!(result.is_none());
 
         cleanup(&vm_svc, vm_id).await;
+    }
+
+    // ── blob store (content-addressable) tests ──
+
+    #[tokio::test]
+    async fn test_blob_deduplication() {
+        let pool = super::super::test_pool().await;
+        let (vm_id_1, vm_svc_1, fs_svc) = setup_vm(&pool).await;
+        let (vm_id_2, vm_svc_2, _) = setup_vm(&pool).await;
+
+        let content = b"identical content for both VMs";
+        fs_svc
+            .write_file(vm_id_1, "/tmp/shared.txt", content, None, "root")
+            .await
+            .unwrap();
+        fs_svc
+            .write_file(vm_id_2, "/tmp/shared.txt", content, None, "root")
+            .await
+            .unwrap();
+
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM blob_store WHERE data = $1",
+        )
+        .bind(content)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(count.0, 1, "identical content should be stored once in blob_store");
+
+        cleanup(&vm_svc_1, vm_id_1).await;
+        cleanup(&vm_svc_2, vm_id_2).await;
+    }
+
+    #[tokio::test]
+    async fn test_blob_copy_on_write() {
+        let pool = super::super::test_pool().await;
+        let (vm_id_1, vm_svc_1, fs_svc) = setup_vm(&pool).await;
+        let (vm_id_2, vm_svc_2, _) = setup_vm(&pool).await;
+
+        let original = b"original content";
+        let modified = b"modified by VM1";
+
+        fs_svc
+            .write_file(vm_id_1, "/tmp/file.txt", original, None, "root")
+            .await
+            .unwrap();
+        fs_svc
+            .write_file(vm_id_2, "/tmp/file.txt", original, None, "root")
+            .await
+            .unwrap();
+
+        let (data_1, _) = fs_svc.read_file(vm_id_1, "/tmp/file.txt").await.unwrap().unwrap();
+        let (data_2, _) = fs_svc.read_file(vm_id_2, "/tmp/file.txt").await.unwrap().unwrap();
+        assert_eq!(data_1, original);
+        assert_eq!(data_2, original);
+
+        fs_svc
+            .write_file(vm_id_1, "/tmp/file.txt", modified, None, "root")
+            .await
+            .unwrap();
+
+        let (data_1, _) = fs_svc.read_file(vm_id_1, "/tmp/file.txt").await.unwrap().unwrap();
+        let (data_2, _) = fs_svc.read_file(vm_id_2, "/tmp/file.txt").await.unwrap().unwrap();
+        assert_eq!(data_1, modified, "VM1 should see modified content");
+        assert_eq!(data_2, original, "VM2 should still see original (copy-on-write)");
+
+        let original_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM blob_store WHERE data = $1",
+        )
+        .bind(original)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let modified_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM blob_store WHERE data = $1",
+        )
+        .bind(modified)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(original_count.0, 1, "original blob should exist for VM2");
+        assert_eq!(modified_count.0, 1, "modified blob should exist for VM1");
+
+        cleanup(&vm_svc_1, vm_id_1).await;
+        cleanup(&vm_svc_2, vm_id_2).await;
     }
 
     // ── rm tests ──

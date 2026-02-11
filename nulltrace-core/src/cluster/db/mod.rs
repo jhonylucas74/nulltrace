@@ -35,6 +35,13 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(include_str!("../../../migrations/006_create_players.sql"))
         .execute(pool)
         .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/007_content_addressable_blobs.sql"))
+        .execute(pool)
+        .await?;
+    fs_service::FsService::migrate_fs_contents_to_blob_store(pool).await?;
+    sqlx::raw_sql(include_str!("../../../migrations/008_drop_fs_contents_data.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

@@ -50,3 +50,12 @@ for i = 1, #args do
     fs.rm(args[i])
 end
 "#;
+
+/// Programs to include when bootstrapping a new VM. User can delete them later.
+pub const DEFAULT_BIN_PROGRAMS: &[(&str, &str)] = &[
+    ("cat", CAT),
+    ("echo", ECHO),
+    ("ls", LS),
+    ("touch", TOUCH),
+    ("rm", RM),
+];

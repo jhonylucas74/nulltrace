@@ -15,7 +15,7 @@ use super::vm::VirtualMachine;
 use mlua::Lua;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::time::{sleep_until, Instant as TokioInstant};
+use tokio::time::{sleep, sleep_until, Instant as TokioInstant};
 use uuid::Uuid;
 
 const TPS: u32 = 60;
@@ -101,14 +101,7 @@ impl VmManager {
             .map_err(|e| format!("DB error bootstrapping FS: {}", e))?;
 
         // Bootstrap /bin programs
-        let bin_programs = [
-            ("cat", bin_programs::CAT),
-            ("echo", bin_programs::ECHO),
-            ("ls", bin_programs::LS),
-            ("touch", bin_programs::TOUCH),
-            ("rm", bin_programs::RM),
-        ];
-        for (name, source) in bin_programs {
+        for (name, source) in bin_programs::DEFAULT_BIN_PROGRAMS {
             let path = format!("/bin/{}", name);
             self.fs_service
                 .write_file(
@@ -474,6 +467,7 @@ impl VmManager {
 
 #[cfg(test)]
 mod tests {
+    use super::super::bench_scripts;
     use super::super::bin_programs;
     use super::super::db::{self, fs_service::FsService, player_service::PlayerService};
     use super::super::db::{user_service::UserService, vm_service::VmService};
@@ -672,8 +666,21 @@ end
         vm_id: Uuid,
         hostname: &str,
     ) -> String {
+        run_tick_until_done_with_limit(lua, vm, vm_id, hostname, 100).0
+    }
+
+    /// Helper: run tick loop with max ticks, return (stdout, tick_count).
+    fn run_tick_until_done_with_limit(
+        lua: &Lua,
+        vm: &mut VirtualMachine,
+        vm_id: Uuid,
+        hostname: &str,
+        max_ticks: usize,
+    ) -> (String, usize) {
         let mut stdout_result = String::new();
-        for _ in 0..100 {
+        let mut tick_count = 0;
+        for _ in 0..max_ticks {
+            tick_count += 1;
             {
                 let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
                 ctx.set_vm(vm_id, hostname, None);
@@ -699,11 +706,121 @@ end
                 }
             }
             vm.os.processes.retain(|p| !p.is_finished());
-            if vm.os.is_finished() {
+            if vm.os.processes.is_empty() || vm.os.is_finished() {
                 break;
             }
         }
-        stdout_result
+        (stdout_result, tick_count)
+    }
+
+    /// Variant that simulates 60 FPS game loop: sleeps ~16.6ms between ticks.
+    async fn run_tick_until_done_with_limit_60fps(
+        lua: &Lua,
+        vm: &mut VirtualMachine<'_>,
+        vm_id: Uuid,
+        hostname: &str,
+        max_ticks: usize,
+    ) -> (String, usize) {
+        let mut stdout_result = String::new();
+        let mut tick_count = 0;
+        for _ in 0..max_ticks {
+            tick_count += 1;
+            {
+                let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                ctx.set_vm(vm_id, hostname, None);
+            }
+            for process in &mut vm.os.processes {
+                if process.is_finished() {
+                    continue;
+                }
+                {
+                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    ctx.current_pid = process.id;
+                    ctx.current_uid = process.user_id;
+                    ctx.current_username = process.username.clone();
+                    ctx.set_current_process(
+                        process.stdin.clone(),
+                        process.stdout.clone(),
+                        process.args.clone(),
+                    );
+                }
+                process.tick();
+                if process.is_finished() {
+                    stdout_result = process.stdout.lock().unwrap().clone();
+                }
+            }
+            vm.os.processes.retain(|p| !p.is_finished());
+            if vm.os.processes.is_empty() || vm.os.is_finished() {
+                break;
+            }
+            sleep(super::TICK_TIME).await;
+        }
+        (stdout_result, tick_count)
+    }
+
+    /// Benchmark: program with nested loop completes within 2000 ticks.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_program_completes_within_reasonable_ticks() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 90, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "bench-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        vm.os.spawn_process(
+            bench_scripts::BENCHMARK_LOOP,
+            vec![],
+            0,
+            "root",
+        );
+
+        const MAX_TICKS: usize = 100_000;
+        let (stdout, tick_count) =
+            run_tick_until_done_with_limit_60fps(&lua, &mut vm, vm_id, "bench-vm", MAX_TICKS).await;
+
+        assert!(
+            vm.os.processes.is_empty(),
+            "benchmark should complete within {} ticks, used {}; stdout: {:?}",
+            MAX_TICKS,
+            tick_count,
+            stdout
+        );
+        assert!(
+            stdout.contains("result: 500500"),
+            "expected result 500500, got: {:?}",
+            stdout
+        );
     }
 
     /// Bin cat: reads file and outputs to stdout.
@@ -939,6 +1056,50 @@ end
             "rm should have deleted {}",
             rm_path
         );
+    }
+
+    /// Ensure every newly created VM includes all default /bin programs.
+    #[tokio::test]
+    async fn test_bootstrap_includes_default_bin_programs() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "bootstrap-bin-test-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+
+        let (record, _nic) = manager.create_vm(config).await.unwrap();
+        let entries = fs_service.ls(record.id, "/bin").await.unwrap();
+
+        let entry_names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        for (name, _) in bin_programs::DEFAULT_BIN_PROGRAMS {
+            assert!(
+                entry_names.contains(&name),
+                "/bin should contain '{}' after bootstrap, got: {:?}",
+                name,
+                entry_names
+            );
+        }
     }
 
     #[tokio::test]
