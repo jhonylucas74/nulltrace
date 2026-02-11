@@ -1,5 +1,11 @@
-
-// mod game;
+#[path = "cluster/process.rs"]
+mod process;
+#[path = "cluster/os.rs"]
+mod os;
+#[path = "cluster/net/mod.rs"]
+mod net;
+#[path = "cluster/vm.rs"]
+mod vm;
 
 use std::{
     sync::{
@@ -33,9 +39,9 @@ async fn main() {
 
     let mut vms = Vec::with_capacity(TOTAL_VMS);
 
-    let lua = game::os::create_lua_state();
+    let lua = os::create_lua_state();
     for _ in 0..TOTAL_VMS {
-        let mut vm = game::vm::VirtualMachine::new(&lua);
+        let mut vm = vm::VirtualMachine::new(&lua);
         metrics.vm_count.fetch_add(1, Ordering::Relaxed);
 
         for _ in 0..PROCESSOS_POR_VM {
@@ -57,7 +63,7 @@ end
 -- Loop para atacar cada inimigo
 for i = 1, #inimigos do
     local inimigo = inimigos[i]
-    
+
     if inimigo.vida > 0 then
         local dano = 10
         atacar(inimigo, dano)
