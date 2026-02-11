@@ -24,6 +24,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(include_str!("../../../migrations/003_create_fs_contents.sql"))
         .execute(pool)
         .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/004_add_dns_name.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

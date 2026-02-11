@@ -34,6 +34,7 @@ pub struct VmManager {
 pub struct ActiveVm {
     pub id: Uuid,
     pub hostname: String,
+    pub dns_name: Option<String>,
     pub ip: Option<Ipv4Addr>,
 }
 
@@ -90,8 +91,10 @@ impl VmManager {
             .await
             .map_err(|e| format!("DB error bootstrapping FS: {}", e))?;
 
-        // Register in DNS
-        self.dns.register_a(&record.hostname, nic.ip);
+        // Register in DNS only if dns_name is set
+        if let Some(ref dns_name) = record.dns_name {
+            self.dns.register_a(dns_name, nic.ip);
+        }
 
         // Register in NetManager
         self.net_manager.register_vm(nic.ip, id);
@@ -100,6 +103,7 @@ impl VmManager {
         self.active_vms.push(ActiveVm {
             id,
             hostname: record.hostname.clone(),
+            dns_name: record.dns_name.clone(),
             ip: Some(nic.ip),
         });
 
@@ -116,7 +120,9 @@ impl VmManager {
         // Find and remove from active
         if let Some(pos) = self.active_vms.iter().position(|v| v.id == vm_id) {
             let vm = self.active_vms.remove(pos);
-            self.dns.unregister_a(&vm.hostname);
+            if let Some(ref dns_name) = vm.dns_name {
+                self.dns.unregister_a(dns_name);
+            }
             if let Some(ip) = vm.ip {
                 self.net_manager.unregister_vm(&ip);
             }
@@ -130,7 +136,9 @@ impl VmManager {
         // Remove from active first
         if let Some(pos) = self.active_vms.iter().position(|v| v.id == vm_id) {
             let vm = self.active_vms.remove(pos);
-            self.dns.unregister_a(&vm.hostname);
+            if let Some(ref dns_name) = vm.dns_name {
+                self.dns.unregister_a(dns_name);
+            }
             if let Some(ip) = vm.ip {
                 self.net_manager.unregister_vm(&ip);
             }
@@ -155,15 +163,19 @@ impl VmManager {
         for record in &records {
             let ip = record.ip.as_deref().and_then(Ipv4Addr::parse);
 
-            // Re-register in DNS
+            // Re-register in DNS only if dns_name is set
+            if let (Some(dns_name), Some(ip)) = (&record.dns_name, ip) {
+                self.dns.register_a(dns_name, ip);
+            }
+
             if let Some(ip) = ip {
-                self.dns.register_a(&record.hostname, ip);
                 self.net_manager.register_vm(ip, record.id);
             }
 
             self.active_vms.push(ActiveVm {
                 id: record.id,
                 hostname: record.hostname.clone(),
+                dns_name: record.dns_name.clone(),
                 ip,
             });
 

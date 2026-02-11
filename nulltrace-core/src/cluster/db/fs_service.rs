@@ -345,6 +345,7 @@ mod tests {
                 vm_id,
                 VmConfig {
                     hostname: format!("test-{}", &vm_id.to_string()[..8]),
+                    dns_name: None,
                     cpu_cores: 1,
                     memory_mb: 512,
                     disk_mb: 10240,

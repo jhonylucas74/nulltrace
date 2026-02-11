@@ -8,6 +8,7 @@ use uuid::Uuid;
 pub struct VmRecord {
     pub id: Uuid,
     pub hostname: String,
+    pub dns_name: Option<String>,
     pub cpu_cores: i16,
     pub memory_mb: i32,
     pub disk_mb: i32,
@@ -24,6 +25,7 @@ pub struct VmRecord {
 #[derive(Debug)]
 pub struct VmConfig {
     pub hostname: String,
+    pub dns_name: Option<String>,
     pub cpu_cores: i16,
     pub memory_mb: i32,
     pub disk_mb: i32,
@@ -46,14 +48,15 @@ impl VmService {
     pub async fn create_vm(&self, id: Uuid, config: VmConfig) -> Result<VmRecord, sqlx::Error> {
         let rec = sqlx::query_as::<_, VmRecord>(
             r#"
-            INSERT INTO vms (id, hostname, cpu_cores, memory_mb, disk_mb, status, ip, subnet, gateway, mac, owner_id)
-            VALUES ($1, $2, $3, $4, $5, 'running', $6, $7, $8, $9, $10)
-            RETURNING id, hostname, cpu_cores, memory_mb, disk_mb, status,
+            INSERT INTO vms (id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status, ip, subnet, gateway, mac, owner_id)
+            VALUES ($1, $2, $3, $4, $5, $6, 'running', $7, $8, $9, $10, $11)
+            RETURNING id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
                       ip, subnet, gateway, mac, owner_id, created_at, updated_at
             "#,
         )
         .bind(id)
         .bind(&config.hostname)
+        .bind(&config.dns_name)
         .bind(config.cpu_cores)
         .bind(config.memory_mb)
         .bind(config.disk_mb)
@@ -71,7 +74,7 @@ impl VmService {
     pub async fn get_vm(&self, vm_id: Uuid) -> Result<Option<VmRecord>, sqlx::Error> {
         let rec = sqlx::query_as::<_, VmRecord>(
             r#"
-            SELECT id, hostname, cpu_cores, memory_mb, disk_mb, status,
+            SELECT id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
                    ip, subnet, gateway, mac, owner_id, created_at, updated_at
             FROM vms WHERE id = $1
             "#,
@@ -86,7 +89,7 @@ impl VmService {
     pub async fn restore_running_vms(&self) -> Result<Vec<VmRecord>, sqlx::Error> {
         let recs = sqlx::query_as::<_, VmRecord>(
             r#"
-            SELECT id, hostname, cpu_cores, memory_mb, disk_mb, status,
+            SELECT id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
                    ip, subnet, gateway, mac, owner_id, created_at, updated_at
             FROM vms WHERE status IN ('running', 'crashed')
             ORDER BY created_at
@@ -120,7 +123,7 @@ impl VmService {
     pub async fn list_all(&self) -> Result<Vec<VmRecord>, sqlx::Error> {
         let recs = sqlx::query_as::<_, VmRecord>(
             r#"
-            SELECT id, hostname, cpu_cores, memory_mb, disk_mb, status,
+            SELECT id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
                    ip, subnet, gateway, mac, owner_id, created_at, updated_at
             FROM vms ORDER BY created_at
             "#,
@@ -139,6 +142,7 @@ mod tests {
     fn test_config(name: &str) -> VmConfig {
         VmConfig {
             hostname: name.to_string(),
+            dns_name: None,
             cpu_cores: 2,
             memory_mb: 1024,
             disk_mb: 20480,

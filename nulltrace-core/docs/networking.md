@@ -791,6 +791,8 @@ DNS translates **human-readable names** into IP addresses. Instead of rememberin
 "web-server.nulltrace.local"     →  DNS query  →  10.0.1.5
 ```
 
+> **Important:** DNS registration is **opt-in**. Only VMs with a `dns_name` configured get A/PTR records. VMs without `dns_name` are "dark" — they exist on the network but are only reachable by IP address. The VM's `hostname` (its `/etc/hostname` identity) is **never** automatically exposed in DNS.
+
 ### Record types
 
 | Type | Purpose | Example |

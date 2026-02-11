@@ -8,9 +8,12 @@ The core is composed of three main layers:
 
 ```
 ┌─────────────────────────────────────┐
-│          Game Loop (main.rs)        │   ← Main loop at 60 FPS
+│      VmManager (vm_manager.rs)      │   ← Central orchestrator
+│  DB · DNS · NetManager · Router     │
 ├─────────────────────────────────────┤
-│        VirtualMachine (vm.rs)       │   ← Isolated container with UUID
+│     Game Loop (run_loop @ 60 TPS)   │   ← Tick all VMs + network routing
+├─────────────────────────────────────┤
+│        VirtualMachine (vm.rs)       │   ← Isolated container with UUID + NIC
 ├─────────────────────────────────────┤
 │             OS (os.rs)              │   ← Process scheduler + Luau sandbox
 ├─────────────────────────────────────┤
@@ -25,6 +28,7 @@ The core is composed of three main layers:
 | [VirtualMachine](./vm.md) | VM structure, creation and identification |
 | [OS & Scheduler](./os.md) | Simulated operating system, Luau sandbox and scheduling |
 | [Process](./process.md) | Process lifecycle, Luau threads and states |
+| [VM Manager](./vm-manager.md) | Central orchestrator: VM lifecycle, networking, game loop |
 | [Game Loop & Stress Test](./game-loop.md) | Main loop, frame timing and benchmark |
 | [Server & gRPC](./server.md) | gRPC server and communication protocol |
 | [Networking](./networking.md) | Full network simulation: IP, subnets, packets, NICs, routers, NAT, DNS, cross-pod |
