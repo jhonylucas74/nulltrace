@@ -2,25 +2,40 @@
 #![allow(dead_code)]
 
 use mlua::{Lua, Result, Thread, ThreadStatus};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 pub struct Process {
     pub id: u64,
     pub user_id: i32,
     pub username: String,
+    pub args: Vec<String>,
+    pub stdin: Arc<Mutex<VecDeque<String>>>,
+    pub stdout: Arc<Mutex<String>>,
     thread: Thread,
     finished: bool,
     duration: Instant,
 }
 
 impl Process {
-    pub fn new(lua: &Lua, id: u64, user_id: i32, username: &str, lua_code: &str) -> Result<Self> {
+    pub fn new(
+        lua: &Lua,
+        id: u64,
+        user_id: i32,
+        username: &str,
+        lua_code: &str,
+        args: Vec<String>,
+    ) -> Result<Self> {
         let thread = lua.create_thread(lua.load(lua_code).into_function()?)?;
 
         Ok(Self {
             id,
             user_id,
             username: username.to_string(),
+            args,
+            stdin: Arc::new(Mutex::new(VecDeque::new())),
+            stdout: Arc::new(Mutex::new(String::new())),
             thread,
             finished: false,
             duration: Instant::now(),

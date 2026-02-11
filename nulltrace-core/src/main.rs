@@ -74,6 +74,7 @@ for i = 1, #inimigos do
     end
 end
             "#,
+            vec![],
             0,
             "root",
             );

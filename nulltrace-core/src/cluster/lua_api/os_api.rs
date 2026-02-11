@@ -2,7 +2,7 @@
 
 use super::context::VmContext;
 use crate::db::user_service::UserService;
-use mlua::{Lua, Result};
+use mlua::{Lua, Result, Value};
 use std::sync::Arc;
 
 /// Register the `os` table on the Lua state.
@@ -72,6 +72,60 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>) -> Result<()> {
                 .app_data_ref::<VmContext>()
                 .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
             Ok(ctx.current_uid == 0)
+        })?,
+    )?;
+
+    // os.get_args() -> table of strings (Lua-indexed 1..n)
+    os.set(
+        "get_args",
+        lua.create_function(|lua, ()| {
+            let ctx = lua
+                .app_data_ref::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            let args = ctx.process_args.clone();
+            drop(ctx);
+            let result = lua.create_table()?;
+            for (i, arg) in args.iter().enumerate() {
+                result.set(i + 1, arg.as_str())?;
+            }
+            Ok(result)
+        })?,
+    )?;
+
+    // os.exec(name, args?) -> queues program to spawn from /bin/<name>
+    os.set(
+        "exec",
+        lua.create_function(|lua, (name, args): (String, Option<mlua::Table>)| {
+            let mut ctx = lua
+                .app_data_mut::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            let current_uid = ctx.current_uid;
+            let current_username = ctx.current_username.clone();
+            let argv: Vec<String> = match args {
+                Some(t) => {
+                    let mut v = Vec::new();
+                    let mut i = 1;
+                    loop {
+                        let val: Value = t.get(i)?;
+                        if let Value::Nil = val {
+                            break;
+                        }
+                        let s = match &val {
+                            Value::String(st) => st.to_str().map(|x| x.to_string()).unwrap_or_default(),
+                            Value::Integer(n) => n.to_string(),
+                            Value::Number(n) => n.to_string(),
+                            Value::Boolean(b) => b.to_string(),
+                            _ => format!("{:?}", val),
+                        };
+                        v.push(s);
+                        i += 1;
+                    }
+                    v
+                }
+                None => Vec::new(),
+            };
+            ctx.spawn_queue.push((name, argv, current_uid, current_username));
+            Ok(())
         })?,
     )?;
 
