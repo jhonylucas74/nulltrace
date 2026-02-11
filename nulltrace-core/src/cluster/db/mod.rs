@@ -1,0 +1,40 @@
+pub mod vm_service;
+pub mod fs_service;
+
+use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
+
+#[cfg(test)]
+const DEFAULT_DATABASE_URL: &str = "postgres://nulltrace:nulltrace@localhost:5432/nulltrace";
+
+pub async fn connect(database_url: &str) -> Result<PgPool, sqlx::Error> {
+    PgPoolOptions::new()
+        .max_connections(100)
+        .connect(database_url)
+        .await
+}
+
+pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::raw_sql(include_str!("../../../migrations/001_create_vms.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/002_create_fs_nodes.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/003_create_fs_contents.sql"))
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Creates a test pool and runs migrations. Used by integration tests.
+#[cfg(test)]
+pub async fn test_pool() -> PgPool {
+    let pool = connect(DEFAULT_DATABASE_URL)
+        .await
+        .expect("Failed to connect to test database. Is PostgreSQL running?");
+    run_migrations(&pool)
+        .await
+        .expect("Failed to run migrations");
+    pool
+}

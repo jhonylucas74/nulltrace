@@ -19,6 +19,8 @@ path = "src/server/main.rs"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 mlua = { version = "0.11.1", features = ["async", "serialize", "luau"] }
 uuid = { version = "1", features = ["v4"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono"] }
+chrono = { version = "0.4", features = ["serde"] }
 sysinfo = "0.29"
 dashmap = "5"
 tonic = "0.9"
