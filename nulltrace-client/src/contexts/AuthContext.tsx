@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useCallback } from "react";
 
 interface AuthContextValue {
   username: string | null;
-  login: (username: string) => void;
+  playerId: string | null;
+  login: (username: string, playerId?: string) => void;
   logout: () => void;
 }
 
@@ -10,17 +11,20 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [username, setUsername] = useState<string | null>(null);
+  const [playerId, setPlayerId] = useState<string | null>(null);
 
-  const login = useCallback((name: string) => {
-    setUsername(name.trim() || "hacker");
+  const login = useCallback((name: string, id?: string) => {
+    setUsername(name.trim() || null);
+    setPlayerId(id ?? null);
   }, []);
 
   const logout = useCallback(() => {
     setUsername(null);
+    setPlayerId(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ username, login, logout }}>
+    <AuthContext.Provider value={{ username, playerId, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

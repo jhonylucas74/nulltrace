@@ -1,6 +1,7 @@
 pub mod vm_service;
 pub mod fs_service;
 pub mod user_service;
+pub mod player_service;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -31,10 +32,14 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(include_str!("../../../migrations/005_create_vm_users.sql"))
         .execute(pool)
         .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/006_create_players.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
 /// Creates a test pool and runs migrations. Used by integration tests.
+/// Run with `cargo test --bin cluster -- --test-threads=1` to avoid migration deadlocks and ensure DB isolation.
 #[cfg(test)]
 pub async fn test_pool() -> PgPool {
     let pool = connect(DEFAULT_DATABASE_URL)

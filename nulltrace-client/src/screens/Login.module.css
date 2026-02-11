@@ -254,6 +254,12 @@
   color: var(--text-muted);
 }
 
+.errorText {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--accent-error, #e5534b);
+}
+
 .input {
   width: 100%;
   padding: 0.65rem 1rem;

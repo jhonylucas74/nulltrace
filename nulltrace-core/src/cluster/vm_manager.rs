@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
 use super::db::fs_service::FsService;
-use super::db::user_service::UserService;
+use super::db::player_service::PlayerService;
+use super::db::user_service::{UserService, VmUser};
 use super::db::vm_service::{VmConfig, VmRecord, VmService};
 use super::lua_api::context::VmContext;
 use super::net::dns::DnsResolver;
@@ -23,6 +24,7 @@ pub struct VmManager {
     pub vm_service: Arc<VmService>,
     pub fs_service: Arc<FsService>,
     pub user_service: Arc<UserService>,
+    pub player_service: Arc<PlayerService>,
     pub dns: DnsResolver,
     pub net_manager: NetManager,
     pub subnet: Subnet,
@@ -45,6 +47,7 @@ impl VmManager {
         vm_service: Arc<VmService>,
         fs_service: Arc<FsService>,
         user_service: Arc<UserService>,
+        player_service: Arc<PlayerService>,
         subnet: Subnet,
     ) -> Self {
         let mut router = Router::new();
@@ -54,6 +57,7 @@ impl VmManager {
             vm_service,
             fs_service,
             user_service,
+            player_service,
             dns: DnsResolver::new(),
             net_manager: NetManager::new("local".to_string()),
             subnet,
@@ -96,27 +100,43 @@ impl VmManager {
             .map_err(|e| format!("DB error bootstrapping FS: {}", e))?;
 
         // Bootstrap users (root + user)
-        let users = self
+        let mut users: Vec<VmUser> = self
             .user_service
             .bootstrap_users(id)
             .await
             .map_err(|e| format!("DB error bootstrapping users: {}", e))?;
 
-        // Create home directories and /etc/passwd + /etc/shadow
+        // If VM has an owner (player), create an admin vm_user with same username/password and is_root
+        if let Some(owner_id) = record.owner_id {
+            let player = self
+                .player_service
+                .get_by_id(owner_id)
+                .await
+                .map_err(|e| format!("DB error loading owner player: {}", e))?
+                .ok_or_else(|| "Owner player not found".to_string())?;
+            let owner_home = format!("/home/{}", player.username);
+            let owner_user = self
+                .user_service
+                .create_user(
+                    id,
+                    &player.username,
+                    1001,
+                    Some(&player.password_hash),
+                    true,
+                    &owner_home,
+                    "/bin/sh",
+                )
+                .await
+                .map_err(|e| format!("DB error creating owner admin user: {}", e))?;
+            users.push(owner_user);
+        }
+
+        // Create home directories (use each user's home_dir)
         for user in &users {
-            if user.is_root {
-                // /root directory
-                self.fs_service
-                    .mkdir(id, "/root", "root")
-                    .await
-                    .map_err(|e| format!("DB error creating /root: {}", e))?;
-            } else {
-                // /home/<username>
-                self.fs_service
-                    .mkdir(id, &user.home_dir, &user.username)
-                    .await
-                    .map_err(|e| format!("DB error creating home dir: {}", e))?;
-            }
+            self.fs_service
+                .mkdir(id, &user.home_dir, &user.username)
+                .await
+                .map_err(|e| format!("DB error creating home dir: {}", e))?;
         }
 
         // Write /etc/passwd
@@ -399,5 +419,106 @@ impl VmManager {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::db::{self, fs_service::FsService, player_service::PlayerService};
+    use super::super::db::{user_service::UserService, vm_service::VmService};
+    use super::super::net::ip::{Ipv4Addr, Subnet};
+    use super::*;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_create_vm_without_owner_has_only_bootstrap_users() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 99, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "no-owner-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+
+        let (record, _nic) = manager.create_vm(config).await.unwrap();
+        let users = user_service.list_users(record.id).await.unwrap();
+
+        assert_eq!(users.len(), 2, "only root and user");
+        assert_eq!(users[0].username, "root");
+        assert_eq!(users[1].username, "user");
+    }
+
+    #[tokio::test]
+    async fn test_create_vm_with_owner_creates_admin_vm_user() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 98, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+
+        let owner_name = format!("ownerplayer_{}", Uuid::new_v4());
+        let player = player_service
+            .create_player(&owner_name, "ownerpass")
+            .await
+            .unwrap();
+
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "owned-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: Some(player.id),
+        };
+
+        let (record, _nic) = manager.create_vm(config).await.unwrap();
+        let users = user_service.list_users(record.id).await.unwrap();
+
+        assert_eq!(users.len(), 3, "root, user, and owner admin");
+        let usernames: Vec<&str> = users.iter().map(|u| u.username.as_str()).collect();
+        assert!(usernames.contains(&"root"));
+        assert!(usernames.contains(&"user"));
+        assert!(usernames.contains(&owner_name.as_str()));
+
+        let owner_vm_user = users.iter().find(|u| u.username == owner_name).unwrap();
+        assert!(owner_vm_user.is_root);
+        assert_eq!(owner_vm_user.uid, 1001);
+        assert_eq!(owner_vm_user.home_dir, format!("/home/{}", owner_name));
+
+        assert!(user_service
+            .verify_password(record.id, &owner_name, "ownerpass")
+            .await
+            .unwrap());
     }
 }

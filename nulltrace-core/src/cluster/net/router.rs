@@ -250,7 +250,7 @@ mod tests {
                 assert_eq!(interface_idx, 1); // subnet2 interface
                 assert_eq!(packet.dst_ip, Ipv4Addr::new(10, 0, 2, 3));
             }
-            other => panic!("Expected Deliver, got something else"),
+            _other => panic!("Expected Deliver, got something else"),
         }
     }
 
@@ -268,7 +268,7 @@ mod tests {
 
         match router.route_packet(pkt) {
             RouteResult::Drop(DropReason::NoRoute) => {} // Expected
-            other => panic!("Expected NoRoute drop"),
+            _other => panic!("Expected NoRoute drop"),
         }
     }
 
@@ -295,7 +295,7 @@ mod tests {
             RouteResult::CrossPod(packet) => {
                 assert_eq!(packet.dst_ip, Ipv4Addr::new(10, 0, 3, 5));
             }
-            other => panic!("Expected CrossPod"),
+            _other => panic!("Expected CrossPod"),
         }
     }
 
@@ -321,7 +321,7 @@ mod tests {
 
         match router.route_packet(pkt) {
             RouteResult::Drop(DropReason::Firewall) => {} // Expected
-            other => panic!("Expected Firewall drop"),
+            _other => panic!("Expected Firewall drop"),
         }
     }
 
@@ -340,7 +340,7 @@ mod tests {
 
         match router.route_packet(pkt) {
             RouteResult::Drop(DropReason::TtlExpired) => {} // Expected
-            other => panic!("Expected TtlExpired drop"),
+            _other => panic!("Expected TtlExpired drop"),
         }
     }
 
@@ -367,7 +367,7 @@ mod tests {
             RouteResult::Forward { next_hop_ip, .. } => {
                 assert_eq!(next_hop_ip, Ipv4Addr::new(10, 0, 2, 100));
             }
-            other => panic!("Expected Forward"),
+            _other => panic!("Expected Forward"),
         }
     }
 }

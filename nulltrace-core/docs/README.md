@@ -33,6 +33,16 @@ The core is composed of three main layers:
 | [Server & gRPC](./server.md) | gRPC server and communication protocol |
 | [Networking](./networking.md) | Full network simulation: IP, subnets, packets, NICs, routers, NAT, DNS, cross-pod |
 
+## Testing
+
+DB-backed tests (cluster binary) must run with a single thread to avoid migration deadlocks and ensure isolation:
+
+```bash
+cargo test --bin cluster -- --test-threads=1
+```
+
+PostgreSQL must be running at `postgres://nulltrace:nulltrace@localhost:5432/nulltrace`.
+
 ## Tech Stack
 
 | Crate | Version | Usage |

@@ -1,3 +1,5 @@
+mod grpc;
+
 use mlua::{Lua, VmState};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -64,7 +66,12 @@ fn get_app_version(app: tauri::AppHandle) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![get_app_version, run_luau])
+        .invoke_handler(tauri::generate_handler![
+            get_app_version,
+            run_luau,
+            grpc::grpc_ping,
+            grpc::grpc_login,
+        ])
         .setup(|app| {
             #[cfg(debug_assertions)]
             {
