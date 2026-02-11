@@ -8,6 +8,8 @@ use std::time::Instant;
 
 pub struct Process {
     pub id: u64,
+    /// Parent process ID, if this process was spawned as a child.
+    pub parent_id: Option<u64>,
     pub user_id: i32,
     pub username: String,
     pub args: Vec<String>,
@@ -19,9 +21,11 @@ pub struct Process {
 }
 
 impl Process {
+    /// Creates a process with the given id and optional parent_id (for child processes).
     pub fn new(
         lua: &Lua,
         id: u64,
+        parent_id: Option<u64>,
         user_id: i32,
         username: &str,
         lua_code: &str,
@@ -31,6 +35,7 @@ impl Process {
 
         Ok(Self {
             id,
+            parent_id,
             user_id,
             username: username.to_string(),
             args,
@@ -65,8 +70,25 @@ impl Process {
     }
 }
 
-// impl Drop for Process {
-//     fn drop(&mut self) {
-//         // println!("Removing the process {}", self.id);
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_process_new_with_parent_id() {
+        let lua = Lua::new();
+        let process =
+            Process::new(&lua, 2, Some(1), 0, "root", "return", vec![]).expect("Process::new");
+        assert_eq!(process.id, 2);
+        assert_eq!(process.parent_id, Some(1));
+    }
+
+    #[test]
+    fn test_process_new_without_parent_id() {
+        let lua = Lua::new();
+        let process =
+            Process::new(&lua, 1, None, 0, "root", "return", vec![]).expect("Process::new");
+        assert_eq!(process.id, 1);
+        assert_eq!(process.parent_id, None);
+    }
+}

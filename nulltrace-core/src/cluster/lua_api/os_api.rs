@@ -1,9 +1,36 @@
 #![allow(dead_code)]
 
-use super::context::VmContext;
+use super::context::{SpawnSpec, VmContext};
+use crate::process_parser;
 use crate::db::user_service::UserService;
 use mlua::{Lua, Result, Value};
 use std::sync::Arc;
+
+/// Converts a Lua table (1-indexed sequence) to Vec<String> for argv.
+fn table_to_argv(_lua: &Lua, t: Option<mlua::Table>) -> std::result::Result<Vec<String>, mlua::Error> {
+    let mut v = Vec::new();
+    let t = match t {
+        Some(t) => t,
+        None => return Ok(v),
+    };
+    let mut i = 1u32;
+    loop {
+        let val: Value = t.get(i)?;
+        if let Value::Nil = val {
+            break;
+        }
+        let s = match &val {
+            Value::String(st) => st.to_str().map(|x| x.to_string()).unwrap_or_default(),
+            Value::Integer(n) => n.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::Boolean(b) => b.to_string(),
+            _ => format!("{:?}", val),
+        };
+        v.push(s);
+        i += 1;
+    }
+    Ok(v)
+}
 
 /// Register the `os` table on the Lua state.
 pub fn register(lua: &Lua, user_service: Arc<UserService>) -> Result<()> {
@@ -92,39 +119,118 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>) -> Result<()> {
         })?,
     )?;
 
-    // os.exec(name, args?) -> queues program to spawn from /bin/<name>
+    // os.spawn(name, args) -> pid. Two args: bin name and table of args. pid/username/parent from context.
+    os.set(
+        "spawn",
+        lua.create_function(|lua, (name, args): (String, Option<mlua::Table>)| {
+            let mut ctx = lua
+                .app_data_mut::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            let argv = table_to_argv(&lua, args)?;
+            let pid = ctx.next_pid;
+            ctx.next_pid = ctx.next_pid.saturating_add(1);
+            let parent_pid = ctx.current_pid;
+            let uid = ctx.current_uid;
+            let username = ctx.current_username.clone();
+            ctx.spawn_queue
+                .push((pid, parent_pid, SpawnSpec::Bin(name), argv, uid, username));
+            Ok(pid)
+        })?,
+    )?;
+
+    // os.spawn_path(path, args) -> pid. Two args: file path and table of args.
+    os.set(
+        "spawn_path",
+        lua.create_function(|lua, (path, args): (String, Option<mlua::Table>)| {
+            let mut ctx = lua
+                .app_data_mut::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            let argv = table_to_argv(&lua, args)?;
+            let pid = ctx.next_pid;
+            ctx.next_pid = ctx.next_pid.saturating_add(1);
+            let parent_pid = ctx.current_pid;
+            let uid = ctx.current_uid;
+            let username = ctx.current_username.clone();
+            ctx.spawn_queue
+                .push((pid, parent_pid, SpawnSpec::Path(path), argv, uid, username));
+            Ok(pid)
+        })?,
+    )?;
+
+    // os.process_status(pid) -> "running" | "finished" | "not_found"
+    os.set(
+        "process_status",
+        lua.create_function(|lua, pid: u64| {
+            let ctx = lua
+                .app_data_ref::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            let status = ctx
+                .process_status_map
+                .get(&pid)
+                .cloned()
+                .unwrap_or_else(|| "not_found".to_string());
+            Ok(status)
+        })?,
+    )?;
+
+    // os.write_stdin(pid, line) -> inject a line into process stdin
+    os.set(
+        "write_stdin",
+        lua.create_function(|lua, (pid, line): (u64, String)| {
+            let mut ctx = lua
+                .app_data_mut::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            ctx.stdin_inject_queue.push((pid, line));
+            Ok(())
+        })?,
+    )?;
+
+    // os.read_stdout(pid) -> string or nil
+    os.set(
+        "read_stdout",
+        lua.create_function(|lua, pid: u64| {
+            let ctx = lua
+                .app_data_ref::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            let out = ctx.process_stdout.get(&pid).cloned();
+            Ok(match out {
+                Some(s) => Value::String(lua.create_string(&s)?),
+                None => Value::Nil,
+            })
+        })?,
+    )?;
+
+    // os.parse_cmd(line) -> { program = string, args = table } or nil
+    os.set(
+        "parse_cmd",
+        lua.create_function(|lua, line: String| {
+            let (program, args) = process_parser::parse_cmd_line(&line);
+            let t = lua.create_table()?;
+            t.set("program", program.as_str())?;
+            let args_t = lua.create_table()?;
+            for (i, a) in args.iter().enumerate() {
+                args_t.set(i + 1, a.as_str())?;
+            }
+            t.set("args", args_t)?;
+            Ok(t)
+        })?,
+    )?;
+
+    // os.exec(name, args?) -> queues program to spawn from /bin/<name> (fire-and-forget, no return)
     os.set(
         "exec",
         lua.create_function(|lua, (name, args): (String, Option<mlua::Table>)| {
             let mut ctx = lua
                 .app_data_mut::<VmContext>()
                 .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
-            let current_uid = ctx.current_uid;
-            let current_username = ctx.current_username.clone();
-            let argv: Vec<String> = match args {
-                Some(t) => {
-                    let mut v = Vec::new();
-                    let mut i = 1;
-                    loop {
-                        let val: Value = t.get(i)?;
-                        if let Value::Nil = val {
-                            break;
-                        }
-                        let s = match &val {
-                            Value::String(st) => st.to_str().map(|x| x.to_string()).unwrap_or_default(),
-                            Value::Integer(n) => n.to_string(),
-                            Value::Number(n) => n.to_string(),
-                            Value::Boolean(b) => b.to_string(),
-                            _ => format!("{:?}", val),
-                        };
-                        v.push(s);
-                        i += 1;
-                    }
-                    v
-                }
-                None => Vec::new(),
-            };
-            ctx.spawn_queue.push((name, argv, current_uid, current_username));
+            let argv = table_to_argv(&lua, args)?;
+            let pid = ctx.next_pid;
+            ctx.next_pid = ctx.next_pid.saturating_add(1);
+            let parent_pid = ctx.current_pid;
+            let uid = ctx.current_uid;
+            let username = ctx.current_username.clone();
+            ctx.spawn_queue
+                .push((pid, parent_pid, SpawnSpec::Bin(name), argv, uid, username));
             Ok(())
         })?,
     )?;

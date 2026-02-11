@@ -1,6 +1,7 @@
 mod bench_scripts;
 mod bin_programs;
 mod process;
+mod process_parser;
 mod vm;
 mod os;
 mod net;

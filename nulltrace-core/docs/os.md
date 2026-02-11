@@ -59,19 +59,43 @@ Process B: [execute] [yield] [execute] [yield] ...
 
 ## Key Methods
 
-### `spawn_process(lua_code: &str)`
+### `spawn_process(lua_code, args, user_id, username)` (Rust)
 
-Creates a new process from Lua code:
+Backward-compatible helper: allocates the next PID and creates a process with no parent.
+
+### `spawn_process_with_id(id, parent_id, lua_code, args, user_id, username)` (Rust)
+
+Creates a process with a pre-allocated `id` and optional `parent_id`. Used by the game loop when draining the spawn queue (from Lua `os.spawn` / `os.spawn_path`). Returns `Option<u64>` (the PID on success).
+
+### `next_process_id()` (Rust)
+
+Returns the next PID that will be allocated; used by the game loop to sync `VmContext.next_pid` at the start of each VM tick.
+
+### Lua `os` API (process-related)
+
+All of these are available to scripts running inside a VM; PID, username, and parent PID are taken from the current context (the process making the call).
+
+- **`os.spawn(name, args)`** — Spawns a child from `/bin/<name>`. `name` is a string, `args` a table of strings (can be `{}`). Returns the new process PID.
+- **`os.spawn_path(path, args)`** — Spawns a child from the script at `path`. `path` and `args` as above. Returns the new process PID.
+- **`os.exec(name, args?)`** — Same as spawn-from-bin but fire-and-forget (no return value). Kept for backward compatibility.
+- **`os.process_status(pid)`** — Returns `"running"`, `"finished"`, or `"not_found"` for the given PID.
+- **`os.write_stdin(pid, line)`** — Injects a line into the given process's stdin (applied after the current tick).
+- **`os.read_stdout(pid)`** — Returns the current stdout contents for the process, or `nil` if not found.
+- **`os.parse_cmd(line)`** — Parses a command line (e.g. `cat path/file --pretty` or `sum age=2`) into `{ program = string, args = table }`. Respects quotes and key=value args.
+
+### Legacy `spawn_process` (Rust, from Lua code)
+
+Creates a new process from Lua code (used by tests and bootstrap):
 
 ```rust
 vm.os.spawn_process(r#"
     local x = 1 + 2
     print(x)
-"#);
+"#, vec![], 0, "root");
 ```
 
-1. Generates an **incremental PID** via `AtomicU64`
-2. Creates a `Process` (compiles the Lua code into a thread)
+1. Allocates an **incremental PID** via `next_process_id`
+2. Creates a `Process` (compiles the Lua code into a thread) with `parent_id: None`
 3. Adds it to the process list
 
 ### `tick()`

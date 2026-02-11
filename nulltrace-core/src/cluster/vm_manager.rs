@@ -5,7 +5,7 @@ use super::db::fs_service::FsService;
 use super::db::player_service::PlayerService;
 use super::db::user_service::{UserService, VmUser};
 use super::db::vm_service::{VmConfig, VmRecord, VmService};
-use super::lua_api::context::VmContext;
+use super::lua_api::context::{SpawnSpec, VmContext};
 use super::net::dns::DnsResolver;
 use super::net::ip::{Ipv4Addr, Subnet};
 use super::net::net_manager::NetManager;
@@ -361,7 +361,15 @@ impl VmManager {
                     let hostname = active.map(|a| a.hostname.as_str()).unwrap_or("unknown");
                     let ip = active.and_then(|a| a.ip);
                     ctx.set_vm(vm.id, hostname, ip);
-
+                    ctx.next_pid = vm.os.next_process_id();
+                    // Snapshot process status and stdout for Lua os.process_status / os.read_stdout
+                    for p in &vm.os.processes {
+                        let status = if p.is_finished() { "finished" } else { "running" };
+                        ctx.process_status_map.insert(p.id, status.to_string());
+                        if let Ok(guard) = p.stdout.lock() {
+                            ctx.process_stdout.insert(p.id, guard.clone());
+                        }
+                    }
                     // Load inbound packets into context
                     if let Some(nic) = &mut vm.nic {
                         while let Some(pkt) = nic.recv() {
@@ -397,15 +405,18 @@ impl VmManager {
                 }
                 vm.os.processes.retain(|p| !p.is_finished());
 
-                // Process spawn_queue (from os.exec) — load programs from /bin and spawn
+                // Process spawn_queue (from os.spawn / os.spawn_path / os.exec)
                 {
                     let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
                     let spawn_queue = std::mem::take(&mut ctx.spawn_queue);
                     let vm_id = ctx.vm_id;
                     drop(ctx);
 
-                    for (name, args, uid, username) in spawn_queue {
-                        let path = format!("/bin/{}", name);
+                    for (pid, parent_id, spec, args, uid, username) in spawn_queue {
+                        let path = match &spec {
+                            SpawnSpec::Bin(name) => format!("/bin/{}", name),
+                            SpawnSpec::Path(p) => p.clone(),
+                        };
                         let result = tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(async {
                                 self.fs_service.read_file(vm_id, &path).await
@@ -413,7 +424,29 @@ impl VmManager {
                         });
                         if let Ok(Some((data, _))) = result {
                             if let Ok(lua_code) = String::from_utf8(data) {
-                                vm.os.spawn_process(&lua_code, args, uid, &username);
+                                let parent = if parent_id == 0 { None } else { Some(parent_id) };
+                                vm.os.spawn_process_with_id(
+                                    pid,
+                                    parent,
+                                    &lua_code,
+                                    args,
+                                    uid,
+                                    &username,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Apply stdin inject queue (from os.write_stdin)
+                {
+                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let stdin_inject = std::mem::take(&mut ctx.stdin_inject_queue);
+                    drop(ctx);
+                    for (pid, line) in stdin_inject {
+                        if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == pid) {
+                            if let Ok(mut guard) = p.stdin.lock() {
+                                guard.push_back(line);
                             }
                         }
                     }
@@ -471,13 +504,14 @@ mod tests {
     use super::super::bin_programs;
     use super::super::db::{self, fs_service::FsService, player_service::PlayerService};
     use super::super::db::{user_service::UserService, vm_service::VmService};
-    use super::super::lua_api::context::VmContext;
+    use super::super::lua_api::context::{SpawnSpec, VmContext};
     use super::super::lua_api;
     use super::super::net::ip::{Ipv4Addr, Subnet};
     use super::super::os;
     use super::super::vm::VirtualMachine;
     use super::*;
     use mlua::Lua;
+    use std::collections::HashMap;
     use std::sync::Arc;
     use uuid::Uuid;
 
@@ -711,6 +745,114 @@ end
             }
         }
         (stdout_result, tick_count)
+    }
+
+    /// Performs one full VM tick including spawn_queue and stdin_inject_queue (so os.spawn/os.spawn_path children run).
+    async fn vm_full_tick_async(
+        lua: &Lua,
+        vm: &mut VirtualMachine<'_>,
+        manager: &VmManager,
+        vm_id: Uuid,
+        hostname: &str,
+    ) -> HashMap<u64, String> {
+        let mut finished_stdout = HashMap::new();
+        {
+            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            ctx.set_vm(vm_id, hostname, None);
+            ctx.next_pid = vm.os.next_process_id();
+            for p in &vm.os.processes {
+                let status = if p.is_finished() { "finished" } else { "running" };
+                ctx.process_status_map.insert(p.id, status.to_string());
+                if let Ok(guard) = p.stdout.lock() {
+                    ctx.process_stdout.insert(p.id, guard.clone());
+                }
+            }
+        }
+        for process in &mut vm.os.processes {
+            if process.is_finished() {
+                continue;
+            }
+            {
+                let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                ctx.current_pid = process.id;
+                ctx.current_uid = process.user_id;
+                ctx.current_username = process.username.clone();
+                ctx.set_current_process(
+                    process.stdin.clone(),
+                    process.stdout.clone(),
+                    process.args.clone(),
+                );
+            }
+            process.tick();
+            if process.is_finished() {
+                if let Ok(guard) = process.stdout.lock() {
+                    finished_stdout.insert(process.id, guard.clone());
+                }
+            }
+            {
+                let ctx = lua.app_data_ref::<VmContext>().unwrap();
+                if ctx.current_uid != process.user_id {
+                    process.user_id = ctx.current_uid;
+                    process.username = ctx.current_username.clone();
+                }
+            }
+        }
+        vm.os.processes.retain(|p| !p.is_finished());
+
+        let spawn_queue = {
+            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            std::mem::take(&mut ctx.spawn_queue)
+        };
+        for (pid, parent_id, spec, args, uid, username) in spawn_queue {
+            let path = match &spec {
+                SpawnSpec::Bin(name) => format!("/bin/{}", name),
+                SpawnSpec::Path(p) => p.clone(),
+            };
+            let result = manager.fs_service.read_file(vm_id, &path).await;
+            if let Ok(Some((data, _))) = result {
+                if let Ok(lua_code) = String::from_utf8(data) {
+                    let parent = if parent_id == 0 { None } else { Some(parent_id) };
+                    vm.os.spawn_process_with_id(pid, parent, &lua_code, args, uid, &username);
+                }
+            }
+        }
+
+        let stdin_inject = {
+            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            std::mem::take(&mut ctx.stdin_inject_queue)
+        };
+        for (pid, line) in stdin_inject {
+            if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == pid) {
+                if let Ok(mut guard) = p.stdin.lock() {
+                    guard.push_back(line);
+                }
+            }
+        }
+        finished_stdout
+    }
+
+    /// Run full ticks (with spawn and stdin inject) until VM has no processes or max_ticks. Returns (pid -> stdout for each finished process, tick_count).
+    async fn run_tick_until_done_with_spawn(
+        lua: &Lua,
+        vm: &mut VirtualMachine<'_>,
+        manager: &VmManager,
+        vm_id: Uuid,
+        hostname: &str,
+        max_ticks: usize,
+    ) -> (HashMap<u64, String>, usize) {
+        let mut all_stdout = HashMap::new();
+        let mut tick_count = 0;
+        for _ in 0..max_ticks {
+            tick_count += 1;
+            let finished = vm_full_tick_async(lua, vm, manager, vm_id, hostname).await;
+            for (pid, out) in finished {
+                all_stdout.insert(pid, out);
+            }
+            if vm.os.processes.is_empty() || vm.os.is_finished() {
+                break;
+            }
+        }
+        (all_stdout, tick_count)
     }
 
     /// Variant that simulates 60 FPS game loop: sleeps ~16.6ms between ticks.
@@ -1192,5 +1334,511 @@ end
             .verify_password(record.id, &owner_name, "ownerpass")
             .await
             .unwrap());
+    }
+
+    // --- Lua os API integration tests (full-tick with spawn_queue + stdin inject) ---
+
+    #[tokio::test]
+    async fn test_os_spawn_returns_pid_and_child_runs() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 84, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "os-spawn-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let parent_script = r#"
+local pid = os.spawn("echo", {"from_spawn"})
+io.write("pid=" .. pid .. "\n")
+"#;
+        vm.os.spawn_process(parent_script, vec![], 0, "root");
+
+        let (stdout_by_pid, _) =
+            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "os-spawn-vm", 100).await;
+
+        assert!(
+            stdout_by_pid.get(&2).map(|s| s.contains("from_spawn")).unwrap_or(false),
+            "child (pid 2) stdout should contain 'from_spawn', got: {:?}",
+            stdout_by_pid
+        );
+        assert!(
+            stdout_by_pid.get(&1).map(|s| s.contains("pid=2")).unwrap_or(false),
+            "parent stdout should contain 'pid=2', got: {:?}",
+            stdout_by_pid.get(&1)
+        );
+        // Child should have parent_id set (assert from Rust: we no longer have process list after they finish, but we verified child ran)
+    }
+
+    #[tokio::test]
+    async fn test_os_spawn_path_runs_script_from_path() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 83, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "spawn-path-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let path_script = r#"io.write("spawn_path_ok")"#;
+        fs_service
+            .write_file(vm_id, "/tmp/spawn_path_test.lua", path_script.as_bytes(), None, "root")
+            .await
+            .unwrap();
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let parent_script = r#"
+os.spawn_path("/tmp/spawn_path_test.lua", {})
+"#;
+        vm.os.spawn_process(parent_script, vec![], 0, "root");
+
+        let (stdout_by_pid, _) =
+            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "spawn-path-vm", 100)
+                .await;
+
+        assert!(
+            stdout_by_pid.values().any(|s| s.contains("spawn_path_ok")),
+            "child stdout should contain 'spawn_path_ok', got: {:?}",
+            stdout_by_pid
+        );
+    }
+
+    #[tokio::test]
+    async fn test_os_process_status_not_found() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 82, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "status-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let script = r#"io.write(os.process_status(999))"#;
+        vm.os.spawn_process(script, vec![], 0, "root");
+
+        let (stdout_by_pid, _) =
+            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "status-vm", 50).await;
+
+        let out = stdout_by_pid.get(&1).map(|s| s.as_str()).unwrap_or("");
+        assert!(out.contains("not_found"), "expected 'not_found', got: {:?}", out);
+    }
+
+    #[tokio::test]
+    async fn test_os_process_status_finished_after_child_exits() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 81, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "status-finished-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let script = r#"
+local pid = os.spawn("echo", {"x"})
+while true do
+  local s = os.process_status(pid)
+  if s == "finished" then
+    io.write("status=" .. s)
+    break
+  end
+end
+"#;
+        vm.os.spawn_process(script, vec![], 0, "root");
+
+        let (stdout_by_pid, _) = run_tick_until_done_with_spawn(
+            &lua,
+            &mut vm,
+            &manager,
+            vm_id,
+            "status-finished-vm",
+            200,
+        )
+        .await;
+
+        let out = stdout_by_pid.get(&1).map(|s| s.as_str()).unwrap_or("");
+        assert!(
+            out.contains("status=finished"),
+            "expected 'status=finished', got: {:?}",
+            out
+        );
+    }
+
+    #[tokio::test]
+    async fn test_os_write_stdin_injects_line_to_child() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 80, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "stdin-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let reader_script = r#"
+local l = io.read()
+if l then io.write("got:" .. l) end
+"#;
+        fs_service
+            .write_file(vm_id, "/tmp/read_stdin.lua", reader_script.as_bytes(), None, "root")
+            .await
+            .unwrap();
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let parent_script = r#"
+local pid = os.spawn_path("/tmp/read_stdin.lua", {})
+os.write_stdin(pid, "hello")
+"#;
+        vm.os.spawn_process(parent_script, vec![], 0, "root");
+
+        let (stdout_by_pid, _) =
+            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "stdin-vm", 100).await;
+
+        assert!(
+            stdout_by_pid.values().any(|s| s.contains("got:hello")),
+            "child stdout should contain 'got:hello', got: {:?}",
+            stdout_by_pid
+        );
+    }
+
+    #[tokio::test]
+    async fn test_os_read_stdout_returns_child_output() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 79, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "read-stdout-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let script = r#"
+local pid = os.spawn("echo", {"read_stdout_ok"})
+while true do
+  local s = os.process_status(pid)
+  if s == "finished" then
+    local out = os.read_stdout(pid)
+    if out then io.write(out) end
+    break
+  end
+end
+"#;
+        vm.os.spawn_process(script, vec![], 0, "root");
+
+        let (stdout_by_pid, _) = run_tick_until_done_with_spawn(
+            &lua,
+            &mut vm,
+            &manager,
+            vm_id,
+            "read-stdout-vm",
+            200,
+        )
+        .await;
+
+        let out = stdout_by_pid.get(&1).map(|s| s.as_str()).unwrap_or("");
+        assert!(
+            out.contains("read_stdout_ok"),
+            "parent should read child stdout 'read_stdout_ok', got: {:?}",
+            out
+        );
+    }
+
+    #[tokio::test]
+    async fn test_os_parse_cmd_returns_program_and_args() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 78, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "parse-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let script = r#"
+local t = os.parse_cmd("cat file.txt --pretty")
+io.write(t.program .. "|" .. table.concat(t.args, ","))
+"#;
+        vm.os.spawn_process(script, vec![], 0, "root");
+
+        let (stdout_by_pid, _) =
+            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "parse-vm", 50).await;
+
+        let out = stdout_by_pid.get(&1).map(|s| s.as_str()).unwrap_or("");
+        assert!(
+            out.contains("cat|file.txt,--pretty"),
+            "parse_cmd should return program and args, got: {:?}",
+            out
+        );
+    }
+
+    #[tokio::test]
+    async fn test_os_parse_cmd_key_value() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 77, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "parse-kv-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let script = r#"
+local t = os.parse_cmd("sum age=2")
+io.write(t.program)
+for i = 1, #t.args do io.write("_" .. t.args[i]) end
+"#;
+        vm.os.spawn_process(script, vec![], 0, "root");
+
+        let (stdout_by_pid, _) =
+            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "parse-kv-vm", 50).await;
+
+        let out = stdout_by_pid.get(&1).map(|s| s.as_str()).unwrap_or("");
+        assert!(out.contains("sum"), "program should be 'sum', got: {:?}", out);
+        assert!(
+            out.contains("age=2"),
+            "args should contain 'age=2', got: {:?}",
+            out
+        );
+    }
+
+    #[tokio::test]
+    async fn test_os_exec_still_spawns_from_bin() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 76, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "exec-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let script = r#"os.exec("echo", {"exec_ok"})"#;
+        vm.os.spawn_process(script, vec![], 0, "root");
+
+        let (stdout_by_pid, _) =
+            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "exec-vm", 100).await;
+
+        assert!(
+            stdout_by_pid.values().any(|s| s.contains("exec_ok")),
+            "os.exec should spawn echo and output 'exec_ok', got: {:?}",
+            stdout_by_pid
+        );
     }
 }
