@@ -13,6 +13,8 @@ pub struct VmContext {
     pub hostname: String,
     pub ip: Option<Ipv4Addr>,
     pub current_pid: u64,
+    pub current_uid: i32,
+    pub current_username: String,
     pub pool: PgPool,
 
     // Network I/O buffers — Lua reads/writes these, Rust syncs with NIC after tick
@@ -28,6 +30,8 @@ impl VmContext {
             hostname: String::new(),
             ip: None,
             current_pid: 0,
+            current_uid: 0,
+            current_username: String::from("root"),
             pool,
             net_outbound: Vec::new(),
             net_inbound: VecDeque::new(),
@@ -41,6 +45,8 @@ impl VmContext {
         self.hostname = hostname.to_string();
         self.ip = ip;
         self.current_pid = 0;
+        self.current_uid = 0;
+        self.current_username = String::from("root");
         self.net_outbound.clear();
         self.net_inbound.clear();
         self.listening_ports.clear();

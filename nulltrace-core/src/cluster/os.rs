@@ -50,10 +50,10 @@ impl<'a> OS<'a> {
         self.is_finished
     }
 
-    pub fn spawn_process(&mut self, lua_code: &str) {
+    pub fn spawn_process(&mut self, lua_code: &str, user_id: i32, username: &str) {
         let id = self.next_process_id.fetch_add(1, Ordering::Relaxed);
 
-        if let Some(process) = Process::new(&self.lua, id, lua_code).ok() {
+        if let Some(process) = Process::new(&self.lua, id, user_id, username, lua_code).ok() {
             self.processes.push(process);
         }
     }

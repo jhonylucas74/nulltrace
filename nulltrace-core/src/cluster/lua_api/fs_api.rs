@@ -118,12 +118,13 @@ pub fn register(lua: &Lua, fs_service: Arc<FsService>) -> Result<()> {
                     .app_data_ref::<VmContext>()
                     .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
                 let vm_id = ctx.vm_id;
+                let owner = ctx.current_username.clone();
                 drop(ctx);
 
                 let svc = svc.clone();
                 tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(async {
-                        svc.write_file(vm_id, &path, data.as_bytes(), mime.as_deref())
+                        svc.write_file(vm_id, &path, data.as_bytes(), mime.as_deref(), &owner)
                             .await
                     })
                 })
@@ -144,12 +145,13 @@ pub fn register(lua: &Lua, fs_service: Arc<FsService>) -> Result<()> {
                     .app_data_ref::<VmContext>()
                     .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
                 let vm_id = ctx.vm_id;
+                let owner = ctx.current_username.clone();
                 drop(ctx);
 
                 let svc = svc.clone();
                 tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(async {
-                        svc.mkdir(vm_id, &path).await
+                        svc.mkdir(vm_id, &path, &owner).await
                     })
                 })
                 .map_err(|e| mlua::Error::runtime(e.to_string()))?;

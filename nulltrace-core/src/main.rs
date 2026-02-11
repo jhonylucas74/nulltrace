@@ -74,6 +74,8 @@ for i = 1, #inimigos do
     end
 end
             "#,
+            0,
+            "root",
             );
             metrics.process_count.fetch_add(1, Ordering::Relaxed);
         }

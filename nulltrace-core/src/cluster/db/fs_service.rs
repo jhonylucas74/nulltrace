@@ -122,6 +122,7 @@ impl FsService {
         path: &str,
         data: &[u8],
         mime_type: Option<&str>,
+        owner: &str,
     ) -> Result<Uuid, sqlx::Error> {
         let (parent_path, file_name) = split_path(path);
 
@@ -166,8 +167,8 @@ impl FsService {
                 // Create new file + content
                 let node_id: Uuid = sqlx::query_scalar(
                     r#"
-                    INSERT INTO fs_nodes (vm_id, parent_id, name, node_type, mime_type, size_bytes)
-                    VALUES ($1, $2, $3, 'file', $4, $5)
+                    INSERT INTO fs_nodes (vm_id, parent_id, name, node_type, mime_type, size_bytes, owner)
+                    VALUES ($1, $2, $3, 'file', $4, $5, $6)
                     RETURNING id
                     "#,
                 )
@@ -176,6 +177,7 @@ impl FsService {
                 .bind(file_name)
                 .bind(mime_type)
                 .bind(size)
+                .bind(owner)
                 .fetch_one(&self.pool)
                 .await?;
 
@@ -191,7 +193,7 @@ impl FsService {
     }
 
     /// Create a directory. Parent must exist.
-    pub async fn mkdir(&self, vm_id: Uuid, path: &str) -> Result<Uuid, sqlx::Error> {
+    pub async fn mkdir(&self, vm_id: Uuid, path: &str, owner: &str) -> Result<Uuid, sqlx::Error> {
         let (parent_path, dir_name) = split_path(path);
 
         let parent_id = match self.resolve_path(vm_id, parent_path).await? {
@@ -201,14 +203,15 @@ impl FsService {
 
         let node_id: Uuid = sqlx::query_scalar(
             r#"
-            INSERT INTO fs_nodes (vm_id, parent_id, name, node_type)
-            VALUES ($1, $2, $3, 'directory')
+            INSERT INTO fs_nodes (vm_id, parent_id, name, node_type, owner)
+            VALUES ($1, $2, $3, 'directory', $4)
             RETURNING id
             "#,
         )
         .bind(vm_id)
         .bind(parent_id)
         .bind(dir_name)
+        .bind(owner)
         .fetch_one(&self.pool)
         .await?;
 
@@ -429,7 +432,7 @@ mod tests {
         let (vm_id, vm_svc, fs_svc) = setup_vm(&pool).await;
 
         // Create /home/user
-        fs_svc.mkdir(vm_id, "/home/user").await.unwrap();
+        fs_svc.mkdir(vm_id, "/home/user", "root").await.unwrap();
 
         let entries = fs_svc.ls(vm_id, "/home").await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -437,7 +440,7 @@ mod tests {
         assert_eq!(entries[0].node_type, "directory");
 
         // Create nested /home/user/documents
-        fs_svc.mkdir(vm_id, "/home/user/documents").await.unwrap();
+        fs_svc.mkdir(vm_id, "/home/user/documents", "root").await.unwrap();
 
         let entries = fs_svc.ls(vm_id, "/home/user").await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -452,7 +455,7 @@ mod tests {
         let (vm_id, vm_svc, fs_svc) = setup_vm(&pool).await;
 
         // /nonexistent doesn't exist, so /nonexistent/child should fail
-        let result = fs_svc.mkdir(vm_id, "/nonexistent/child").await;
+        let result = fs_svc.mkdir(vm_id, "/nonexistent/child", "root").await;
         assert!(result.is_err());
 
         cleanup(&vm_svc, vm_id).await;
@@ -467,7 +470,7 @@ mod tests {
 
         let content = b"Hello, NullTrace!";
         fs_svc
-            .write_file(vm_id, "/tmp/hello.txt", content, Some("text/plain"))
+            .write_file(vm_id, "/tmp/hello.txt", content, Some("text/plain"), "root")
             .await
             .unwrap();
 
@@ -494,7 +497,7 @@ mod tests {
         // Fake PNG header bytes
         let png_bytes: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0xFE];
         fs_svc
-            .write_file(vm_id, "/tmp/image.png", &png_bytes, Some("image/png"))
+            .write_file(vm_id, "/tmp/image.png", &png_bytes, Some("image/png"), "root")
             .await
             .unwrap();
 
@@ -512,13 +515,13 @@ mod tests {
 
         // Write v1
         fs_svc
-            .write_file(vm_id, "/etc/config.txt", b"v1", Some("text/plain"))
+            .write_file(vm_id, "/etc/config.txt", b"v1", Some("text/plain"), "root")
             .await
             .unwrap();
 
         // Overwrite with v2
         fs_svc
-            .write_file(vm_id, "/etc/config.txt", b"version2-updated", Some("text/plain"))
+            .write_file(vm_id, "/etc/config.txt", b"version2-updated", Some("text/plain"), "root")
             .await
             .unwrap();
 
@@ -551,7 +554,7 @@ mod tests {
         let (vm_id, vm_svc, fs_svc) = setup_vm(&pool).await;
 
         fs_svc
-            .write_file(vm_id, "/tmp/delete_me.txt", b"bye", None)
+            .write_file(vm_id, "/tmp/delete_me.txt", b"bye", None, "root")
             .await
             .unwrap();
 
@@ -570,9 +573,9 @@ mod tests {
         let pool = super::super::test_pool().await;
         let (vm_id, vm_svc, fs_svc) = setup_vm(&pool).await;
 
-        fs_svc.mkdir(vm_id, "/home/user").await.unwrap();
+        fs_svc.mkdir(vm_id, "/home/user", "root").await.unwrap();
         fs_svc
-            .write_file(vm_id, "/home/user/notes.txt", b"important", None)
+            .write_file(vm_id, "/home/user/notes.txt", b"important", None, "root")
             .await
             .unwrap();
 
@@ -605,8 +608,8 @@ mod tests {
         let (vm_id, vm_svc, fs_svc) = setup_vm(&pool).await;
 
         // Write some files
-        fs_svc.write_file(vm_id, "/tmp/a.txt", b"a", None).await.unwrap();
-        fs_svc.write_file(vm_id, "/etc/b.txt", b"b", None).await.unwrap();
+        fs_svc.write_file(vm_id, "/tmp/a.txt", b"a", None, "root").await.unwrap();
+        fs_svc.write_file(vm_id, "/etc/b.txt", b"b", None, "root").await.unwrap();
 
         // Destroy all
         fs_svc.destroy_fs(vm_id).await.unwrap();
@@ -625,7 +628,7 @@ mod tests {
         let pool = super::super::test_pool().await;
         let (vm_id, vm_svc, fs_svc) = setup_vm(&pool).await;
 
-        fs_svc.write_file(vm_id, "/tmp/test.txt", b"data", None).await.unwrap();
+        fs_svc.write_file(vm_id, "/tmp/test.txt", b"data", None, "root").await.unwrap();
 
         // Delete the VM entirely
         vm_svc.delete_vm(vm_id).await.unwrap();
@@ -633,5 +636,77 @@ mod tests {
         // Filesystem should be gone too
         let root = fs_svc.resolve_path(vm_id, "/").await.unwrap();
         assert!(root.is_none());
+    }
+
+    // ── Owner tests ──
+
+    #[tokio::test]
+    async fn test_write_file_sets_owner() {
+        let pool = super::super::test_pool().await;
+        let (vm_id, vm_svc, fs_svc) = setup_vm(&pool).await;
+
+        fs_svc
+            .write_file(vm_id, "/tmp/userfile.txt", b"hello", Some("text/plain"), "johndoe")
+            .await
+            .unwrap();
+
+        let entries = fs_svc.ls(vm_id, "/tmp").await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "userfile.txt");
+        assert_eq!(entries[0].owner, "johndoe");
+
+        cleanup(&vm_svc, vm_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_mkdir_sets_owner() {
+        let pool = super::super::test_pool().await;
+        let (vm_id, vm_svc, fs_svc) = setup_vm(&pool).await;
+
+        fs_svc.mkdir(vm_id, "/home/alice", "alice").await.unwrap();
+
+        let entries = fs_svc.ls(vm_id, "/home").await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "alice");
+        assert_eq!(entries[0].owner, "alice");
+
+        cleanup(&vm_svc, vm_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_bootstrap_dirs_owned_by_root() {
+        let pool = super::super::test_pool().await;
+        let (vm_id, vm_svc, fs_svc) = setup_vm(&pool).await;
+
+        let entries = fs_svc.ls(vm_id, "/").await.unwrap();
+        // All bootstrap dirs should be owned by root (DB default)
+        for entry in &entries {
+            assert_eq!(entry.owner, "root", "dir {} should be owned by root", entry.name);
+        }
+
+        cleanup(&vm_svc, vm_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_overwrite_preserves_original_owner() {
+        let pool = super::super::test_pool().await;
+        let (vm_id, vm_svc, fs_svc) = setup_vm(&pool).await;
+
+        // Create file as "alice"
+        fs_svc
+            .write_file(vm_id, "/tmp/shared.txt", b"v1", None, "alice")
+            .await
+            .unwrap();
+
+        // Overwrite as "bob" — existing file update doesn't change owner
+        fs_svc
+            .write_file(vm_id, "/tmp/shared.txt", b"v2", None, "bob")
+            .await
+            .unwrap();
+
+        let entries = fs_svc.ls(vm_id, "/tmp").await.unwrap();
+        assert_eq!(entries[0].owner, "alice"); // owner stays as original creator
+
+        cleanup(&vm_svc, vm_id).await;
     }
 }

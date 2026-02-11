@@ -6,17 +6,21 @@ use std::time::Instant;
 
 pub struct Process {
     pub id: u64,
+    pub user_id: i32,
+    pub username: String,
     thread: Thread,
     finished: bool,
     duration: Instant,
 }
 
 impl Process {
-    pub fn new(lua: &Lua, id: u64, lua_code: &str) -> Result<Self> {
+    pub fn new(lua: &Lua, id: u64, user_id: i32, username: &str, lua_code: &str) -> Result<Self> {
         let thread = lua.create_thread(lua.load(lua_code).into_function()?)?;
 
         Ok(Self {
             id,
+            user_id,
+            username: username.to_string(),
             thread,
             finished: false,
             duration: Instant::now(),

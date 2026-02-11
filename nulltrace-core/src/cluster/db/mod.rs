@@ -1,5 +1,6 @@
 pub mod vm_service;
 pub mod fs_service;
+pub mod user_service;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -25,6 +26,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
     sqlx::raw_sql(include_str!("../../../migrations/004_add_dns_name.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/005_create_vm_users.sql"))
         .execute(pool)
         .await?;
     Ok(())

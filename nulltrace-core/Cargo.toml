@@ -26,6 +26,7 @@ dashmap = "5"
 tonic = "0.9"
 prost = "0.11"
 redis = "0.23"
+sha2 = "0.10"
 
 [build-dependencies]
 tonic-build = "0.9"

@@ -7,6 +7,7 @@ mod lua_api;
 mod vm_manager;
 
 use db::fs_service::FsService;
+use db::user_service::UserService;
 use db::vm_service::VmService;
 use lua_api::context::VmContext;
 use net::ip::{Ipv4Addr, Subnet};
@@ -33,16 +34,17 @@ async fn main() {
 
     let vm_service = Arc::new(VmService::new(pool.clone()));
     let fs_service = Arc::new(FsService::new(pool.clone()));
+    let user_service = Arc::new(UserService::new(pool.clone()));
 
     // ── Lua state ──
     let lua = create_lua_state();
     lua.set_app_data(VmContext::new(pool.clone()));
-    lua_api::register_all(&lua, fs_service.clone()).expect("Failed to register Lua APIs");
+    lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).expect("Failed to register Lua APIs");
     println!("[cluster] Lua APIs registered (fs, net, os)");
 
     // ── VM Manager ──
     let subnet = Subnet::new(Ipv4Addr::new(10, 0, 1, 0), 24);
-    let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), subnet);
+    let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), subnet);
 
     // ── Redis (optional — cluster works without it) ──
     match manager.net_manager.connect_redis(REDIS_URL) {

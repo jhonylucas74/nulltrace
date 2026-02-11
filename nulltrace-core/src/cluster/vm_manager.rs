@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use super::db::fs_service::FsService;
+use super::db::user_service::UserService;
 use super::db::vm_service::{VmConfig, VmRecord, VmService};
 use super::lua_api::context::VmContext;
 use super::net::dns::DnsResolver;
@@ -21,6 +22,7 @@ const TICK_TIME: Duration = Duration::from_millis(1000 / TPS as u64);
 pub struct VmManager {
     pub vm_service: Arc<VmService>,
     pub fs_service: Arc<FsService>,
+    pub user_service: Arc<UserService>,
     pub dns: DnsResolver,
     pub net_manager: NetManager,
     pub subnet: Subnet,
@@ -42,6 +44,7 @@ impl VmManager {
     pub fn new(
         vm_service: Arc<VmService>,
         fs_service: Arc<FsService>,
+        user_service: Arc<UserService>,
         subnet: Subnet,
     ) -> Self {
         let mut router = Router::new();
@@ -50,6 +53,7 @@ impl VmManager {
         Self {
             vm_service,
             fs_service,
+            user_service,
             dns: DnsResolver::new(),
             net_manager: NetManager::new("local".to_string()),
             subnet,
@@ -90,6 +94,63 @@ impl VmManager {
             .bootstrap_fs(id)
             .await
             .map_err(|e| format!("DB error bootstrapping FS: {}", e))?;
+
+        // Bootstrap users (root + user)
+        let users = self
+            .user_service
+            .bootstrap_users(id)
+            .await
+            .map_err(|e| format!("DB error bootstrapping users: {}", e))?;
+
+        // Create home directories and /etc/passwd + /etc/shadow
+        for user in &users {
+            if user.is_root {
+                // /root directory
+                self.fs_service
+                    .mkdir(id, "/root", "root")
+                    .await
+                    .map_err(|e| format!("DB error creating /root: {}", e))?;
+            } else {
+                // /home/<username>
+                self.fs_service
+                    .mkdir(id, &user.home_dir, &user.username)
+                    .await
+                    .map_err(|e| format!("DB error creating home dir: {}", e))?;
+            }
+        }
+
+        // Write /etc/passwd
+        let passwd_content: String = users
+            .iter()
+            .map(|u| {
+                let gid = if u.is_root { 0 } else { u.uid };
+                format!(
+                    "{}:x:{}:{}:{}:{}:{}",
+                    u.username, u.uid, gid, u.username, u.home_dir, u.shell
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        self.fs_service
+            .write_file(id, "/etc/passwd", passwd_content.as_bytes(), Some("text/plain"), "root")
+            .await
+            .map_err(|e| format!("DB error writing /etc/passwd: {}", e))?;
+
+        // Write /etc/shadow
+        let shadow_content: String = users
+            .iter()
+            .map(|u| {
+                let hash = u.password_hash.as_deref().unwrap_or("!");
+                format!("{}:{}:19000:0:99999:7:::", u.username, hash)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        self.fs_service
+            .write_file(id, "/etc/shadow", shadow_content.as_bytes(), Some("text/plain"), "root")
+            .await
+            .map_err(|e| format!("DB error writing /etc/shadow: {}", e))?;
 
         // Register in DNS only if dns_name is set
         if let Some(ref dns_name) = record.dns_name {
@@ -278,9 +339,19 @@ impl VmManager {
                     {
                         let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
                         ctx.current_pid = process.id;
+                        ctx.current_uid = process.user_id;
+                        ctx.current_username = process.username.clone();
                     }
                     if !process.is_finished() {
                         process.tick();
+                    }
+                    // Detect if os.su() changed the user identity
+                    {
+                        let ctx = lua.app_data_ref::<VmContext>().unwrap();
+                        if ctx.current_uid != process.user_id {
+                            process.user_id = ctx.current_uid;
+                            process.username = ctx.current_username.clone();
+                        }
                     }
                 }
                 vm.os.processes.retain(|p| !p.is_finished());
