@@ -1,0 +1,32 @@
+.menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 160px;
+  padding: 0.25rem 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.item {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 1rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.item:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+}
+
+.item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

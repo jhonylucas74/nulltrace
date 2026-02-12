@@ -6,8 +6,10 @@ export interface ModalProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
-  primaryButton?: { label: string; onClick: () => void };
-  secondaryButton?: { label: string; onClick: () => void };
+  primaryButton?: { label: string; onClick: () => void; disabled?: boolean };
+  secondaryButton?: { label: string; onClick: () => void; disabled?: boolean };
+  /** Optional third button (e.g. Skip) shown between secondary and primary. */
+  tertiaryButton?: { label: string; onClick: () => void };
 }
 
 export default function Modal({
@@ -17,6 +19,7 @@ export default function Modal({
   children,
   primaryButton,
   secondaryButton,
+  tertiaryButton,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -46,12 +49,17 @@ export default function Modal({
         <div className={styles.content}>{children}</div>
         <div className={styles.footer}>
           {secondaryButton && (
-            <button type="button" className={styles.secondaryBtn} onClick={secondaryButton.onClick}>
+            <button type="button" className={styles.secondaryBtn} onClick={secondaryButton.onClick} disabled={secondaryButton.disabled}>
               {secondaryButton.label}
             </button>
           )}
+          {tertiaryButton && (
+            <button type="button" className={styles.secondaryBtn} onClick={tertiaryButton.onClick}>
+              {tertiaryButton.label}
+            </button>
+          )}
           {primaryButton && (
-            <button type="button" className={styles.primaryBtn} onClick={primaryButton.onClick}>
+            <button type="button" className={styles.primaryBtn} onClick={primaryButton.onClick} disabled={primaryButton.disabled}>
               {primaryButton.label}
             </button>
           )}

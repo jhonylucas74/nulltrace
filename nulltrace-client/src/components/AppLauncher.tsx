@@ -4,7 +4,7 @@ import { useAppLauncher } from "../contexts/AppLauncherContext";
 import { useAuth } from "../contexts/AuthContext";
 import { useInstalledApps } from "../contexts/InstalledAppsContext";
 import { LAUNCHABLE_APPS, getAppTitle } from "../lib/appList";
-import { STORE_CATALOG, isBuiltInLauncherApp } from "../lib/storeCatalog";
+import { STORE_CATALOG } from "../lib/storeCatalog";
 import type { LaunchableApp } from "../lib/appList";
 import styles from "./AppLauncher.module.css";
 

@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useAuth } from "../contexts/AuthContext";
 import { getChildren, getParentPath, getHomePath } from "../lib/fileSystem";
 import type { FileSystemNode } from "../lib/fileSystem";
 import type { FilePickerMode } from "../contexts/FilePickerContext";
@@ -17,6 +19,12 @@ export interface FilePickerProps {
   onCancel: () => void;
 }
 
+interface FsEntry {
+  name: string;
+  node_type: string;
+  size_bytes: number;
+}
+
 export default function FilePicker({
   open,
   mode,
@@ -24,17 +32,92 @@ export default function FilePicker({
   onSelect,
   onCancel,
 }: FilePickerProps) {
+  const { playerId } = useAuth();
   const [currentPath, setCurrentPath] = useState(initialPath || getHomePath());
+  const [homePath, setHomePath] = useState<string | null>(null);
+  const [grpcEntries, setGrpcEntries] = useState<FsEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  const tauri = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+  const useGrpc = !!playerId && !!tauri;
+
+  const fetchHomePath = useCallback(async () => {
+    if (!playerId || !tauri) return;
+    try {
+      const res = await invoke<{ home_path: string; error_message: string }>(
+        "grpc_get_home_path",
+        { playerId }
+      );
+      if (!res.error_message) setHomePath(res.home_path);
+    } catch {
+      // Ignore
+    }
+  }, [playerId, tauri]);
+
+  const fetchEntries = useCallback(async () => {
+    if (!playerId || !tauri || !currentPath) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await invoke<{ entries: FsEntry[]; error_message: string }>(
+        "grpc_list_fs",
+        { playerId, path: currentPath }
+      );
+      if (res.error_message) {
+        setError(res.error_message);
+        setGrpcEntries([]);
+      } else {
+        setGrpcEntries(res.entries);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setGrpcEntries([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [playerId, currentPath, tauri]);
 
   useEffect(() => {
     if (open) {
       setCurrentPath(initialPath || getHomePath());
+      if (useGrpc) {
+        fetchHomePath();
+      }
     }
-  }, [open, initialPath]);
+  }, [open, initialPath, useGrpc, fetchHomePath]);
 
-  const children = getChildren(currentPath);
-  const parentPath = getParentPath(currentPath);
+  useEffect(() => {
+    if (open && useGrpc && homePath) {
+      setCurrentPath((p) => (p === getHomePath() ? homePath : p));
+    }
+  }, [open, useGrpc, homePath]);
+
+  useEffect(() => {
+    if (open && useGrpc && currentPath) {
+      fetchEntries();
+    }
+  }, [open, useGrpc, currentPath, fetchEntries]);
+
+  const parentPath = useGrpc && homePath
+    ? (() => {
+        const norm = currentPath.replace(/\/+/g, "/").replace(/\/$/, "");
+        const homeNorm = homePath.replace(/\/+/g, "/").replace(/\/$/, "");
+        if (!norm || norm === homeNorm) return null;
+        if (!norm.startsWith(homeNorm + "/")) return null;
+        const parts = norm.split("/");
+        parts.pop();
+        return parts.length === 0 ? "/" : "/" + parts.join("/");
+      })()
+    : getParentPath(currentPath);
+
+  const children: FileSystemNode[] = useGrpc
+    ? grpcEntries.map((e) => ({
+        name: e.name,
+        type: (e.node_type === "directory" ? "folder" : "file") as "folder" | "file",
+      }))
+    : getChildren(currentPath);
 
   function handleSelectNode(node: FileSystemNode) {
     const path = joinPath(currentPath, node.name);
@@ -62,6 +145,14 @@ export default function FilePicker({
     }
   }
 
+  function handleGoUp() {
+    if (parentPath !== null) setCurrentPath(parentPath);
+  }
+
+  function handleBreadcrumbRoot() {
+    setCurrentPath(useGrpc && homePath ? homePath : "/");
+  }
+
   if (!open) return null;
 
   const title = mode === "folder" ? "Select Folder" : "Open File";
@@ -75,14 +166,14 @@ export default function FilePicker({
             <button
               type="button"
               className={styles.pathBtn}
-              onClick={() => parentPath !== null && setCurrentPath(parentPath)}
+              onClick={handleGoUp}
               disabled={parentPath === null}
               title="Go up"
             >
               ↑ Up
             </button>
             <span className={styles.pathText} title={currentPath}>
-              {currentPath || "/"}
+              {currentPath || (useGrpc && homePath ? homePath : "/")}
             </span>
           </div>
         </div>
@@ -90,15 +181,16 @@ export default function FilePicker({
           <button
             type="button"
             className={styles.breadcrumbItem}
-            onClick={() => setCurrentPath("/")}
+            onClick={handleBreadcrumbRoot}
           >
-            /
+            {useGrpc && homePath ? homePath.split("/").pop() || "Home" : "/"}
           </button>
           {currentPath
             .split("/")
             .filter(Boolean)
             .map((segment, i, arr) => {
               const path = "/" + arr.slice(0, i + 1).join("/");
+              if (useGrpc && homePath && !path.startsWith(homePath)) return null;
               return (
                 <span key={path} className={styles.breadcrumbWrap}>
                   <span className={styles.breadcrumbSep}>/</span>
@@ -114,7 +206,11 @@ export default function FilePicker({
             })}
         </div>
         <div ref={listRef} className={styles.list}>
-          {children.length === 0 ? (
+          {loading ? (
+            <div className={styles.empty}>Loading…</div>
+          ) : error ? (
+            <div className={styles.empty}>{error}</div>
+          ) : children.length === 0 ? (
             <div className={styles.empty}>This folder is empty</div>
           ) : (
             children.map((node) => {

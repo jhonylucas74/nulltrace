@@ -7,6 +7,9 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import App from "./App";
 import "./index.css";
 
+// Disable default context menu so custom context menus (e.g. Explorer) can show
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>

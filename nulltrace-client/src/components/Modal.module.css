@@ -82,6 +82,12 @@
   transition: background 0.15s;
 }
 
-.primaryBtn:hover {
+.primaryBtn:hover:not(:disabled) {
   background: var(--accent-dim);
+}
+
+.primaryBtn:disabled,
+.secondaryBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

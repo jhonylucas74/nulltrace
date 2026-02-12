@@ -1,7 +1,9 @@
 use game::game_service_server::{GameService, GameServiceServer};
 use game::{
-    GetDiskUsageRequest, GetDiskUsageResponse, HelloRequest, HelloResponse, LoginRequest,
-    LoginResponse, PingRequest, PingResponse, RestoreDiskRequest, RestoreDiskResponse,
+    CopyPathRequest, CopyPathResponse, GetDiskUsageRequest, GetDiskUsageResponse,
+    GetHomePathRequest, GetHomePathResponse, HelloRequest, HelloResponse, ListFsRequest,
+    ListFsResponse, LoginRequest, LoginResponse, MovePathRequest, MovePathResponse, PingRequest,
+    PingResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse,
     TerminalClientMessage, TerminalServerMessage,
 };
 use tonic::{Request, Response, Status, transport::Server};
@@ -90,6 +92,56 @@ impl GameService for MyGameService {
         Ok(Response::new(RestoreDiskResponse {
             success: false,
             error_message: "Use the unified cluster binary for disk operations".to_string(),
+        }))
+    }
+
+    async fn get_home_path(
+        &self,
+        _request: Request<GetHomePathRequest>,
+    ) -> Result<Response<GetHomePathResponse>, Status> {
+        Ok(Response::new(GetHomePathResponse {
+            home_path: String::new(),
+            error_message: "Use the unified cluster binary for file operations".to_string(),
+        }))
+    }
+
+    async fn list_fs(
+        &self,
+        _request: Request<ListFsRequest>,
+    ) -> Result<Response<ListFsResponse>, Status> {
+        Ok(Response::new(ListFsResponse {
+            entries: vec![],
+            error_message: "Use the unified cluster binary for file operations".to_string(),
+        }))
+    }
+
+    async fn copy_path(
+        &self,
+        _request: Request<CopyPathRequest>,
+    ) -> Result<Response<CopyPathResponse>, Status> {
+        Ok(Response::new(CopyPathResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for file operations".to_string(),
+        }))
+    }
+
+    async fn move_path(
+        &self,
+        _request: Request<MovePathRequest>,
+    ) -> Result<Response<MovePathResponse>, Status> {
+        Ok(Response::new(MovePathResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for file operations".to_string(),
+        }))
+    }
+
+    async fn rename_path(
+        &self,
+        _request: Request<RenamePathRequest>,
+    ) -> Result<Response<RenamePathResponse>, Status> {
+        Ok(Response::new(RenamePathResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for file operations".to_string(),
         }))
     }
 }

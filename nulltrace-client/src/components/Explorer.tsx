@@ -1,35 +1,137 @@
-import { useState, useMemo } from "react";
-import { getChildren, getHomePath, type FileSystemNode } from "../lib/fileSystem";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
+import { invoke } from "@tauri-apps/api/core";
+import { useAuth } from "../contexts/AuthContext";
+import { useClipboard } from "../contexts/ClipboardContext";
+import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
+import Modal from "./Modal";
 import styles from "./Explorer.module.css";
 
-const PLACES: { label: string; path: string }[] = [
-  { label: "Home", path: getHomePath() },
-  { label: "File system", path: "/" },
-  { label: "Documents", path: "/home/user/Documents" },
-  { label: "Downloads", path: "/home/user/Downloads" },
-  { label: "Desktop", path: "/home/user/Desktop" },
-];
-
-function getParentPath(path: string): string | null {
+function getParentPath(path: string, homePath: string): string | null {
   const normalized = path.replace(/\/+/g, "/").replace(/\/$/, "") || "";
   if (!normalized) return null;
+  if (normalized === homePath || normalized === homePath.trimEnd()) return null;
   const parts = normalized.split("/");
   parts.pop();
-  return parts.length === 0 ? "/" : "/" + parts.join("/");
+  const parent = parts.length === 0 ? "/" : "/" + parts.join("/");
+  return parent;
 }
 
-function pathToBreadcrumb(path: string): string[] {
+function pathToBreadcrumb(path: string, homePath: string): string[] {
   const normalized = path.replace(/\/+/g, "/").replace(/^\//, "").replace(/\/$/, "") || "";
-  if (!normalized) return ["/"];
+  if (!normalized) return [homePath.split("/").pop() || "Home"];
   return normalized.split("/");
 }
 
-export default function Explorer() {
-  const [currentPath, setCurrentPath] = useState(getHomePath);
+interface FsEntry {
+  name: string;
+  node_type: string;
+  size_bytes: number;
+}
 
-  const entries = useMemo(() => getChildren(currentPath), [currentPath]);
-  const parentPath = getParentPath(currentPath);
-  const breadcrumb = pathToBreadcrumb(currentPath);
+export default function Explorer() {
+  const { playerId } = useAuth();
+  const { setClipboard, getClipboard, clearClipboard, hasItems } = useClipboard();
+  const [homePath, setHomePath] = useState<string | null>(null);
+  const [currentPath, setCurrentPath] = useState<string>("/home/user");
+  const [entries, setEntries] = useState<FsEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const lastClickedIndex = useRef<number | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<
+    | { x: number; y: number; entry: FsEntry; fullPath: string }
+    | { x: number; y: number; type: "background" }
+    | null
+  >(null);
+  const [renameModal, setRenameModal] = useState<{ path: string; currentName: string } | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameLoading, setRenameLoading] = useState(false);
+  const [conflict, setConflict] = useState<{
+    item: { path: string; type: "file" | "folder" };
+    destName: string;
+    existingType: string;
+    canReplace: boolean;
+    resolve: (choice: "replace" | "skip" | "cancel", replaceAll?: boolean) => void;
+  } | null>(null);
+  const [replaceAll, setReplaceAll] = useState(false);
+  const replaceAllCheckRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    listRef.current?.focus();
+  }, [currentPath]);
+
+  const tauri = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+
+  const fetchHomePath = useCallback(async () => {
+    if (!playerId || !tauri) return;
+    try {
+      const res = await invoke<{ home_path: string; error_message: string }>(
+        "grpc_get_home_path",
+        { playerId }
+      );
+      if (res.error_message) {
+        setError(res.error_message);
+      } else {
+        setHomePath(res.home_path);
+        setCurrentPath(res.home_path);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [playerId, tauri]);
+
+  const fetchEntries = useCallback(async () => {
+    if (!playerId || !tauri || !currentPath) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await invoke<{ entries: FsEntry[]; error_message: string }>(
+        "grpc_list_fs",
+        { playerId, path: currentPath }
+      );
+      if (res.error_message) {
+        setError(res.error_message);
+        setEntries([]);
+      } else {
+        setEntries(res.entries);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setEntries([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [playerId, currentPath, tauri]);
+
+  useEffect(() => {
+    fetchHomePath();
+  }, [fetchHomePath]);
+
+  useEffect(() => {
+    if (homePath && currentPath) {
+      fetchEntries();
+    } else {
+      setEntries([]);
+    }
+  }, [homePath, currentPath, fetchEntries]);
+
+  useEffect(() => {
+    if (renameModal) setRenameValue(renameModal.currentName);
+  }, [renameModal]);
+
+  const parentPath = homePath ? getParentPath(currentPath, homePath) : null;
+  const breadcrumb = homePath ? pathToBreadcrumb(currentPath, homePath) : [];
+
+  const places = homePath
+    ? [
+        { label: "Home", path: homePath },
+        { label: "Documents", path: `${homePath}/Documents` },
+        { label: "Downloads", path: `${homePath}/Downloads` },
+        { label: "Images", path: `${homePath}/Images` },
+      ]
+    : [];
 
   function handleBack() {
     if (parentPath !== null) setCurrentPath(parentPath);
@@ -39,36 +141,228 @@ export default function Explorer() {
     setCurrentPath(path);
   }
 
-  function handleOpen(node: FileSystemNode) {
-    if (node.type === "folder") {
-      const newPath = currentPath.replace(/\/$/, "") + "/" + node.name;
+  function handleOpen(entry: FsEntry) {
+    if (entry.node_type === "directory") {
+      const newPath = currentPath.replace(/\/$/, "") + "/" + entry.name;
       setCurrentPath(newPath);
-    } else {
-      // File: no-op or could show "Preview not available"
+    }
+  }
+
+  function handleContextMenu(entry: FsEntry, fullPath: string, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, entry, fullPath });
+  }
+
+  function handleRenameClick(entry: FsEntry, fullPath: string) {
+    setContextMenu(null);
+    setRenameModal({ path: fullPath, currentName: entry.name });
+    setRenameValue(entry.name);
+  }
+
+  async function handleRenameSubmit() {
+    if (!renameModal || !playerId || !tauri || !renameValue.trim()) return;
+    const trimmed = renameValue.trim();
+    if (trimmed === renameModal.currentName) {
+      setRenameModal(null);
+      return;
+    }
+    setRenameLoading(true);
+    setError(null);
+    try {
+      const res = await invoke<{ success: boolean; error_message: string }>(
+        "grpc_rename_path",
+        { playerId, path: renameModal.path, newName: trimmed }
+      );
+      if (!res.success) {
+        setError(res.error_message);
+        setRenameLoading(false);
+        return;
+      }
+      await fetchEntries();
+      setRenameModal(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRenameLoading(false);
     }
   }
 
   function handleBreadcrumbClick(index: number) {
-    if (index === 0) {
-      setCurrentPath("/");
+    if (index === 0 && homePath) {
+      setCurrentPath(homePath);
       return;
     }
     const segs = breadcrumb.slice(0, index + 1);
     setCurrentPath("/" + segs.join("/"));
   }
 
+  const performPaste = useCallback(
+    async (items: { path: string; type: "file" | "folder" }[], operation: "copy" | "cut") => {
+      if (!playerId || !tauri) return;
+      const destFolder = currentPath.replace(/\/$/, "");
+      for (const item of items) {
+        const basename = item.path.split("/").pop() ?? "";
+        const existing = entries.find((e) => e.name === basename);
+        if (existing) {
+          const canReplace = item.type === "file" && existing.node_type === "file";
+          if (!canReplace) {
+            const choice = await new Promise<"skip" | "cancel">((resolve) => {
+              setConflict({
+                item,
+                destName: basename,
+                existingType: existing.node_type,
+                canReplace: false,
+                resolve: (c) => {
+                  setConflict(null);
+                  resolve(c as "skip" | "cancel");
+                },
+              });
+            });
+            if (choice === "cancel") break;
+            continue;
+          }
+          if (!replaceAll) {
+            const result = await new Promise<{
+              choice: "replace" | "skip" | "cancel";
+              replaceAll: boolean;
+            }>((resolve) => {
+              setConflict({
+                item,
+                destName: basename,
+                existingType: existing.node_type,
+                canReplace: true,
+                resolve: (c, r) => {
+                  setConflict(null);
+                  resolve({ choice: c, replaceAll: r ?? false });
+                },
+              });
+            });
+            if (result.choice === "cancel") break;
+            if (result.choice === "skip") continue;
+            if (result.replaceAll) setReplaceAll(true);
+          }
+        }
+        if (operation === "copy") {
+          const destPath = `${destFolder}/${basename}`;
+          const res = await invoke<{ success: boolean; error_message: string }>(
+            "grpc_copy_path",
+            { playerId, srcPath: item.path, destPath }
+          );
+          if (!res.success) setError(res.error_message);
+        } else {
+          const res = await invoke<{ success: boolean; error_message: string }>(
+            "grpc_move_path",
+            { playerId, srcPath: item.path, destPath: destFolder }
+          );
+          if (!res.success) setError(res.error_message);
+        }
+      }
+      if (operation === "cut") clearClipboard();
+      setReplaceAll(false);
+      await fetchEntries();
+    },
+    [playerId, currentPath, tauri, entries, fetchEntries, clearClipboard]
+  );
+
+  function handleRowClick(entry: FsEntry, index: number, e: React.MouseEvent) {
+    const fullPath = currentPath.replace(/\/$/, "") + "/" + entry.name;
+    if (e.ctrlKey) {
+      setSelectedPaths((prev) => {
+        const next = new Set(prev);
+        if (next.has(fullPath)) next.delete(fullPath);
+        else next.add(fullPath);
+        return next;
+      });
+    } else if (e.shiftKey) {
+      const start = lastClickedIndex.current ?? index;
+      const [lo, hi] = [Math.min(start, index), Math.max(start, index)];
+      setSelectedPaths((prev) => {
+        const next = new Set(prev);
+        for (let i = lo; i <= hi; i++) {
+          const ent = entries[i];
+          if (ent) next.add(currentPath.replace(/\/$/, "") + "/" + ent.name);
+        }
+        return next;
+      });
+    } else {
+      setSelectedPaths(new Set([fullPath]));
+    }
+    lastClickedIndex.current = index;
+  }
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === "c") {
+          e.preventDefault();
+          e.stopPropagation();
+          if (selectedPaths.size > 0) {
+            const items = Array.from(selectedPaths).map((path) => {
+              const ent = entries.find((x) => path.endsWith("/" + x.name));
+              return {
+                path,
+                type: (ent?.node_type === "directory" ? "folder" : "file") as "file" | "folder",
+              };
+            });
+            setClipboard(items, "copy");
+          }
+        } else if (e.key === "x") {
+          e.preventDefault();
+          e.stopPropagation();
+          if (selectedPaths.size > 0) {
+            const items = Array.from(selectedPaths).map((path) => {
+              const ent = entries.find((x) => path.endsWith("/" + x.name));
+              return {
+                path,
+                type: (ent?.node_type === "directory" ? "folder" : "file") as "file" | "folder",
+              };
+            });
+            setClipboard(items, "cut");
+          }
+        } else if (e.key === "v") {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!hasItems || !playerId || !tauri) return;
+          const { items, operation } = getClipboard();
+          if (items.length === 0) return;
+          performPaste(items, operation);
+        }
+      }
+    },
+    [selectedPaths, entries, hasItems, getClipboard, setClipboard, performPaste]
+  );
+
+  if (!playerId || !tauri) {
+    return (
+      <div className={styles.app}>
+        <div className={styles.empty}>Log in with the desktop app to view files.</div>
+      </div>
+    );
+  }
+
+  if (!homePath) {
+    return (
+      <div className={styles.app}>
+        <div className={styles.empty}>{error ?? "Loading…"}</div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.app}>
       <aside className={styles.sidebar}>
         <div className={styles.sidebarSection}>Places</div>
-        {PLACES.map(({ label, path }) => (
+        {places.map(({ label, path }) => (
           <button
             key={path}
             type="button"
             className={`${styles.place} ${currentPath === path ? styles.placeActive : ""}`}
             onClick={() => handlePlace(path)}
           >
-            <span className={styles.placeIcon}>{path === getHomePath() ? <HomeIcon /> : <FolderIcon />}</span>
+            <span className={styles.placeIcon}>
+              {path === homePath ? <HomeIcon /> : <FolderIcon />}
+            </span>
             <span className={styles.placeLabel}>{label}</span>
           </button>
         ))}
@@ -93,35 +387,169 @@ export default function Explorer() {
                   className={styles.breadcrumbPart}
                   onClick={() => handleBreadcrumbClick(i)}
                 >
-                  {seg || "File system"}
+                  {seg || "Home"}
                 </button>
               </span>
             ))}
           </div>
         </div>
-        <div className={styles.list}>
-          {entries.length === 0 ? (
+        <div
+          ref={listRef}
+          className={styles.list}
+          tabIndex={0}
+          onKeyDown={handleKeyDown}
+          onContextMenu={(e) => {
+            if (hasItems) {
+              e.preventDefault();
+              setContextMenu({ x: e.clientX, y: e.clientY, type: "background" });
+            }
+          }}
+          role="list"
+        >
+          {loading ? (
+            <div className={styles.empty}>Loading…</div>
+          ) : error ? (
+            <div className={styles.empty}>{error}</div>
+          ) : entries.length === 0 ? (
             <div className={styles.empty}>This folder is empty</div>
           ) : (
-            entries.map((node) => (
-              <button
-                key={node.name}
-                type="button"
-                className={styles.row}
-                data-type={node.type}
-                onDoubleClick={() => handleOpen(node)}
-              >
-                <span className={styles.rowIcon}>
-                  {node.type === "folder" ? <FolderIcon /> : <FileIcon />}
-                </span>
-                <span className={styles.rowName}>{node.name}</span>
-              </button>
-            ))
+            entries.map((entry, index) => {
+              const fullPath = currentPath.replace(/\/$/, "") + "/" + entry.name;
+              const isSelected = selectedPaths.has(fullPath);
+              return (
+                <div
+                  key={entry.name}
+                  role="button"
+                  tabIndex={-1}
+                  className={`${styles.row} ${isSelected ? styles.rowSelected : ""}`}
+                  data-type={entry.node_type}
+                  onClick={(e) => handleRowClick(entry, index, e)}
+                  onDoubleClick={() => handleOpen(entry)}
+                  onContextMenu={(e) => handleContextMenu(entry, fullPath, e)}
+                >
+                  <span className={styles.rowIcon}>
+                    {entry.node_type === "directory" ? <FolderIcon /> : <FileIcon />}
+                  </span>
+                  <span className={styles.rowName}>{entry.name}</span>
+                </div>
+              );
+            })
           )}
         </div>
       </div>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={buildContextMenuItems(contextMenu)}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {createPortal(
+        <Modal
+          open={!!renameModal}
+          onClose={() => !renameLoading && setRenameModal(null)}
+          title="Rename"
+          primaryButton={{
+            label: renameLoading ? "Renaming…" : "Rename",
+            onClick: handleRenameSubmit,
+            disabled: renameLoading,
+          }}
+          secondaryButton={{
+            label: "Cancel",
+            onClick: () => setRenameModal(null),
+            disabled: renameLoading,
+          }}
+        >
+          {renameModal && (
+            <label className={styles.renameLabel}>
+              New name
+              <input
+                type="text"
+                className={styles.renameInput}
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleRenameSubmit();
+                  if (e.key === "Escape") setRenameModal(null);
+                }}
+                disabled={renameLoading}
+                autoFocus
+              />
+            </label>
+          )}
+        </Modal>,
+        document.body
+      )}
+
+      {conflict && (
+        <Modal
+          open
+          onClose={() => conflict.resolve("cancel")}
+          title={
+            conflict.canReplace
+              ? `Replace "${conflict.destName}"?`
+              : `Cannot replace "${conflict.destName}"`
+          }
+          primaryButton={
+            conflict.canReplace
+              ? {
+                  label: "Replace",
+                  onClick: () =>
+                    conflict.resolve("replace", replaceAllCheckRef.current?.checked ?? false),
+                }
+              : { label: "Skip", onClick: () => conflict.resolve("skip") }
+          }
+          secondaryButton={{ label: "Cancel", onClick: () => conflict.resolve("cancel") }}
+          tertiaryButton={
+            conflict.canReplace ? { label: "Skip", onClick: () => conflict.resolve("skip") } : undefined
+          }
+        >
+          <p className={styles.conflictMessage}>
+            {conflict.canReplace
+              ? `A file with this name already exists. Replace it?`
+              : `A folder with this name already exists. Skip it?`}
+          </p>
+          {conflict.canReplace && (
+            <label className={styles.replaceAllLabel}>
+              <input ref={replaceAllCheckRef} type="checkbox" /> Replace all
+            </label>
+          )}
+        </Modal>
+      )}
     </div>
   );
+
+  function buildContextMenuItems(ctx: NonNullable<typeof contextMenu>): ContextMenuItem[] {
+    const items: ContextMenuItem[] = [];
+    if ("fullPath" in ctx && ctx.entry && ctx.entry.name) {
+      items.push(
+        { label: "Copy", onClick: () => setClipboard([{ path: ctx.fullPath, type: ctx.entry.node_type === "directory" ? "folder" : "file" }], "copy") },
+        { label: "Cut", onClick: () => setClipboard([{ path: ctx.fullPath, type: ctx.entry.node_type === "directory" ? "folder" : "file" }], "cut") },
+      );
+      if (hasItems) {
+        items.push({
+          label: "Paste",
+          onClick: () => {
+            const { items: clipItems, operation } = getClipboard();
+            if (clipItems.length > 0) performPaste(clipItems, operation);
+          },
+        });
+      }
+      items.push({ label: "Rename", onClick: () => handleRenameClick(ctx.entry, ctx.fullPath) });
+    } else if ("type" in ctx && ctx.type === "background" && hasItems) {
+      items.push({
+        label: "Paste",
+        onClick: () => {
+          const { items: clipItems, operation } = getClipboard();
+          if (clipItems.length > 0) performPaste(clipItems, operation);
+        },
+      });
+    }
+    return items;
+  }
 }
 
 function FolderIcon() {

@@ -20,10 +20,12 @@ pub mod game {
 
 use game::game_service_server::GameService;
 use game::{
-    GetDiskUsageRequest, GetDiskUsageResponse, HelloRequest, HelloResponse, LoginRequest,
-    LoginResponse, OpenTerminal, PingRequest, PingResponse, RestoreDiskRequest, RestoreDiskResponse,
-    StdinData, StdoutData, TerminalClientMessage, TerminalClosed, TerminalError,
-    TerminalOpened, TerminalServerMessage,
+    CopyPathRequest, CopyPathResponse, FsEntry, GetDiskUsageRequest, GetDiskUsageResponse,
+    GetHomePathRequest, GetHomePathResponse, HelloRequest, HelloResponse, ListFsRequest,
+    ListFsResponse, LoginRequest, LoginResponse, MovePathRequest, MovePathResponse, OpenTerminal,
+    PingRequest, PingResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest,
+    RestoreDiskResponse, StdinData, StdoutData, TerminalClientMessage, TerminalClosed,
+    TerminalError, TerminalOpened, TerminalServerMessage,
 };
 
 pub struct ClusterGameService {
@@ -389,6 +391,257 @@ impl GameService for ClusterGameService {
             error_message: String::new(),
         }))
     }
+
+    async fn get_home_path(
+        &self,
+        request: Request<GetHomePathRequest>,
+    ) -> Result<Response<GetHomePathResponse>, Status> {
+        let player_id_str = request.into_inner().player_id;
+        let player_id = Uuid::parse_str(&player_id_str)
+            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
+
+        let vm = self
+            .vm_service
+            .get_vm_by_owner_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("No VM found for this player"))?;
+
+        let home_path = if let Some(owner_id) = vm.owner_id {
+            let player = self
+                .player_service
+                .get_by_id(owner_id)
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?
+                .ok_or_else(|| Status::internal("Owner player not found"))?;
+            format!("/home/{}", player.username)
+        } else {
+            "/home/user".to_string()
+        };
+
+        Ok(Response::new(GetHomePathResponse {
+            home_path,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn list_fs(
+        &self,
+        request: Request<ListFsRequest>,
+    ) -> Result<Response<ListFsResponse>, Status> {
+        let ListFsRequest { player_id, path } = request.into_inner();
+        let player_id = Uuid::parse_str(&player_id)
+            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
+
+        let vm = self
+            .vm_service
+            .get_vm_by_owner_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("No VM found for this player"))?;
+
+        let home_path = if let Some(owner_id) = vm.owner_id {
+            let player = self
+                .player_service
+                .get_by_id(owner_id)
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?
+                .ok_or_else(|| Status::internal("Owner player not found"))?;
+            format!("/home/{}", player.username)
+        } else {
+            "/home/user".to_string()
+        };
+
+        if !path_under_home(&path, &home_path) {
+            return Ok(Response::new(ListFsResponse {
+                entries: vec![],
+                error_message: "Path must be under home".to_string(),
+            }));
+        }
+
+        let entries = self
+            .fs_service
+            .ls(vm.id, &path)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let proto_entries: Vec<FsEntry> = entries
+            .into_iter()
+            .map(|e| FsEntry {
+                name: e.name,
+                node_type: e.node_type,
+                size_bytes: e.size_bytes,
+            })
+            .collect();
+
+        Ok(Response::new(ListFsResponse {
+            entries: proto_entries,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn copy_path(
+        &self,
+        request: Request<CopyPathRequest>,
+    ) -> Result<Response<CopyPathResponse>, Status> {
+        let CopyPathRequest {
+            player_id,
+            src_path,
+            dest_path,
+        } = request.into_inner();
+        let player_id = Uuid::parse_str(&player_id)
+            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
+
+        let (vm, owner) = vm_and_owner(&self, player_id).await?;
+        if !path_under_home(&src_path, &owner.1) || !path_under_home(&dest_path, &owner.1) {
+            return Ok(Response::new(CopyPathResponse {
+                success: false,
+                error_message: "Paths must be under home".to_string(),
+            }));
+        }
+
+        match self
+            .fs_service
+            .copy_path_recursive(vm.id, &src_path, &dest_path, &owner.0)
+            .await
+        {
+            Ok(()) => Ok(Response::new(CopyPathResponse {
+                success: true,
+                error_message: String::new(),
+            })),
+            Err(e) => Ok(Response::new(CopyPathResponse {
+                success: false,
+                error_message: e.to_string(),
+            })),
+        }
+    }
+
+    async fn move_path(
+        &self,
+        request: Request<MovePathRequest>,
+    ) -> Result<Response<MovePathResponse>, Status> {
+        let MovePathRequest {
+            player_id,
+            src_path,
+            dest_path,
+        } = request.into_inner();
+        let player_id = Uuid::parse_str(&player_id)
+            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
+
+        let (vm, owner) = vm_and_owner(&self, player_id).await?;
+        if !path_under_home(&src_path, &owner.1) || !path_under_home(&dest_path, &owner.1) {
+            return Ok(Response::new(MovePathResponse {
+                success: false,
+                error_message: "Paths must be under home".to_string(),
+            }));
+        }
+
+        match self
+            .fs_service
+            .move_node(vm.id, &src_path, &dest_path)
+            .await
+        {
+            Ok(()) => Ok(Response::new(MovePathResponse {
+                success: true,
+                error_message: String::new(),
+            })),
+            Err(e) => Ok(Response::new(MovePathResponse {
+                success: false,
+                error_message: e.to_string(),
+            })),
+        }
+    }
+
+    async fn rename_path(
+        &self,
+        request: Request<RenamePathRequest>,
+    ) -> Result<Response<RenamePathResponse>, Status> {
+        let RenamePathRequest {
+            player_id,
+            path,
+            new_name,
+        } = request.into_inner();
+        let player_id = Uuid::parse_str(&player_id)
+            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
+
+        let (vm, owner) = vm_and_owner(&self, player_id).await?;
+        if !path_under_home(&path, &owner.1) {
+            return Ok(Response::new(RenamePathResponse {
+                success: false,
+                error_message: "Path must be under home".to_string(),
+            }));
+        }
+
+        match self
+            .fs_service
+            .rename_node(vm.id, &path, &new_name)
+            .await
+        {
+            Ok(()) => Ok(Response::new(RenamePathResponse {
+                success: true,
+                error_message: String::new(),
+            })),
+            Err(e) => Ok(Response::new(RenamePathResponse {
+                success: false,
+                error_message: e.to_string(),
+            })),
+        }
+    }
+}
+
+/// Returns true if path is under home (normalized, no traversal).
+fn path_under_home(path: &str, home: &str) -> bool {
+    let path_norm = normalize_path(path);
+    let home_norm = normalize_path(home);
+    path_norm == home_norm
+        || (path_norm.starts_with(&home_norm) && path_norm.len() > home_norm.len() && path_norm.as_bytes().get(home_norm.len()) == Some(&b'/'))
+}
+
+fn normalize_path(path: &str) -> String {
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty() && *p != ".").collect();
+    let mut resolved: Vec<&str> = Vec::new();
+    for p in parts {
+        if p == ".." {
+            resolved.pop();
+        } else {
+            resolved.push(p);
+        }
+    }
+    if resolved.is_empty() {
+        "/".to_string()
+    } else {
+        "/".to_string() + &resolved.join("/")
+    }
+}
+
+async fn vm_and_owner(
+    svc: &ClusterGameService,
+    player_id: Uuid,
+) -> Result<
+    (
+        super::db::vm_service::VmRecord,
+        (String, String),
+    ),
+    Status,
+> {
+    let vm = svc
+        .vm_service
+        .get_vm_by_owner_id(player_id)
+        .await
+        .map_err(|e| Status::internal(e.to_string()))?
+        .ok_or_else(|| Status::not_found("No VM found for this player"))?;
+    let home_path = if let Some(owner_id) = vm.owner_id {
+        let player = svc
+            .player_service
+            .get_by_id(owner_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::internal("Owner player not found"))?;
+        (player.username.clone(), format!("/home/{}", player.username))
+    } else {
+        ("user".to_string(), "/home/user".to_string())
+    };
+    Ok((vm, home_path))
 }
 
 #[cfg(test)]

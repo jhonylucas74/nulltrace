@@ -8,7 +8,8 @@ use game::game_service_client::GameServiceClient;
 use game::terminal_client_message::Msg as TerminalClientMsg;
 use game::terminal_server_message::Msg as TerminalServerMsg;
 use game::{
-    GetDiskUsageRequest, LoginRequest, OpenTerminal, PingRequest, RestoreDiskRequest, StdinData,
+    CopyPathRequest, GetDiskUsageRequest, GetHomePathRequest, ListFsRequest, LoginRequest,
+    MovePathRequest, OpenTerminal, PingRequest, RenamePathRequest, RestoreDiskRequest, StdinData,
     TerminalClientMessage, TerminalOpened,
 };
 use std::sync::Arc;
@@ -119,6 +120,163 @@ pub async fn grpc_restore_disk(player_id: String) -> Result<RestoreDiskCommandRe
         success: response.success,
         error_message: response.error_message,
     })
+}
+
+/// Tauri command: Get home path for the player's VM.
+#[tauri::command]
+pub async fn grpc_get_home_path(player_id: String) -> Result<GetHomePathCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let response = client
+        .get_home_path(tonic::Request::new(GetHomePathRequest {
+            player_id: player_id.clone(),
+        }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+    Ok(GetHomePathCommandResponse {
+        home_path: response.home_path,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct GetHomePathCommandResponse {
+    pub home_path: String,
+    pub error_message: String,
+}
+
+/// Tauri command: List files and folders at path.
+#[tauri::command]
+pub async fn grpc_list_fs(
+    player_id: String,
+    path: String,
+) -> Result<ListFsCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let response = client
+        .list_fs(tonic::Request::new(ListFsRequest {
+            player_id: player_id.clone(),
+            path: path.clone(),
+        }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+    Ok(ListFsCommandResponse {
+        entries: response
+            .entries
+            .into_iter()
+            .map(|e| ListFsEntry {
+                name: e.name,
+                node_type: e.node_type,
+                size_bytes: e.size_bytes,
+            })
+            .collect(),
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct ListFsCommandResponse {
+    pub entries: Vec<ListFsEntry>,
+    pub error_message: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct ListFsEntry {
+    pub name: String,
+    pub node_type: String,
+    pub size_bytes: i64,
+}
+
+/// Tauri command: Copy file or folder.
+#[tauri::command]
+pub async fn grpc_copy_path(
+    player_id: String,
+    src_path: String,
+    dest_path: String,
+) -> Result<CopyPathCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let response = client
+        .copy_path(tonic::Request::new(CopyPathRequest {
+            player_id: player_id.clone(),
+            src_path: src_path.clone(),
+            dest_path: dest_path.clone(),
+        }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+    Ok(CopyPathCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct CopyPathCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Move file or folder.
+#[tauri::command]
+pub async fn grpc_move_path(
+    player_id: String,
+    src_path: String,
+    dest_path: String,
+) -> Result<MovePathCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let response = client
+        .move_path(tonic::Request::new(MovePathRequest {
+            player_id: player_id.clone(),
+            src_path: src_path.clone(),
+            dest_path: dest_path.clone(),
+        }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+    Ok(MovePathCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct MovePathCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Rename file or folder.
+#[tauri::command]
+pub async fn grpc_rename_path(
+    player_id: String,
+    path: String,
+    new_name: String,
+) -> Result<RenamePathCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let response = client
+        .rename_path(tonic::Request::new(RenamePathRequest {
+            player_id: player_id.clone(),
+            path: path.clone(),
+            new_name: new_name.clone(),
+        }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+    Ok(RenamePathCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct RenamePathCommandResponse {
+    pub success: bool,
+    pub error_message: String,
 }
 
 /// Shared state: session_id -> sender for stdin (so terminal_send_stdin can push lines).

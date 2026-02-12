@@ -189,8 +189,8 @@ export default function TraceRouteApp() {
           }}
         >
           <Geographies geography={GEO_URL}>
-            {({ geographies }) =>
-              geographies.map((geo) => (
+            {({ geographies }: { geographies: Array<{ rsmKey: string }> }) =>
+              geographies.map((geo: { rsmKey: string }) => (
                 <Geography
                   key={geo.rsmKey}
                   geography={geo}

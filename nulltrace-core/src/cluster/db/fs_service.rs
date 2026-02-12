@@ -446,6 +446,161 @@ impl FsService {
         Ok(row.0)
     }
 
+    /// Recursively copy a file or directory from src_path to dest_path.
+    /// dest_path is the full destination path (e.g. /home/user/Downloads/file.txt for a file).
+    pub async fn copy_path_recursive(
+        &self,
+        vm_id: Uuid,
+        src_path: &str,
+        dest_path: &str,
+        owner: &str,
+    ) -> Result<(), sqlx::Error> {
+        let node_type = self
+            .node_type_at(vm_id, src_path)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound)?;
+
+        if node_type == "file" {
+            let (data, mime_type) = self
+                .read_file(vm_id, src_path)
+                .await?
+                .ok_or_else(|| sqlx::Error::RowNotFound)?;
+            self.write_file(
+                vm_id,
+                dest_path,
+                &data,
+                mime_type.as_deref(),
+                owner,
+            )
+            .await?;
+            return Ok(());
+        }
+
+        // Directory: use queue (BFS) to avoid async recursion
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back((src_path.to_string(), dest_path.to_string()));
+        while let Some((src, dest)) = queue.pop_front() {
+            self.mkdir(vm_id, &dest, owner).await?;
+            let children = self.ls(vm_id, &src).await?;
+            let src_base = src.trim_end_matches('/');
+            let dest_base = dest.trim_end_matches('/');
+            for child in children {
+                let src_child = format!("{}/{}", src_base, child.name);
+                let dest_child = format!("{}/{}", dest_base, child.name);
+                let child_type = self
+                    .node_type_at(vm_id, &src_child)
+                    .await?
+                    .ok_or_else(|| sqlx::Error::RowNotFound)?;
+                if child_type == "file" {
+                    let (data, mime_type) = self
+                        .read_file(vm_id, &src_child)
+                        .await?
+                        .ok_or_else(|| sqlx::Error::RowNotFound)?;
+                    self.write_file(
+                        vm_id,
+                        &dest_child,
+                        &data,
+                        mime_type.as_deref(),
+                        owner,
+                    )
+                    .await?;
+                } else {
+                    queue.push_back((src_child, dest_child));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Move a file or directory by updating its parent_id. Fails if dest already has a child with the same name.
+    pub async fn move_node(
+        &self,
+        vm_id: Uuid,
+        src_path: &str,
+        dest_parent_path: &str,
+    ) -> Result<(), sqlx::Error> {
+        let (_src_parent, src_name) = split_path(src_path);
+        let src_node_id = self
+            .resolve_path(vm_id, src_path)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound)?;
+        let dest_parent_id = self
+            .resolve_path(vm_id, dest_parent_path)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound)?;
+
+        // Cannot move directory into itself or a descendant
+        let src_norm = src_path.trim_end_matches('/');
+        let dest_norm = dest_parent_path.trim_end_matches('/');
+        if dest_norm == src_norm || dest_norm.starts_with(&format!("{}/", src_norm)) {
+            return Err(sqlx::Error::RowNotFound);
+        }
+
+        // Check for name conflict
+        let existing: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM fs_nodes WHERE vm_id = $1 AND parent_id = $2 AND name = $3",
+        )
+        .bind(vm_id)
+        .bind(dest_parent_id)
+        .bind(&src_name)
+        .fetch_optional(&self.pool)
+        .await?;
+        if existing.is_some() {
+            return Err(sqlx::Error::RowNotFound);
+        }
+
+        sqlx::query("UPDATE fs_nodes SET parent_id = $1, updated_at = now() WHERE id = $2")
+            .bind(dest_parent_id)
+            .bind(src_node_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Rename a file or directory. Fails if a sibling already has the new name.
+    pub async fn rename_node(
+        &self,
+        vm_id: Uuid,
+        path: &str,
+        new_name: &str,
+    ) -> Result<(), sqlx::Error> {
+        if new_name.is_empty() || new_name.contains('/') || new_name == "." || new_name == ".." {
+            return Err(sqlx::Error::RowNotFound);
+        }
+        let node_id = self
+            .resolve_path(vm_id, path)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound)?;
+        let row: Option<(Option<Uuid>,)> = sqlx::query_as(
+            "SELECT parent_id FROM fs_nodes WHERE id = $1",
+        )
+        .bind(node_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let parent_id = match row.and_then(|r| r.0) {
+            Some(id) => id,
+            None => return Err(sqlx::Error::RowNotFound),
+        };
+        // Check for name conflict with siblings
+        let existing: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM fs_nodes WHERE vm_id = $1 AND parent_id = $2 AND name = $3",
+        )
+        .bind(vm_id)
+        .bind(parent_id)
+        .bind(new_name)
+        .fetch_optional(&self.pool)
+        .await?;
+        if existing.is_some() && existing != Some(node_id) {
+            return Err(sqlx::Error::RowNotFound);
+        }
+        sqlx::query("UPDATE fs_nodes SET name = $1, updated_at = now() WHERE id = $2")
+            .bind(new_name)
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Delete all filesystem data for a VM.
     pub async fn destroy_fs(&self, vm_id: Uuid) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM fs_nodes WHERE vm_id = $1")

@@ -4,6 +4,7 @@ import { useAuth } from "./contexts/AuthContext";
 import { getWindowConfigFromStorage } from "./contexts/WindowConfigContext";
 import { StartupConfigProvider } from "./contexts/StartupConfigContext";
 import { WindowConfigProvider } from "./contexts/WindowConfigContext";
+import { ClipboardProvider } from "./contexts/ClipboardContext";
 import Login from "./screens/Login";
 import Desktop from "./screens/Desktop";
 
@@ -42,7 +43,9 @@ export default function App() {
           username ? (
             <StartupConfigProvider>
               <WindowConfigProvider>
-                <Desktop />
+                <ClipboardProvider>
+                  <Desktop />
+                </ClipboardProvider>
               </WindowConfigProvider>
             </StartupConfigProvider>
           ) : (
