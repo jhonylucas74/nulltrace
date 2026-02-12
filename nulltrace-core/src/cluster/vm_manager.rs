@@ -392,6 +392,7 @@ impl VmManager {
                             process.stdin.clone(),
                             process.stdout.clone(),
                             process.args.clone(),
+                            process.forward_stdout_to.clone(),
                         );
                     }
                     if !process.is_finished() {
@@ -425,10 +426,19 @@ impl VmManager {
                     let vm_id = ctx.vm_id;
                     drop(ctx);
 
-                    for (pid, parent_id, spec, args, uid, username) in spawn_queue {
+                    for (pid, parent_id, spec, args, uid, username, forward_stdout) in spawn_queue {
                         let path = match &spec {
                             SpawnSpec::Bin(name) => format!("/bin/{}", name),
                             SpawnSpec::Path(p) => p.clone(),
+                        };
+                        let forward_stdout_to = if forward_stdout && parent_id != 0 {
+                            vm.os
+                                .processes
+                                .iter()
+                                .find(|p| p.id == parent_id)
+                                .map(|p| p.stdout.clone())
+                        } else {
+                            None
                         };
                         let result = tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(async {
@@ -445,6 +455,7 @@ impl VmManager {
                                     args,
                                     uid,
                                     &username,
+                                    forward_stdout_to,
                                 );
                             }
                         }
@@ -592,6 +603,7 @@ mod tests {
                         process.stdin.clone(),
                         process.stdout.clone(),
                         process.args.clone(),
+                        process.forward_stdout_to.clone(),
                     );
                 }
                 process.tick();
@@ -685,6 +697,7 @@ end
                         process.stdin.clone(),
                         process.stdout.clone(),
                         process.args.clone(),
+                        process.forward_stdout_to.clone(),
                     );
                 }
                 process.tick();
@@ -745,6 +758,7 @@ end
                         process.stdin.clone(),
                         process.stdout.clone(),
                         process.args.clone(),
+                        process.forward_stdout_to.clone(),
                     );
                 }
                 process.tick();
@@ -795,6 +809,7 @@ end
                     process.stdin.clone(),
                     process.stdout.clone(),
                     process.args.clone(),
+                    process.forward_stdout_to.clone(),
                 );
             }
             process.tick();
@@ -827,16 +842,33 @@ end
             let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
             std::mem::take(&mut ctx.spawn_queue)
         };
-        for (pid, parent_id, spec, args, uid, username) in spawn_queue {
+        for (pid, parent_id, spec, args, uid, username, forward_stdout) in spawn_queue {
             let path = match &spec {
                 SpawnSpec::Bin(name) => format!("/bin/{}", name),
                 SpawnSpec::Path(p) => p.clone(),
+            };
+            let forward_stdout_to = if forward_stdout && parent_id != 0 {
+                vm.os
+                    .processes
+                    .iter()
+                    .find(|p| p.id == parent_id)
+                    .map(|p| p.stdout.clone())
+            } else {
+                None
             };
             let result = manager.fs_service.read_file(vm_id, &path).await;
             if let Ok(Some((data, _))) = result {
                 if let Ok(lua_code) = String::from_utf8(data) {
                     let parent = if parent_id == 0 { None } else { Some(parent_id) };
-                    vm.os.spawn_process_with_id(pid, parent, &lua_code, args, uid, &username);
+                    vm.os.spawn_process_with_id(
+                        pid,
+                        parent,
+                        &lua_code,
+                        args,
+                        uid,
+                        &username,
+                        forward_stdout_to,
+                    );
                 }
             }
         }
@@ -922,6 +954,7 @@ end
                         process.stdin.clone(),
                         process.stdout.clone(),
                         process.args.clone(),
+                        process.forward_stdout_to.clone(),
                     );
                 }
                 process.tick();
@@ -2009,12 +2042,6 @@ os.write_stdin(pid, "hello")
         // stdin inject applies end-of-tick so child gets "hello" next tick; child echoes; shell relays next tick.
         run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-forward-vm", 80).await;
 
-        let any_stdout: String = vm
-            .os
-            .processes
-            .iter()
-            .filter_map(|p| p.stdout.lock().ok().map(|g| (p.id, g.clone())))
-            .fold(String::new(), |acc, (id, s)| format!("{}pid{}={:?}; ", acc, id, s));
         let shell_stdout = vm
             .os
             .processes
@@ -2025,9 +2052,8 @@ os.write_stdin(pid, "hello")
             .unwrap_or_default();
         assert!(
             shell_stdout.contains("got:hello"),
-            "shell should forward stdin to child and relay output. shell_stdout: {:?}, all: {}",
-            shell_stdout,
-            any_stdout
+            "shell should forward stdin to child and relay output, got: {:?}",
+            shell_stdout
         );
     }
 }

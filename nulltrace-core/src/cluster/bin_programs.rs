@@ -51,14 +51,12 @@ for i = 1, #args do
 end
 "#;
 
-/// Shell: reads stdin, parses as bin command (no spawn_path). When no child: spawn(program, args).
-/// When has child: forwards stdin to child. Every loop relays child stdout to own stdout.
+/// Shell: reads stdin, parses as bin command (no spawn_path). When no child: spawn(program, args, { forward_stdout = true }).
+/// When has child: forwards stdin to child. Child stdout is forwarded to shell natively by the VM.
 pub const SH: &str = r#"
 local child_pid = nil
 while true do
   if child_pid then
-    local out = os.read_stdout(child_pid)
-    if out and out ~= "" then io.write(out) end
     local st = os.process_status(child_pid)
     if st == "finished" or st == "not_found" then child_pid = nil end
   end
@@ -69,7 +67,7 @@ while true do
     else
       local t = os.parse_cmd(line)
       if t and t.program and t.program ~= "" then
-        child_pid = os.spawn(t.program, t.args or {})
+        child_pid = os.spawn(t.program, t.args or {}, { forward_stdout = true })
       end
     end
   end

@@ -15,6 +15,8 @@ pub struct Process {
     pub args: Vec<String>,
     pub stdin: Arc<Mutex<VecDeque<String>>>,
     pub stdout: Arc<Mutex<String>>,
+    /// When set, io.write/print in this process also append to this buffer (parent stdout).
+    pub forward_stdout_to: Option<Arc<Mutex<String>>>,
     thread: Thread,
     finished: bool,
     duration: Instant,
@@ -41,6 +43,7 @@ impl Process {
             args,
             stdin: Arc::new(Mutex::new(VecDeque::new())),
             stdout: Arc::new(Mutex::new(String::new())),
+            forward_stdout_to: None,
             thread,
             finished: false,
             duration: Instant::now(),

@@ -28,7 +28,7 @@ pub fn register(lua: &Lua) -> Result<()> {
         })?,
     )?;
 
-    // io.write(s) -> appends to current_stdout
+    // io.write(s) -> appends to current_stdout; if current_stdout_forward set, also appends there (native forward).
     io.set(
         "write",
         lua.create_function(|lua, s: String| {
@@ -39,16 +39,21 @@ pub fn register(lua: &Lua) -> Result<()> {
                 Some(s) => s.clone(),
                 None => return Ok(()),
             };
+            let forward = ctx.current_stdout_forward.clone();
             drop(ctx);
             let mut out = stdout.lock().map_err(|e| mlua::Error::runtime(e.to_string()))?;
             out.push_str(&s);
+            if let Some(ref f) = forward {
+                let mut guard = f.lock().map_err(|e| mlua::Error::runtime(e.to_string()))?;
+                guard.push_str(&s);
+            }
             Ok(())
         })?,
     )?;
 
     lua.globals().set("io", io)?;
 
-    // print(...) -> writes all args to current_stdout (tab-separated, newline at end)
+    // print(...) -> writes all args to current_stdout (tab-separated, newline at end); if current_stdout_forward set, also appends there.
     let print_fn = lua.create_function(|lua, args: mlua::Variadic<Value>| {
         let ctx = lua
             .app_data_ref::<VmContext>()
@@ -57,8 +62,8 @@ pub fn register(lua: &Lua) -> Result<()> {
             Some(s) => s.clone(),
             None => return Ok(()),
         };
+        let forward = ctx.current_stdout_forward.clone();
         drop(ctx);
-        let mut out = stdout.lock().map_err(|e| mlua::Error::runtime(e.to_string()))?;
         let parts: Vec<String> = args
             .iter()
             .map(|v| match v {
@@ -70,8 +75,13 @@ pub fn register(lua: &Lua) -> Result<()> {
                 _ => format!("{:?}", v),
             })
             .collect();
-        out.push_str(&parts.join("\t"));
-        out.push('\n');
+        let line = parts.join("\t") + "\n";
+        let mut out = stdout.lock().map_err(|e| mlua::Error::runtime(e.to_string()))?;
+        out.push_str(&line);
+        if let Some(ref f) = forward {
+            let mut guard = f.lock().map_err(|e| mlua::Error::runtime(e.to_string()))?;
+            guard.push_str(&line);
+        }
         Ok(())
     })?;
     lua.globals().set("print", print_fn)?;

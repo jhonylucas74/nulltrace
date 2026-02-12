@@ -119,42 +119,68 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>) -> Result<()> {
         })?,
     )?;
 
-    // os.spawn(name, args) -> pid. Two args: bin name and table of args. pid/username/parent from context.
+    // os.spawn(name, args, options?) -> pid. options may have forward_stdout = true to forward child stdout to parent.
     os.set(
         "spawn",
-        lua.create_function(|lua, (name, args): (String, Option<mlua::Table>)| {
-            let mut ctx = lua
-                .app_data_mut::<VmContext>()
-                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
-            let argv = table_to_argv(&lua, args)?;
-            let pid = ctx.next_pid;
-            ctx.next_pid = ctx.next_pid.saturating_add(1);
-            let parent_pid = ctx.current_pid;
-            let uid = ctx.current_uid;
-            let username = ctx.current_username.clone();
-            ctx.spawn_queue
-                .push((pid, parent_pid, SpawnSpec::Bin(name), argv, uid, username));
-            Ok(pid)
-        })?,
+        lua.create_function(
+            |lua, (name, args, options): (String, Option<mlua::Table>, Option<mlua::Table>)| {
+                let mut ctx = lua
+                    .app_data_mut::<VmContext>()
+                    .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+                let argv = table_to_argv(&lua, args)?;
+                let forward_stdout = options
+                    .and_then(|t| t.get("forward_stdout").ok())
+                    .and_then(|v: mlua::Value| v.as_boolean())
+                    .unwrap_or(false);
+                let pid = ctx.next_pid;
+                ctx.next_pid = ctx.next_pid.saturating_add(1);
+                let parent_pid = ctx.current_pid;
+                let uid = ctx.current_uid;
+                let username = ctx.current_username.clone();
+                ctx.spawn_queue.push((
+                    pid,
+                    parent_pid,
+                    SpawnSpec::Bin(name),
+                    argv,
+                    uid,
+                    username,
+                    forward_stdout,
+                ));
+                Ok(pid)
+            },
+        )?,
     )?;
 
-    // os.spawn_path(path, args) -> pid. Two args: file path and table of args.
+    // os.spawn_path(path, args, options?) -> pid. options may have forward_stdout = true.
     os.set(
         "spawn_path",
-        lua.create_function(|lua, (path, args): (String, Option<mlua::Table>)| {
-            let mut ctx = lua
-                .app_data_mut::<VmContext>()
-                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
-            let argv = table_to_argv(&lua, args)?;
-            let pid = ctx.next_pid;
-            ctx.next_pid = ctx.next_pid.saturating_add(1);
-            let parent_pid = ctx.current_pid;
-            let uid = ctx.current_uid;
-            let username = ctx.current_username.clone();
-            ctx.spawn_queue
-                .push((pid, parent_pid, SpawnSpec::Path(path), argv, uid, username));
-            Ok(pid)
-        })?,
+        lua.create_function(
+            |lua, (path, args, options): (String, Option<mlua::Table>, Option<mlua::Table>)| {
+                let mut ctx = lua
+                    .app_data_mut::<VmContext>()
+                    .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+                let argv = table_to_argv(&lua, args)?;
+                let forward_stdout = options
+                    .and_then(|t| t.get("forward_stdout").ok())
+                    .and_then(|v: mlua::Value| v.as_boolean())
+                    .unwrap_or(false);
+                let pid = ctx.next_pid;
+                ctx.next_pid = ctx.next_pid.saturating_add(1);
+                let parent_pid = ctx.current_pid;
+                let uid = ctx.current_uid;
+                let username = ctx.current_username.clone();
+                ctx.spawn_queue.push((
+                    pid,
+                    parent_pid,
+                    SpawnSpec::Path(path),
+                    argv,
+                    uid,
+                    username,
+                    forward_stdout,
+                ));
+                Ok(pid)
+            },
+        )?,
     )?;
 
     // os.process_status(pid) -> "running" | "finished" | "scheduled" | "not_found"
@@ -236,8 +262,15 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>) -> Result<()> {
             let parent_pid = ctx.current_pid;
             let uid = ctx.current_uid;
             let username = ctx.current_username.clone();
-            ctx.spawn_queue
-                .push((pid, parent_pid, SpawnSpec::Bin(name), argv, uid, username));
+            ctx.spawn_queue.push((
+                pid,
+                parent_pid,
+                SpawnSpec::Bin(name),
+                argv,
+                uid,
+                username,
+                false,
+            ));
             Ok(())
         })?,
     )?;

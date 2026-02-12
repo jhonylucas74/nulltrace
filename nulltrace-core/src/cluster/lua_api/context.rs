@@ -14,8 +14,8 @@ pub enum SpawnSpec {
     Path(String),
 }
 
-/// One spawn request: (pid, parent_pid, spec, args, uid, username). Filled from context in Lua callbacks.
-pub type SpawnQueueItem = (u64, u64, SpawnSpec, Vec<String>, i32, String);
+/// One spawn request: (pid, parent_pid, spec, args, uid, username, forward_stdout). Filled from context in Lua callbacks.
+pub type SpawnQueueItem = (u64, u64, SpawnSpec, Vec<String>, i32, String, bool);
 
 /// Shared context set via `lua.set_app_data()` before each VM tick.
 /// Since the game loop ticks one VM at a time, this is safe.
@@ -36,6 +36,8 @@ pub struct VmContext {
     /// stdin/stdout for the currently executing process (set before each tick)
     pub current_stdin: Option<Arc<Mutex<VecDeque<String>>>>,
     pub current_stdout: Option<Arc<Mutex<String>>>,
+    /// When set, io.write/print also append to this buffer (native forward stdout to parent).
+    pub current_stdout_forward: Option<Arc<Mutex<String>>>,
 
     /// Args for the currently executing process (set before each tick)
     pub process_args: Vec<String>,
@@ -74,6 +76,7 @@ impl VmContext {
             listening_ports: Vec::new(),
             current_stdin: None,
             current_stdout: None,
+            current_stdout_forward: None,
             process_args: Vec::new(),
             next_pid: 1,
             spawn_queue: Vec::new(),
@@ -97,6 +100,7 @@ impl VmContext {
         self.listening_ports.clear();
         self.current_stdin = None;
         self.current_stdout = None;
+        self.current_stdout_forward = None;
         self.process_args.clear();
         self.spawn_queue.clear();
         self.process_status_map.clear();
@@ -117,9 +121,11 @@ impl VmContext {
         stdin: Arc<Mutex<VecDeque<String>>>,
         stdout: Arc<Mutex<String>>,
         args: Vec<String>,
+        forward_stdout_to: Option<Arc<Mutex<String>>>,
     ) {
         self.current_stdin = Some(stdin);
         self.current_stdout = Some(stdout);
+        self.current_stdout_forward = forward_stdout_to;
         self.process_args = args;
     }
 }

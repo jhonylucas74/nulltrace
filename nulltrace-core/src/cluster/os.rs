@@ -3,6 +3,7 @@
 use super::process::Process;
 use mlua::{Lua, VmState};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 pub struct OS<'a> {
@@ -55,7 +56,8 @@ impl<'a> OS<'a> {
         self.is_finished
     }
 
-    /// Spawns a process with a pre-allocated id and optional parent. Updates next_process_id to stay >= id.
+    /// Spawns a process with a pre-allocated id and optional parent. When forward_stdout_to is Some,
+    /// io.write/print in the new process will also append to that buffer (parent stdout).
     /// Returns Some(id) on success, None on failure.
     pub fn spawn_process_with_id(
         &mut self,
@@ -65,8 +67,9 @@ impl<'a> OS<'a> {
         args: Vec<String>,
         user_id: i32,
         username: &str,
+        forward_stdout_to: Option<Arc<Mutex<String>>>,
     ) -> Option<u64> {
-        let process = Process::new(
+        let mut process = Process::new(
             &self.lua,
             id,
             parent_id,
@@ -76,6 +79,7 @@ impl<'a> OS<'a> {
             args,
         )
         .ok()?;
+        process.forward_stdout_to = forward_stdout_to;
         self.next_process_id
             .fetch_max(id + 1, Ordering::Relaxed);
         self.processes.push(process);
@@ -85,7 +89,7 @@ impl<'a> OS<'a> {
     /// Backward-compatible spawn: allocates next id and uses no parent.
     pub fn spawn_process(&mut self, lua_code: &str, args: Vec<String>, user_id: i32, username: &str) {
         let id = self.next_process_id.fetch_add(1, Ordering::Relaxed);
-        let _ = self.spawn_process_with_id(id, None, lua_code, args, user_id, username);
+        let _ = self.spawn_process_with_id(id, None, lua_code, args, user_id, username, None);
     }
 
     pub fn tick(&mut self) {
@@ -130,7 +134,7 @@ mod tests {
     fn test_spawn_process_with_id_returns_pid_and_sets_parent() {
         let lua = create_lua_state();
         let mut os = OS::new(&lua);
-        let result = os.spawn_process_with_id(10, Some(1), "return", vec![], 0, "root");
+        let result = os.spawn_process_with_id(10, Some(1), "return", vec![], 0, "root", None);
         assert_eq!(result, Some(10));
         assert_eq!(os.processes.len(), 1);
         assert_eq!(os.processes[0].id, 10);
@@ -142,7 +146,7 @@ mod tests {
     fn test_spawn_process_with_id_updates_next_process_id() {
         let lua = create_lua_state();
         let mut os = OS::new(&lua);
-        let _ = os.spawn_process_with_id(5, None, "return", vec![], 0, "root");
+        let _ = os.spawn_process_with_id(5, None, "return", vec![], 0, "root", None);
         assert!(os.next_process_id() >= 6);
     }
 }
