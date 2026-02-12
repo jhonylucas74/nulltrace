@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Grid3X3, Package, GraduationCap } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Grid3X3, Package, GraduationCap, HardDrive } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WalletProvider } from "../contexts/WalletContext";
 import { WindowManagerProvider, useWindowManager, getDefaultSizeForType } from "../contexts/WindowManagerContext";
@@ -47,6 +47,7 @@ import ShortcutsHandler from "../components/ShortcutsHandler";
 import FilePicker from "../components/FilePicker";
 import PacketApp from "../components/PacketApp";
 import CodelabApp from "../components/CodelabApp";
+import DiskManagerApp from "../components/DiskManagerApp";
 import { getAppTitle } from "../lib/appList";
 import styles from "./Desktop.module.css";
 
@@ -195,6 +196,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   minesweeper: <Grid3X3 size={12} />,
   packet: <Package size={12} />,
   codelab: <GraduationCap size={12} />,
+  diskmanager: <HardDrive size={12} />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -495,7 +497,7 @@ function DesktopContent() {
 
   function renderWindowContent(win: { id: string; type: WindowType; title: string }) {
     if (win.type === "terminal") {
-      return <Terminal username={username ?? "user"} />;
+      return <Terminal username={username ?? "user"} windowId={win.id} />;
     }
     if (win.type === "theme") {
       return <ThemeApp />;
@@ -562,6 +564,9 @@ function DesktopContent() {
     }
     if (win.type === "codelab") {
       return <CodelabApp />;
+    }
+    if (win.type === "diskmanager") {
+      return <DiskManagerApp />;
     }
     return <PlaceholderContent title={win.title} />;
   }

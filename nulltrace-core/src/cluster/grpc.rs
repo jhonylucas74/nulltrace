@@ -1,6 +1,11 @@
-//! gRPC GameService implementation (Ping, Login, SayHello, TerminalStream). Used by the unified cluster binary.
+//! gRPC GameService implementation (Ping, Login, SayHello, TerminalStream, GetDiskUsage, RestoreDisk).
+//! Used by the unified cluster binary.
 
+use super::bin_programs;
+use super::db::fs_service::FsService;
 use super::db::player_service::PlayerService;
+use super::db::user_service::{UserService, VmUser};
+use super::db::vm_service::VmService;
 use super::terminal_hub::{SessionReady, TerminalHub};
 use game::terminal_server_message::Msg as TerminalServerMsg;
 use std::sync::Arc;
@@ -15,20 +20,33 @@ pub mod game {
 
 use game::game_service_server::GameService;
 use game::{
-    HelloRequest, HelloResponse, LoginRequest, LoginResponse, OpenTerminal, PingRequest,
-    PingResponse, StdinData, StdoutData, TerminalClientMessage, TerminalClosed, TerminalError,
+    GetDiskUsageRequest, GetDiskUsageResponse, HelloRequest, HelloResponse, LoginRequest,
+    LoginResponse, OpenTerminal, PingRequest, PingResponse, RestoreDiskRequest, RestoreDiskResponse,
+    StdinData, StdoutData, TerminalClientMessage, TerminalClosed, TerminalError,
     TerminalOpened, TerminalServerMessage,
 };
 
 pub struct ClusterGameService {
     player_service: Arc<PlayerService>,
+    vm_service: Arc<VmService>,
+    fs_service: Arc<FsService>,
+    user_service: Arc<UserService>,
     terminal_hub: Arc<TerminalHub>,
 }
 
 impl ClusterGameService {
-    pub fn new(player_service: Arc<PlayerService>, terminal_hub: Arc<TerminalHub>) -> Self {
+    pub fn new(
+        player_service: Arc<PlayerService>,
+        vm_service: Arc<VmService>,
+        fs_service: Arc<FsService>,
+        user_service: Arc<UserService>,
+        terminal_hub: Arc<TerminalHub>,
+    ) -> Self {
         Self {
             player_service,
+            vm_service,
+            fs_service,
+            user_service,
             terminal_hub,
         }
     }
@@ -201,24 +219,207 @@ impl GameService for ClusterGameService {
 
         Ok(Response::new(ReceiverStream::new(rx)))
     }
+
+    async fn get_disk_usage(
+        &self,
+        request: Request<GetDiskUsageRequest>,
+    ) -> Result<Response<GetDiskUsageResponse>, Status> {
+        let player_id_str = request.into_inner().player_id;
+        let player_id = Uuid::parse_str(&player_id_str)
+            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
+
+        let vm = self
+            .vm_service
+            .get_vm_by_owner_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("No VM found for this player"))?;
+
+        let used_bytes = self
+            .fs_service
+            .disk_usage_bytes(vm.id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let total_bytes = (vm.disk_mb as i64) * 1024 * 1024;
+
+        Ok(Response::new(GetDiskUsageResponse {
+            used_bytes,
+            total_bytes,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn restore_disk(
+        &self,
+        request: Request<RestoreDiskRequest>,
+    ) -> Result<Response<RestoreDiskResponse>, Status> {
+        let player_id_str = request.into_inner().player_id;
+        let player_id = Uuid::parse_str(&player_id_str)
+            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
+
+        let record = self
+            .vm_service
+            .get_vm_by_owner_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("No VM found for this player"))?;
+
+        let vm_id = record.id;
+
+        // Delete phase: remove all fs_nodes (cascade fs_contents), then vm_users
+        self.fs_service
+            .destroy_fs(vm_id)
+            .await
+            .map_err(|e| Status::internal(format!("destroy_fs: {}", e)))?;
+
+        self.user_service
+            .delete_all_for_vm(vm_id)
+            .await
+            .map_err(|e| Status::internal(format!("delete_all_for_vm: {}", e)))?;
+
+        // Bootstrap phase: same as create_vm (minus NIC/DNS)
+        self.fs_service
+            .bootstrap_fs(vm_id)
+            .await
+            .map_err(|e| Status::internal(format!("bootstrap_fs: {}", e)))?;
+
+        for (name, source) in bin_programs::DEFAULT_BIN_PROGRAMS {
+            let path = format!("/bin/{}", name);
+            self.fs_service
+                .write_file(
+                    vm_id,
+                    &path,
+                    source.as_bytes(),
+                    Some("application/x-nulltrace-lua"),
+                    "root",
+                )
+                .await
+                .map_err(|e| Status::internal(format!("write {}: {}", path, e)))?;
+        }
+
+        let mut users: Vec<VmUser> = self
+            .user_service
+            .bootstrap_users(vm_id)
+            .await
+            .map_err(|e| Status::internal(format!("bootstrap_users: {}", e)))?;
+
+        if let Some(owner_id) = record.owner_id {
+            let player = self
+                .player_service
+                .get_by_id(owner_id)
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?
+                .ok_or_else(|| Status::internal("Owner player not found"))?;
+            let owner_home = format!("/home/{}", player.username);
+            let owner_user = self
+                .user_service
+                .create_user(
+                    vm_id,
+                    &player.username,
+                    1001,
+                    Some(&player.password_hash),
+                    true,
+                    &owner_home,
+                    "/bin/sh",
+                )
+                .await
+                .map_err(|e| Status::internal(format!("create_user: {}", e)))?;
+            users.push(owner_user);
+        }
+
+        for user in &users {
+            if self
+                .fs_service
+                .resolve_path(vm_id, &user.home_dir)
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?
+                .is_none()
+            {
+                self.fs_service
+                    .mkdir(vm_id, &user.home_dir, &user.username)
+                    .await
+                    .map_err(|e| Status::internal(format!("mkdir: {}", e)))?;
+            }
+            self.fs_service
+                .ensure_standard_home_subdirs(vm_id, &user.home_dir, &user.username)
+                .await
+                .map_err(|e| Status::internal(format!("ensure_standard_home_subdirs: {}", e)))?;
+        }
+
+        let passwd_content: String = users
+            .iter()
+            .map(|u| {
+                let gid = if u.is_root { 0 } else { u.uid };
+                format!(
+                    "{}:x:{}:{}:{}:{}:{}",
+                    u.username, u.uid, gid, u.username, u.home_dir, u.shell
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        self.fs_service
+            .write_file(vm_id, "/etc/passwd", passwd_content.as_bytes(), Some("text/plain"), "root")
+            .await
+            .map_err(|e| Status::internal(format!("write /etc/passwd: {}", e)))?;
+
+        let shadow_content: String = users
+            .iter()
+            .map(|u| {
+                let hash = u.password_hash.as_deref().unwrap_or("!");
+                format!("{}:{}:19000:0:99999:7:::", u.username, hash)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        self.fs_service
+            .write_file(
+                vm_id,
+                "/etc/shadow",
+                shadow_content.as_bytes(),
+                Some("text/plain"),
+                "root",
+            )
+            .await
+            .map_err(|e| Status::internal(format!("write /etc/shadow: {}", e)))?;
+
+        Ok(Response::new(RestoreDiskResponse {
+            success: true,
+            error_message: String::new(),
+        }))
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::db::{self, player_service::PlayerService};
+    use super::super::db::{
+        self, fs_service::FsService, player_service::PlayerService, user_service::UserService,
+        vm_service::VmService,
+    };
     use super::super::terminal_hub::new_hub;
     use super::*;
     use std::sync::Arc;
     use tonic::Request;
 
+    fn test_cluster_game_service(pool: &sqlx::PgPool) -> ClusterGameService {
+        ClusterGameService::new(
+            Arc::new(PlayerService::new(pool.clone())),
+            Arc::new(VmService::new(pool.clone())),
+            Arc::new(FsService::new(pool.clone())),
+            Arc::new(UserService::new(pool.clone())),
+            new_hub(),
+        )
+    }
+
     #[tokio::test]
     async fn test_grpc_login_success() {
         let pool = db::test_pool().await;
-        let player_service = Arc::new(PlayerService::new(pool));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
         let name = format!("grpcuser_{}", uuid::Uuid::new_v4());
         player_service.create_player(&name, "secret").await.unwrap();
 
-        let svc = ClusterGameService::new(player_service, new_hub());
+        let svc = test_cluster_game_service(&pool);
         let res = svc
             .login(Request::new(LoginRequest {
                 username: name.clone(),
@@ -235,11 +436,11 @@ mod tests {
     #[tokio::test]
     async fn test_grpc_login_wrong_password() {
         let pool = db::test_pool().await;
-        let player_service = Arc::new(PlayerService::new(pool));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
         let name = format!("grpcwrong_{}", uuid::Uuid::new_v4());
         player_service.create_player(&name, "right").await.unwrap();
 
-        let svc = ClusterGameService::new(player_service, new_hub());
+        let svc = test_cluster_game_service(&pool);
         let res = svc
             .login(Request::new(LoginRequest {
                 username: name,
@@ -256,8 +457,7 @@ mod tests {
     #[tokio::test]
     async fn test_grpc_login_empty_username() {
         let pool = db::test_pool().await;
-        let player_service = Arc::new(PlayerService::new(pool));
-        let svc = ClusterGameService::new(player_service, new_hub());
+        let svc = test_cluster_game_service(&pool);
 
         let res = svc
             .login(Request::new(LoginRequest {
@@ -274,8 +474,7 @@ mod tests {
     #[tokio::test]
     async fn test_grpc_ping_returns_time() {
         let pool = db::test_pool().await;
-        let player_service = Arc::new(PlayerService::new(pool));
-        let svc = ClusterGameService::new(player_service, new_hub());
+        let svc = test_cluster_game_service(&pool);
 
         let res = svc.ping(Request::new(PingRequest {})).await.unwrap();
         let out = res.into_inner();

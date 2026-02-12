@@ -180,7 +180,13 @@ async fn main() {
 
     // ── gRPC server (runs in background task) ──
     let grpc_addr = GRPC_ADDR.parse().expect("Invalid gRPC address");
-    let game_svc = ClusterGameService::new(player_service.clone(), terminal_hub.clone());
+    let game_svc = ClusterGameService::new(
+        player_service.clone(),
+        vm_service.clone(),
+        fs_service.clone(),
+        user_service.clone(),
+        terminal_hub.clone(),
+    );
     let game_server = GameServiceServer::new(game_svc);
     tokio::spawn(async move {
         Server::builder()

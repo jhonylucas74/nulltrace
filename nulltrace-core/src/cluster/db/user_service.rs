@@ -167,6 +167,15 @@ impl UserService {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Delete all vm_users for a VM (used before disk restore / re-bootstrap).
+    pub async fn delete_all_for_vm(&self, vm_id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM vm_users WHERE vm_id = $1")
+            .bind(vm_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Create default users for a new VM: root (uid=0) and user (uid=1000).
     pub async fn bootstrap_users(&self, vm_id: Uuid) -> Result<Vec<VmUser>, sqlx::Error> {
         let mut users = Vec::new();

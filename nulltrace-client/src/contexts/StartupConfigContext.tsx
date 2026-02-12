@@ -22,6 +22,7 @@ const ALLOWED_STARTUP_APP_TYPES: WindowType[] = [
   "nullcloud",
   "hackerboard",
   "store",
+  "diskmanager",
 ];
 
 export interface StartupConfig {

@@ -8,7 +8,8 @@ use game::game_service_client::GameServiceClient;
 use game::terminal_client_message::Msg as TerminalClientMsg;
 use game::terminal_server_message::Msg as TerminalServerMsg;
 use game::{
-    LoginRequest, OpenTerminal, PingRequest, StdinData, TerminalClientMessage, TerminalOpened,
+    GetDiskUsageRequest, LoginRequest, OpenTerminal, PingRequest, RestoreDiskRequest, StdinData,
+    TerminalClientMessage, TerminalOpened,
 };
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -64,6 +65,58 @@ pub async fn grpc_login(username: String, password: String) -> Result<LoginRespo
     Ok(LoginResponse {
         success: response.success,
         player_id: response.player_id,
+        error_message: response.error_message,
+    })
+}
+
+/// Response for grpc_disk_usage command.
+#[derive(serde::Serialize)]
+pub struct DiskUsageResponse {
+    pub used_bytes: i64,
+    pub total_bytes: i64,
+    pub error_message: String,
+}
+
+/// Tauri command: Get disk usage for the player's VM.
+#[tauri::command]
+pub async fn grpc_disk_usage(player_id: String) -> Result<DiskUsageResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let response = client
+        .get_disk_usage(tonic::Request::new(GetDiskUsageRequest {
+            player_id: player_id.clone(),
+        }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+    Ok(DiskUsageResponse {
+        used_bytes: response.used_bytes,
+        total_bytes: response.total_bytes,
+        error_message: response.error_message,
+    })
+}
+
+/// Response for grpc_restore_disk command.
+#[derive(serde::Serialize)]
+pub struct RestoreDiskCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Restore disk (wipe and recreate default files) for the player's VM.
+#[tauri::command]
+pub async fn grpc_restore_disk(player_id: String) -> Result<RestoreDiskCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let response = client
+        .restore_disk(tonic::Request::new(RestoreDiskRequest {
+            player_id: player_id.clone(),
+        }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+    Ok(RestoreDiskCommandResponse {
+        success: response.success,
         error_message: response.error_message,
     })
 }

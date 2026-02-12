@@ -3,10 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { runMockCommand, isClearCommand } from "../lib/mockCommands";
 import { useAuth } from "../contexts/AuthContext";
+import { useWindowManager } from "../contexts/WindowManagerContext";
+import Modal from "./Modal";
 import styles from "./Terminal.module.css";
 
 interface TerminalProps {
   username: string;
+  /** Window ID for closing on connect error (Tauri only). */
+  windowId?: string;
 }
 
 interface LineItem {
@@ -102,14 +106,19 @@ interface TerminalOutputPayload {
   data?: string;
 }
 
-export default function Terminal({ username }: TerminalProps) {
+const CONNECT_ERROR_MESSAGE =
+  "Unexpected error. Could not load the shell (missing or corrupted). The terminal will close.";
+
+export default function Terminal({ username, windowId }: TerminalProps) {
   const { playerId } = useAuth();
+  const { close } = useWindowManager();
   const [lines, setLines] = useState<LineItem[]>([
     { type: "output", content: "Welcome to nulltrace. Type 'help' for commands." },
   ]);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
+  const [connectErrorModalOpen, setConnectErrorModalOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -133,7 +142,7 @@ export default function Terminal({ username }: TerminalProps) {
         sessionIdRef.current = sid;
         setSessionId(sid);
         setSessionEnded(false);
-        setLines([{ type: "output", content: "Connected to VM shell." }]);
+        setLines([]);
 
         unlisten = await listen<TerminalOutputPayload>("terminal-output", (event) => {
           const payload = event.payload;
@@ -156,11 +165,8 @@ export default function Terminal({ username }: TerminalProps) {
             setLines((prev) => [...prev, { type: "error", content: payload.data! }]);
           }
         });
-      } catch (e) {
-        setLines((prev) => [
-          ...prev,
-          { type: "error", content: `Failed to connect: ${String(e)}` },
-        ]);
+      } catch (_e) {
+        setConnectErrorModalOpen(true);
       }
     })();
 
@@ -212,6 +218,13 @@ export default function Terminal({ username }: TerminalProps) {
     }
   }, []);
 
+  function handleConnectErrorModalClose() {
+    setConnectErrorModalOpen(false);
+    if (windowId) {
+      close(windowId);
+    }
+  }
+
   return (
     <div
       className={styles.terminal}
@@ -224,6 +237,14 @@ export default function Terminal({ username }: TerminalProps) {
       }}
       onMouseUp={handleContainerMouseUp}
     >
+      <Modal
+        open={connectErrorModalOpen}
+        onClose={handleConnectErrorModalClose}
+        title="Unexpected Error"
+        primaryButton={{ label: "OK", onClick: handleConnectErrorModalClose }}
+      >
+        <p>{CONNECT_ERROR_MESSAGE}</p>
+      </Modal>
       <div className={styles.scroll} ref={scrollRef}>
         {lines.map((line, i) => (
           <div key={i} className={line.type === "error" ? styles.lineError : styles.line}>

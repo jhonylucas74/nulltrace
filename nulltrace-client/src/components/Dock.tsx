@@ -10,9 +10,13 @@ import { STORE_CATALOG } from "../lib/storeCatalog";
 import type { LaunchableApp } from "../lib/appList";
 import styles from "./Dock.module.css";
 
-/** Fixed dock apps: exclude Theme, Pixel Art, Sysinfo, Shortcuts, Sysmon, Nullcloud, Startup, Code, Wallpaper, Hackerboard, Settings, TraceRoute, Store, Packet. */
+/** App types that never appear in the dock (not fixed, not temporary when running). */
+const DOCK_EXCLUDED_TYPES = new Set<WindowType>(["codelab", "diskmanager"]);
+
+/** Fixed dock apps: exclude Theme, Pixel Art, Sysinfo, Shortcuts, Sysmon, Nullcloud, Startup, Code, Wallpaper, Hackerboard, Settings, TraceRoute, Store, Packet, Codelab, Disk Manager. */
 const FIXED_DOCK_APPS: LaunchableApp[] = LAUNCHABLE_APPS.filter(
   (app) =>
+    !DOCK_EXCLUDED_TYPES.has(app.type) &&
     app.type !== "theme" &&
     app.type !== "pixelart" &&
     app.type !== "sysinfo" &&
@@ -60,7 +64,7 @@ export default function Dock({ username }: DockProps) {
       if (!runningOrder.includes(w.type)) runningOrder.push(w.type);
     }
     const temporary = runningOrder
-      .filter((type) => !fixedTypes.has(type))
+      .filter((type) => !fixedTypes.has(type) && !DOCK_EXCLUDED_TYPES.has(type))
       .map((type) => getAppEntryForDock(type, isInstalled))
       .filter((app): app is LaunchableApp => app != null);
     return [...FIXED_DOCK_APPS, ...temporary, ALL_APPS_ENTRY];

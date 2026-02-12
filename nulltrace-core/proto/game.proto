@@ -6,6 +6,8 @@ service GameService {
   rpc Ping (PingRequest) returns (PingResponse);
   rpc Login (LoginRequest) returns (LoginResponse);
   rpc TerminalStream (stream TerminalClientMessage) returns (stream TerminalServerMessage);
+  rpc GetDiskUsage (GetDiskUsageRequest) returns (GetDiskUsageResponse);
+  rpc RestoreDisk (RestoreDiskRequest) returns (RestoreDiskResponse);
 }
 
 message HelloRequest {
@@ -69,4 +71,23 @@ message TerminalClosed {}
 
 message TerminalError {
   string message = 1;
+}
+
+message GetDiskUsageRequest {
+  string player_id = 1;
+}
+
+message GetDiskUsageResponse {
+  int64 used_bytes = 1;
+  int64 total_bytes = 2;
+  string error_message = 3;
+}
+
+message RestoreDiskRequest {
+  string player_id = 1;
+}
+
+message RestoreDiskResponse {
+  bool success = 1;
+  string error_message = 2;
 }

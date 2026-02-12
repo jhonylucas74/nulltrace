@@ -1,6 +1,7 @@
 use game::game_service_server::{GameService, GameServiceServer};
 use game::{
-    HelloRequest, HelloResponse, LoginRequest, LoginResponse, PingRequest, PingResponse,
+    GetDiskUsageRequest, GetDiskUsageResponse, HelloRequest, HelloResponse, LoginRequest,
+    LoginResponse, PingRequest, PingResponse, RestoreDiskRequest, RestoreDiskResponse,
     TerminalClientMessage, TerminalServerMessage,
 };
 use tonic::{Request, Response, Status, transport::Server};
@@ -69,6 +70,27 @@ impl GameService for MyGameService {
             }))
             .await;
         Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn get_disk_usage(
+        &self,
+        _request: Request<GetDiskUsageRequest>,
+    ) -> Result<Response<GetDiskUsageResponse>, Status> {
+        Ok(Response::new(GetDiskUsageResponse {
+            used_bytes: 0,
+            total_bytes: 0,
+            error_message: "Use the unified cluster binary for disk operations".to_string(),
+        }))
+    }
+
+    async fn restore_disk(
+        &self,
+        _request: Request<RestoreDiskRequest>,
+    ) -> Result<Response<RestoreDiskResponse>, Status> {
+        Ok(Response::new(RestoreDiskResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for disk operations".to_string(),
+        }))
     }
 }
 

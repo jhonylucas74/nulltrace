@@ -74,6 +74,19 @@ impl FsService {
         Ok(Some(current_id))
     }
 
+    /// Returns node_type ("file" or "directory") if path exists, None otherwise.
+    pub async fn node_type_at(&self, vm_id: Uuid, path: &str) -> Result<Option<String>, sqlx::Error> {
+        let node_id = match self.resolve_path(vm_id, path).await? {
+            Some(id) => id,
+            None => return Ok(None),
+        };
+        let row: Option<(String,)> = sqlx::query_as("SELECT node_type FROM fs_nodes WHERE id = $1")
+            .bind(node_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| r.0))
+    }
+
     /// List entries in a directory.
     pub async fn ls(&self, vm_id: Uuid, path: &str) -> Result<Vec<FsEntry>, sqlx::Error> {
         let dir_id = match self.resolve_path(vm_id, path).await? {
@@ -420,6 +433,17 @@ impl FsService {
         }
 
         Ok(())
+    }
+
+    /// Total bytes used by files in this VM (sum of size_bytes for node_type = 'file').
+    pub async fn disk_usage_bytes(&self, vm_id: Uuid) -> Result<i64, sqlx::Error> {
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(size_bytes), 0)::BIGINT FROM fs_nodes WHERE vm_id = $1 AND node_type = 'file'",
+        )
+        .bind(vm_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
     }
 
     /// Delete all filesystem data for a VM.

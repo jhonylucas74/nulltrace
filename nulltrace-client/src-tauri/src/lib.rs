@@ -72,6 +72,8 @@ pub fn run() {
             run_luau,
             grpc::grpc_ping,
             grpc::grpc_login,
+            grpc::grpc_disk_usage,
+            grpc::grpc_restore_disk,
             grpc::terminal_connect,
             grpc::terminal_send_stdin,
             grpc::terminal_disconnect,

@@ -1,5 +1,5 @@
 import React from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Package, GraduationCap } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Package, GraduationCap, HardDrive } from "lucide-react";
 import type { WindowType } from "../contexts/WindowManagerContext";
 
 export interface LaunchableApp {
@@ -146,6 +146,7 @@ export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "store", label: "Store", icon: <StoreIcon /> },
   { type: "packet", label: "Packet", icon: <Package size={24} /> },
   { type: "codelab", label: "Codelab", icon: <GraduationCap size={24} /> },
+  { type: "diskmanager", label: "Disk Manager", icon: <HardDrive size={24} /> },
 ];
 
 /** Get launchable app entry by type (for dock icon/label). */
@@ -181,6 +182,7 @@ export function getAppTitle(type: WindowType, username?: string | null): string 
     minesweeper: "Minesweeper",
     packet: "Packet",
     codelab: "Codelab",
+    diskmanager: "Disk Manager",
   };
   return titles[type];
 }

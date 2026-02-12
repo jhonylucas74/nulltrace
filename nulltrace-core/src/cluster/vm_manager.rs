@@ -401,13 +401,18 @@ impl VmManager {
                                 self.fs_service.read_file(vm_id, "/bin/sh").await
                             })
                     });
-                    let Ok(Some((data, _))) = sh_code else {
-                        let _ = response_tx.send(Err("Cannot read /bin/sh".to_string()));
-                        continue;
-                    };
-                    let Ok(lua_code) = String::from_utf8(data) else {
-                        let _ = response_tx.send(Err("/bin/sh not valid UTF-8".to_string()));
-                        continue;
+                    let lua_code = match sh_code {
+                        Ok(Some((data, _))) => match String::from_utf8(data) {
+                            Ok(s) => s,
+                            Err(_) => {
+                                let _ = response_tx.send(Err("/bin/sh not valid UTF-8".to_string()));
+                                continue;
+                            }
+                        },
+                        _ => {
+                            let _ = response_tx.send(Err("Cannot read /bin/sh".to_string()));
+                            continue;
+                        }
                     };
                     let (shell_uid, shell_username) = tokio::task::block_in_place(|| {
                         tokio::runtime::Handle::current().block_on(async {
@@ -749,13 +754,18 @@ impl VmManager {
                         tokio::runtime::Handle::current()
                             .block_on(async { self.fs_service.read_file(vm_id, "/bin/sh").await })
                     });
-                    let Ok(Some((data, _))) = sh_code else {
-                        let _ = response_tx.send(Err("Cannot read /bin/sh".to_string()));
-                        continue;
-                    };
-                    let Ok(lua_code) = String::from_utf8(data) else {
-                        let _ = response_tx.send(Err("/bin/sh not valid UTF-8".to_string()));
-                        continue;
+                    let lua_code = match sh_code {
+                        Ok(Some((data, _))) => match String::from_utf8(data) {
+                            Ok(s) => s,
+                            Err(_) => {
+                                let _ = response_tx.send(Err("/bin/sh not valid UTF-8".to_string()));
+                                continue;
+                            }
+                        },
+                        _ => {
+                            let _ = response_tx.send(Err("Cannot read /bin/sh".to_string()));
+                            continue;
+                        }
                     };
                     let (shell_uid, shell_username) = tokio::task::block_in_place(|| {
                         tokio::runtime::Handle::current().block_on(async {
@@ -3498,6 +3508,71 @@ os.write_stdin(pid, "touch cwd_file.txt")
         assert!(
             file.is_some(),
             "shell cd /tmp then touch cwd_file.txt should create /tmp/cwd_file.txt"
+        );
+    }
+
+    /// Shell: cd into non-existent directory prints error and does not change cwd.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_shell_cd_nonexistent_rejects() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 85, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "shell-cd-nonexistent-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let driver_script = r#"
+local pid = os.spawn("sh", {})
+os.write_stdin(pid, "cd /nonexistent_folder_12345")
+for i = 1, 20 do end
+os.write_stdin(pid, "pwd")
+"#;
+        vm.os.spawn_process(driver_script, vec![], 0, "root");
+        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-cd-nonexistent-vm", 60).await;
+
+        let shell_stdout = vm
+            .os
+            .processes
+            .iter()
+            .find(|p| p.id == 2)
+            .and_then(|p| p.stdout.lock().ok())
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        assert!(
+            shell_stdout.contains("no such file or directory"),
+            "cd into nonexistent should print error, got: {:?}",
+            shell_stdout
+        );
+        assert!(
+            shell_stdout.contains("/root") || shell_stdout.contains("/home"),
+            "pwd after failed cd should still be home, got: {:?}",
+            shell_stdout
         );
     }
 

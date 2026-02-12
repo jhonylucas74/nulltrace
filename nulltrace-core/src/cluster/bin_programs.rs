@@ -100,9 +100,16 @@ while true do
           if #args < 1 then
             cwd = os.get_home() or "/"
           else
-            -- arg1 used as-is; if client sends trailing newline, parse_cmd typically yields clean args
             local arg1 = args[1]
-            cwd = os.path_resolve(cwd, arg1)
+            local resolved = os.path_resolve(cwd, arg1)
+            local st = fs.stat(resolved)
+            if not st then
+              io.write("<red>cd: no such file or directory: " .. arg1 .. "</red>\n")
+            elseif st.type ~= "directory" then
+              io.write("<red>cd: not a directory: " .. arg1 .. "</red>\n")
+            else
+              cwd = resolved
+            end
           end
         else
           local spawn_args = args
