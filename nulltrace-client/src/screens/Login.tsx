@@ -84,7 +84,10 @@ export default function Login() {
     try {
       const res = await grpcLogin(user, password);
       if (res.success) {
-        login(user, res.player_id);
+        // Parse token to get expiry
+        const { parseJwt } = await import("../contexts/AuthContext");
+        const claims = parseJwt(res.token);
+        login(user, res.player_id, res.token, claims.exp);
         navigate("/desktop", { replace: true });
       } else {
         setError(res.error_message || "Invalid credentials");

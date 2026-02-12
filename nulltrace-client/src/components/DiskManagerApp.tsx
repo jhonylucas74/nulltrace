@@ -15,7 +15,7 @@ function formatBytes(bytes: number): string {
 }
 
 export default function DiskManagerApp() {
-  const { playerId, logout } = useAuth();
+  const { playerId, token, logout } = useAuth();
   const navigate = useNavigate();
   const [usedBytes, setUsedBytes] = useState<number | null>(null);
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
@@ -25,7 +25,7 @@ export default function DiskManagerApp() {
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const fetchDiskUsage = useCallback(async () => {
-    if (!playerId) {
+    if (!playerId || !token) {
       setError("Not logged in");
       setLoading(false);
       return;
@@ -41,9 +41,14 @@ export default function DiskManagerApp() {
     try {
       const res = await invoke<{ used_bytes: number; total_bytes: number; error_message: string }>(
         "grpc_disk_usage",
-        { playerId }
+        { playerId, token }
       );
       if (res.error_message) {
+        if (res.error_message === "UNAUTHENTICATED") {
+          logout();
+          navigate("/login");
+          return;
+        }
         setError(res.error_message);
       } else {
         setUsedBytes(res.used_bytes);
@@ -54,25 +59,31 @@ export default function DiskManagerApp() {
     } finally {
       setLoading(false);
     }
-  }, [playerId]);
+  }, [playerId, token, logout, navigate]);
 
   useEffect(() => {
     fetchDiskUsage();
   }, [fetchDiskUsage]);
 
   const handleRestore = useCallback(async () => {
-    if (!playerId) return;
+    if (!playerId || !token) return;
     setConfirmOpen(false);
     setRestoring(true);
     setError(null);
     try {
       const res = await invoke<{ success: boolean; error_message: string }>("grpc_restore_disk", {
         playerId,
+        token,
       });
       if (res.success) {
         logout();
         navigate("/login", { replace: true });
       } else {
+        if (res.error_message === "UNAUTHENTICATED") {
+          logout();
+          navigate("/login");
+          return;
+        }
         setError(res.error_message || "Restore failed");
       }
     } catch (e) {

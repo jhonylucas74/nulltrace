@@ -5,6 +5,7 @@ import { getWindowConfigFromStorage } from "./contexts/WindowConfigContext";
 import { StartupConfigProvider } from "./contexts/StartupConfigContext";
 import { WindowConfigProvider } from "./contexts/WindowConfigContext";
 import { ClipboardProvider } from "./contexts/ClipboardContext";
+import TokenRefresher from "./components/TokenRefresher";
 import Login from "./screens/Login";
 import Desktop from "./screens/Desktop";
 
@@ -35,26 +36,29 @@ export default function App() {
   }, []);
 
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route
-        path="/desktop"
-        element={
-          username ? (
-            <StartupConfigProvider>
-              <WindowConfigProvider>
-                <ClipboardProvider>
-                  <Desktop />
-                </ClipboardProvider>
-              </WindowConfigProvider>
-            </StartupConfigProvider>
-          ) : (
-            <Navigate to="/login" replace />
-          )
-        }
-      />
-      <Route path="/" element={<Navigate to={username ? "/desktop" : "/login"} replace />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      {username && <TokenRefresher />}
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/desktop"
+          element={
+            username ? (
+              <StartupConfigProvider>
+                <WindowConfigProvider>
+                  <ClipboardProvider>
+                    <Desktop />
+                  </ClipboardProvider>
+                </WindowConfigProvider>
+              </StartupConfigProvider>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route path="/" element={<Navigate to={username ? "/desktop" : "/login"} replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   );
 }

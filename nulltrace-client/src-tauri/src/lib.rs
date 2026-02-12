@@ -72,6 +72,7 @@ pub fn run() {
             run_luau,
             grpc::grpc_ping,
             grpc::grpc_login,
+            grpc::grpc_refresh_token,
             grpc::grpc_disk_usage,
             grpc::grpc_restore_disk,
             grpc::grpc_get_home_path,

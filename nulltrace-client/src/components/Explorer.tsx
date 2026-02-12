@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "../contexts/AuthContext";
 import { useClipboard } from "../contexts/ClipboardContext";
@@ -30,7 +31,8 @@ interface FsEntry {
 }
 
 export default function Explorer() {
-  const { playerId } = useAuth();
+  const { playerId, token, logout } = useAuth();
+  const navigate = useNavigate();
   const { setClipboard, getClipboard, clearClipboard, hasItems } = useClipboard();
   const [homePath, setHomePath] = useState<string | null>(null);
   const [currentPath, setCurrentPath] = useState<string>("/home/user");
@@ -65,13 +67,18 @@ export default function Explorer() {
   const tauri = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
 
   const fetchHomePath = useCallback(async () => {
-    if (!playerId || !tauri) return;
+    if (!playerId || !token || !tauri) return;
     try {
       const res = await invoke<{ home_path: string; error_message: string }>(
         "grpc_get_home_path",
-        { playerId }
+        { playerId, token }
       );
       if (res.error_message) {
+        if (res.error_message === "UNAUTHENTICATED") {
+          logout();
+          navigate("/login");
+          return;
+        }
         setError(res.error_message);
       } else {
         setHomePath(res.home_path);
@@ -80,18 +87,23 @@ export default function Explorer() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [playerId, tauri]);
+  }, [playerId, token, tauri, logout, navigate]);
 
   const fetchEntries = useCallback(async () => {
-    if (!playerId || !tauri || !currentPath) return;
+    if (!playerId || !token || !tauri || !currentPath) return;
     setLoading(true);
     setError(null);
     try {
       const res = await invoke<{ entries: FsEntry[]; error_message: string }>(
         "grpc_list_fs",
-        { playerId, path: currentPath }
+        { playerId, path: currentPath, token }
       );
       if (res.error_message) {
+        if (res.error_message === "UNAUTHENTICATED") {
+          logout();
+          navigate("/login");
+          return;
+        }
         setError(res.error_message);
         setEntries([]);
       } else {
@@ -103,7 +115,7 @@ export default function Explorer() {
     } finally {
       setLoading(false);
     }
-  }, [playerId, currentPath, tauri]);
+  }, [playerId, token, currentPath, tauri, logout, navigate]);
 
   useEffect(() => {
     fetchHomePath();
@@ -161,7 +173,7 @@ export default function Explorer() {
   }
 
   async function handleRenameSubmit() {
-    if (!renameModal || !playerId || !tauri || !renameValue.trim()) return;
+    if (!renameModal || !playerId || !token || !tauri || !renameValue.trim()) return;
     const trimmed = renameValue.trim();
     if (trimmed === renameModal.currentName) {
       setRenameModal(null);
@@ -172,9 +184,14 @@ export default function Explorer() {
     try {
       const res = await invoke<{ success: boolean; error_message: string }>(
         "grpc_rename_path",
-        { playerId, path: renameModal.path, newName: trimmed }
+        { playerId, path: renameModal.path, newName: trimmed, token }
       );
       if (!res.success) {
+        if (res.error_message === "UNAUTHENTICATED") {
+          logout();
+          navigate("/login");
+          return;
+        }
         setError(res.error_message);
         setRenameLoading(false);
         return;
@@ -247,22 +264,36 @@ export default function Explorer() {
           const destPath = `${destFolder}/${basename}`;
           const res = await invoke<{ success: boolean; error_message: string }>(
             "grpc_copy_path",
-            { playerId, srcPath: item.path, destPath }
+            { playerId, srcPath: item.path, destPath, token }
           );
-          if (!res.success) setError(res.error_message);
+          if (!res.success) {
+            if (res.error_message === "UNAUTHENTICATED") {
+              logout();
+              navigate("/login");
+              return;
+            }
+            setError(res.error_message);
+          }
         } else {
           const res = await invoke<{ success: boolean; error_message: string }>(
             "grpc_move_path",
-            { playerId, srcPath: item.path, destPath: destFolder }
+            { playerId, srcPath: item.path, destPath: destFolder, token }
           );
-          if (!res.success) setError(res.error_message);
+          if (!res.success) {
+            if (res.error_message === "UNAUTHENTICATED") {
+              logout();
+              navigate("/login");
+              return;
+            }
+            setError(res.error_message);
+          }
         }
       }
       if (operation === "cut") clearClipboard();
       setReplaceAll(false);
       await fetchEntries();
     },
-    [playerId, currentPath, tauri, entries, fetchEntries, clearClipboard]
+    [playerId, token, currentPath, tauri, entries, fetchEntries, clearClipboard, logout, navigate]
   );
 
   function handleRowClick(entry: FsEntry, index: number, e: React.MouseEvent) {

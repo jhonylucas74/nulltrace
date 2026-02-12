@@ -29,6 +29,7 @@ fn grpc_url() -> String {
 pub struct LoginResponse {
     pub success: bool,
     pub player_id: String,
+    pub token: String,
     pub error_message: String,
 }
 
@@ -66,6 +67,36 @@ pub async fn grpc_login(username: String, password: String) -> Result<LoginRespo
     Ok(LoginResponse {
         success: response.success,
         player_id: response.player_id,
+        token: response.token,
+        error_message: response.error_message,
+    })
+}
+
+/// Response for grpc_refresh_token command.
+#[derive(serde::Serialize)]
+pub struct RefreshTokenCommandResponse {
+    pub success: bool,
+    pub token: String,
+    pub error_message: String,
+}
+
+/// Tauri command: Refresh JWT token.
+#[tauri::command]
+pub async fn grpc_refresh_token(
+    current_token: String,
+) -> Result<RefreshTokenCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let response = client
+        .refresh_token(tonic::Request::new(game::RefreshTokenRequest {
+            current_token,
+        }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+    Ok(RefreshTokenCommandResponse {
+        success: response.success,
+        token: response.token,
         error_message: response.error_message,
     })
 }
@@ -80,15 +111,32 @@ pub struct DiskUsageResponse {
 
 /// Tauri command: Get disk usage for the player's VM.
 #[tauri::command]
-pub async fn grpc_disk_usage(player_id: String) -> Result<DiskUsageResponse, String> {
+pub async fn grpc_disk_usage(
+    player_id: String,
+    token: String,
+) -> Result<DiskUsageResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(GetDiskUsageRequest {
+        player_id: player_id.clone(),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
     let response = client
-        .get_disk_usage(tonic::Request::new(GetDiskUsageRequest {
-            player_id: player_id.clone(),
-        }))
+        .get_disk_usage(request)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
         .into_inner();
     Ok(DiskUsageResponse {
         used_bytes: response.used_bytes,
@@ -106,15 +154,32 @@ pub struct RestoreDiskCommandResponse {
 
 /// Tauri command: Restore disk (wipe and recreate default files) for the player's VM.
 #[tauri::command]
-pub async fn grpc_restore_disk(player_id: String) -> Result<RestoreDiskCommandResponse, String> {
+pub async fn grpc_restore_disk(
+    player_id: String,
+    token: String,
+) -> Result<RestoreDiskCommandResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(RestoreDiskRequest {
+        player_id: player_id.clone(),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
     let response = client
-        .restore_disk(tonic::Request::new(RestoreDiskRequest {
-            player_id: player_id.clone(),
-        }))
+        .restore_disk(request)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
         .into_inner();
     Ok(RestoreDiskCommandResponse {
         success: response.success,
@@ -124,15 +189,32 @@ pub async fn grpc_restore_disk(player_id: String) -> Result<RestoreDiskCommandRe
 
 /// Tauri command: Get home path for the player's VM.
 #[tauri::command]
-pub async fn grpc_get_home_path(player_id: String) -> Result<GetHomePathCommandResponse, String> {
+pub async fn grpc_get_home_path(
+    player_id: String,
+    token: String,
+) -> Result<GetHomePathCommandResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(GetHomePathRequest {
+        player_id: player_id.clone(),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
     let response = client
-        .get_home_path(tonic::Request::new(GetHomePathRequest {
-            player_id: player_id.clone(),
-        }))
+        .get_home_path(request)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
         .into_inner();
     Ok(GetHomePathCommandResponse {
         home_path: response.home_path,
@@ -151,16 +233,31 @@ pub struct GetHomePathCommandResponse {
 pub async fn grpc_list_fs(
     player_id: String,
     path: String,
+    token: String,
 ) -> Result<ListFsCommandResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(ListFsRequest {
+        player_id: player_id.clone(),
+        path: path.clone(),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
     let response = client
-        .list_fs(tonic::Request::new(ListFsRequest {
-            player_id: player_id.clone(),
-            path: path.clone(),
-        }))
+        .list_fs(request)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
         .into_inner();
     Ok(ListFsCommandResponse {
         entries: response
@@ -195,17 +292,32 @@ pub async fn grpc_copy_path(
     player_id: String,
     src_path: String,
     dest_path: String,
+    token: String,
 ) -> Result<CopyPathCommandResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(CopyPathRequest {
+        player_id: player_id.clone(),
+        src_path: src_path.clone(),
+        dest_path: dest_path.clone(),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
     let response = client
-        .copy_path(tonic::Request::new(CopyPathRequest {
-            player_id: player_id.clone(),
-            src_path: src_path.clone(),
-            dest_path: dest_path.clone(),
-        }))
+        .copy_path(request)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
         .into_inner();
     Ok(CopyPathCommandResponse {
         success: response.success,
@@ -225,17 +337,32 @@ pub async fn grpc_move_path(
     player_id: String,
     src_path: String,
     dest_path: String,
+    token: String,
 ) -> Result<MovePathCommandResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(MovePathRequest {
+        player_id: player_id.clone(),
+        src_path: src_path.clone(),
+        dest_path: dest_path.clone(),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
     let response = client
-        .move_path(tonic::Request::new(MovePathRequest {
-            player_id: player_id.clone(),
-            src_path: src_path.clone(),
-            dest_path: dest_path.clone(),
-        }))
+        .move_path(request)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
         .into_inner();
     Ok(MovePathCommandResponse {
         success: response.success,
@@ -255,17 +382,32 @@ pub async fn grpc_rename_path(
     player_id: String,
     path: String,
     new_name: String,
+    token: String,
 ) -> Result<RenamePathCommandResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(RenamePathRequest {
+        player_id: player_id.clone(),
+        path: path.clone(),
+        new_name: new_name.clone(),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
     let response = client
-        .rename_path(tonic::Request::new(RenamePathRequest {
-            player_id: player_id.clone(),
-            path: path.clone(),
-            new_name: new_name.clone(),
-        }))
+        .rename_path(request)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
         .into_inner();
     Ok(RenamePathCommandResponse {
         success: response.success,
@@ -291,6 +433,7 @@ pub fn new_terminal_sessions() -> TerminalSessionsState {
 #[tauri::command]
 pub async fn terminal_connect(
     player_id: String,
+    token: String,
     app: tauri::AppHandle,
     sessions: tauri::State<'_, TerminalSessionsState>,
 ) -> Result<String, String> {
@@ -308,10 +451,23 @@ pub async fn terminal_connect(
         .map_err(|e| e.to_string())?;
 
     let stream = ReceiverStream::new(client_rx);
+    let mut request = tonic::Request::new(stream);
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
     let response = client
-        .terminal_stream(tonic::Request::new(stream))
+        .terminal_stream(request)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            if e.to_string().contains("Unauthenticated") || e.to_string().contains("UNAUTHENTICATED") {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?;
     let mut server_rx = response.into_inner();
 
     let first = server_rx

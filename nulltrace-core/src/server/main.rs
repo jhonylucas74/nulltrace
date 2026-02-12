@@ -3,8 +3,8 @@ use game::{
     CopyPathRequest, CopyPathResponse, GetDiskUsageRequest, GetDiskUsageResponse,
     GetHomePathRequest, GetHomePathResponse, HelloRequest, HelloResponse, ListFsRequest,
     ListFsResponse, LoginRequest, LoginResponse, MovePathRequest, MovePathResponse, PingRequest,
-    PingResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse,
-    TerminalClientMessage, TerminalServerMessage,
+    PingResponse, RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest, RenamePathResponse,
+    RestoreDiskRequest, RestoreDiskResponse, TerminalClientMessage, TerminalServerMessage,
 };
 use tonic::{Request, Response, Status, transport::Server};
 use tokio_stream::wrappers::ReceiverStream;
@@ -55,7 +55,19 @@ impl GameService for MyGameService {
         Ok(Response::new(LoginResponse {
             success: false,
             player_id: String::new(),
+            token: String::new(),
             error_message: "Use the unified cluster binary for login".to_string(),
+        }))
+    }
+
+    async fn refresh_token(
+        &self,
+        _request: Request<RefreshTokenRequest>,
+    ) -> Result<Response<RefreshTokenResponse>, Status> {
+        Ok(Response::new(RefreshTokenResponse {
+            success: false,
+            token: String::new(),
+            error_message: "Use the unified cluster binary for token refresh".to_string(),
         }))
     }
 

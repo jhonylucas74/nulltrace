@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { runMockCommand, isClearCommand } from "../lib/mockCommands";
@@ -110,7 +111,8 @@ const CONNECT_ERROR_MESSAGE =
   "Unexpected error. Could not load the shell (missing or corrupted). The terminal will close.";
 
 export default function Terminal({ username, windowId }: TerminalProps) {
-  const { playerId } = useAuth();
+  const { playerId, token, logout } = useAuth();
+  const navigate = useNavigate();
   const { close } = useWindowManager();
   const [lines, setLines] = useState<LineItem[]>([
     { type: "output", content: "Welcome to nulltrace. Type 'help' for commands." },
@@ -132,13 +134,13 @@ export default function Terminal({ username, windowId }: TerminalProps) {
 
   // Connect to VM shell when we have playerId (Tauri only)
   useEffect(() => {
-    if (!playerId) return;
+    if (!playerId || !token) return;
 
     let unlisten: (() => void) | undefined;
 
     (async () => {
       try {
-        const sid = await invoke<string>("terminal_connect", { playerId });
+        const sid = await invoke<string>("terminal_connect", { playerId, token });
         sessionIdRef.current = sid;
         setSessionId(sid);
         setSessionEnded(false);
@@ -165,7 +167,13 @@ export default function Terminal({ username, windowId }: TerminalProps) {
             setLines((prev) => [...prev, { type: "error", content: payload.data! }]);
           }
         });
-      } catch (_e) {
+      } catch (e) {
+        const errorMsg = e instanceof Error ? e.message : String(e);
+        if (errorMsg === "UNAUTHENTICATED") {
+          logout();
+          navigate("/login");
+          return;
+        }
         setConnectErrorModalOpen(true);
       }
     })();
@@ -177,7 +185,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
         invoke("terminal_disconnect", { sessionId: sid }).catch(() => {});
       }
     };
-  }, [playerId]);
+  }, [playerId, token, logout, navigate]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {

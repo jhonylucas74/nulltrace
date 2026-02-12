@@ -5,6 +5,7 @@ service GameService {
   rpc SayHello (HelloRequest) returns (HelloResponse);
   rpc Ping (PingRequest) returns (PingResponse);
   rpc Login (LoginRequest) returns (LoginResponse);
+  rpc RefreshToken (RefreshTokenRequest) returns (RefreshTokenResponse);
   rpc TerminalStream (stream TerminalClientMessage) returns (stream TerminalServerMessage);
   rpc GetDiskUsage (GetDiskUsageRequest) returns (GetDiskUsageResponse);
   rpc RestoreDisk (RestoreDiskRequest) returns (RestoreDiskResponse);
@@ -37,6 +38,17 @@ message LoginRequest {
 message LoginResponse {
   bool success = 1;
   string player_id = 2;
+  string token = 3;
+  string error_message = 4;
+}
+
+message RefreshTokenRequest {
+  string current_token = 1;
+}
+
+message RefreshTokenResponse {
+  bool success = 1;
+  string token = 2;
   string error_message = 3;
 }
 

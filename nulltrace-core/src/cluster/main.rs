@@ -1,3 +1,4 @@
+mod auth;
 mod bench_scripts;
 mod bin_programs;
 mod path_util;

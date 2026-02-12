@@ -23,9 +23,9 @@ use game::{
     CopyPathRequest, CopyPathResponse, FsEntry, GetDiskUsageRequest, GetDiskUsageResponse,
     GetHomePathRequest, GetHomePathResponse, HelloRequest, HelloResponse, ListFsRequest,
     ListFsResponse, LoginRequest, LoginResponse, MovePathRequest, MovePathResponse, OpenTerminal,
-    PingRequest, PingResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest,
-    RestoreDiskResponse, StdinData, StdoutData, TerminalClientMessage, TerminalClosed,
-    TerminalError, TerminalOpened, TerminalServerMessage,
+    PingRequest, PingResponse, RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest,
+    RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, StdinData, StdoutData,
+    TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened, TerminalServerMessage,
 };
 
 pub struct ClusterGameService {
@@ -51,6 +51,19 @@ impl ClusterGameService {
             user_service,
             terminal_hub,
         }
+    }
+
+    /// Authenticate a request by validating the JWT token from metadata
+    fn authenticate_request<T>(&self, request: &Request<T>) -> Result<crate::auth::Claims, Status> {
+        let metadata = request.metadata();
+        let token = metadata
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .ok_or_else(|| Status::unauthenticated("Missing authorization header"))?;
+
+        crate::auth::validate_token(token, &crate::auth::get_jwt_secret())
+            .map_err(|e| Status::unauthenticated(format!("Invalid token: {}", e)))
     }
 }
 
@@ -89,6 +102,7 @@ impl GameService for ClusterGameService {
             return Ok(Response::new(LoginResponse {
                 success: false,
                 player_id: String::new(),
+                token: String::new(),
                 error_message: "Username is required".to_string(),
             }));
         }
@@ -100,23 +114,69 @@ impl GameService for ClusterGameService {
             .map_err(|e| Status::internal(e.to_string()))?;
 
         match player {
-            Some(p) => Ok(Response::new(LoginResponse {
-                success: true,
-                player_id: p.id.to_string(),
-                error_message: String::new(),
-            })),
+            Some(p) => {
+                // Generate JWT token
+                let token = crate::auth::generate_token(
+                    p.id,
+                    &p.username,
+                    &crate::auth::get_jwt_secret(),
+                )
+                .map_err(|e| Status::internal(format!("Token generation failed: {}", e)))?;
+
+                Ok(Response::new(LoginResponse {
+                    success: true,
+                    player_id: p.id.to_string(),
+                    token,
+                    error_message: String::new(),
+                }))
+            }
             None => Ok(Response::new(LoginResponse {
                 success: false,
                 player_id: String::new(),
+                token: String::new(),
                 error_message: "Invalid credentials".to_string(),
             })),
         }
+    }
+
+    async fn refresh_token(
+        &self,
+        request: Request<RefreshTokenRequest>,
+    ) -> Result<Response<RefreshTokenResponse>, Status> {
+        let current_token = request.into_inner().current_token;
+
+        // Validate current token
+        let claims = crate::auth::validate_token(&current_token, &crate::auth::get_jwt_secret())
+            .map_err(|_| Status::unauthenticated("Invalid token"))?;
+
+        // Parse player_id from claims
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        // Issue new token with fresh 24-hour expiry
+        let new_token = crate::auth::generate_token(
+            player_id,
+            &claims.username,
+            &crate::auth::get_jwt_secret(),
+        )
+        .map_err(|e| Status::internal(format!("Token generation failed: {}", e)))?;
+
+        Ok(Response::new(RefreshTokenResponse {
+            success: true,
+            token: new_token,
+            error_message: String::new(),
+        }))
     }
 
     async fn terminal_stream(
         &self,
         request: Request<tonic::Streaming<TerminalClientMessage>>,
     ) -> Result<Response<Self::TerminalStreamStream>, Status> {
+        // Authenticate request before processing stream
+        let claims = self.authenticate_request(&request)?;
+        let authenticated_player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
         let mut client_stream = request.into_inner();
         let (tx, rx) = mpsc::channel(16);
         let terminal_hub = Arc::clone(&self.terminal_hub);
@@ -126,9 +186,10 @@ impl GameService for ClusterGameService {
             .await
             .map_err(|e| Status::invalid_argument(e.to_string()))?
             .ok_or_else(|| Status::invalid_argument("stream closed before OpenTerminal"))?;
-        let player_id_str = match first.msg {
-            Some(game::terminal_client_message::Msg::OpenTerminal(OpenTerminal { player_id })) => {
-                player_id
+        let _player_id_str = match first.msg {
+            Some(game::terminal_client_message::Msg::OpenTerminal(OpenTerminal { player_id: _ })) => {
+                // Ignore player_id from message, use authenticated one
+                authenticated_player_id.to_string()
             }
             _ => {
                 let _ = tx
@@ -141,8 +202,8 @@ impl GameService for ClusterGameService {
                 return Ok(Response::new(ReceiverStream::new(rx)));
             }
         };
-        let player_id = Uuid::parse_str(&player_id_str)
-            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
+        // Use authenticated player_id
+        let player_id = authenticated_player_id;
         let (response_tx, response_rx) = oneshot::channel();
         {
             let mut hub = terminal_hub.lock().unwrap();
@@ -226,9 +287,10 @@ impl GameService for ClusterGameService {
         &self,
         request: Request<GetDiskUsageRequest>,
     ) -> Result<Response<GetDiskUsageResponse>, Status> {
-        let player_id_str = request.into_inner().player_id;
-        let player_id = Uuid::parse_str(&player_id_str)
-            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
+        // Authenticate request
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
 
         let vm = self
             .vm_service
@@ -256,9 +318,10 @@ impl GameService for ClusterGameService {
         &self,
         request: Request<RestoreDiskRequest>,
     ) -> Result<Response<RestoreDiskResponse>, Status> {
-        let player_id_str = request.into_inner().player_id;
-        let player_id = Uuid::parse_str(&player_id_str)
-            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
+        // Authenticate request
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
 
         let record = self
             .vm_service
@@ -396,9 +459,10 @@ impl GameService for ClusterGameService {
         &self,
         request: Request<GetHomePathRequest>,
     ) -> Result<Response<GetHomePathResponse>, Status> {
-        let player_id_str = request.into_inner().player_id;
-        let player_id = Uuid::parse_str(&player_id_str)
-            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
+        // Authenticate request
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
 
         let vm = self
             .vm_service
@@ -429,9 +493,12 @@ impl GameService for ClusterGameService {
         &self,
         request: Request<ListFsRequest>,
     ) -> Result<Response<ListFsResponse>, Status> {
-        let ListFsRequest { player_id, path } = request.into_inner();
-        let player_id = Uuid::parse_str(&player_id)
-            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
+        // Authenticate request
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let ListFsRequest { path, .. } = request.into_inner();
 
         let vm = self
             .vm_service
@@ -484,13 +551,16 @@ impl GameService for ClusterGameService {
         &self,
         request: Request<CopyPathRequest>,
     ) -> Result<Response<CopyPathResponse>, Status> {
+        // Authenticate request
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
         let CopyPathRequest {
-            player_id,
             src_path,
             dest_path,
+            ..
         } = request.into_inner();
-        let player_id = Uuid::parse_str(&player_id)
-            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
 
         let (vm, owner) = vm_and_owner(&self, player_id).await?;
         if !path_under_home(&src_path, &owner.1) || !path_under_home(&dest_path, &owner.1) {
@@ -520,13 +590,16 @@ impl GameService for ClusterGameService {
         &self,
         request: Request<MovePathRequest>,
     ) -> Result<Response<MovePathResponse>, Status> {
+        // Authenticate request
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
         let MovePathRequest {
-            player_id,
             src_path,
             dest_path,
+            ..
         } = request.into_inner();
-        let player_id = Uuid::parse_str(&player_id)
-            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
 
         let (vm, owner) = vm_and_owner(&self, player_id).await?;
         if !path_under_home(&src_path, &owner.1) || !path_under_home(&dest_path, &owner.1) {
@@ -556,13 +629,16 @@ impl GameService for ClusterGameService {
         &self,
         request: Request<RenamePathRequest>,
     ) -> Result<Response<RenamePathResponse>, Status> {
+        // Authenticate request
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
         let RenamePathRequest {
-            player_id,
             path,
             new_name,
+            ..
         } = request.into_inner();
-        let player_id = Uuid::parse_str(&player_id)
-            .map_err(|_| Status::invalid_argument("invalid player_id uuid"))?;
 
         let (vm, owner) = vm_and_owner(&self, player_id).await?;
         if !path_under_home(&path, &owner.1) {
