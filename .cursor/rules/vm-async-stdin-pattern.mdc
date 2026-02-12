@@ -1,0 +1,15 @@
+---
+description: Async stdin pattern when passing data between VM processes (stdout → stdin)
+globs:
+alwaysApply: true
+---
+
+# VM async stdin: receiver must loop and listen
+
+When one process sends data to another via **stdout → stdin** (e.g. parent does `os.write_stdin(pid, line)` after spawning a child), the **receiver** (the process that will read with `io.read()`) must **implement a loop and listen** for the message.
+
+- **Why:** Execution is tick-based and async. We never know in which tick the inject will be applied or when the reader process will run. A single `io.read()` may run before the data is there and get `nil`.
+- **Pattern:** The script that reads stdin should loop until it gets a non-empty line (or the payload it expects), then process it and exit the loop. The VM’s automatic yield (e.g. interrupt) will let other processes run between iterations, so the data can arrive in a later tick.
+- **Example:** Instead of `local l = io.read(); if l then io.write("got:" .. l) end`, use a `while true do local l = io.read(); if l and l ~= "" then io.write("got:" .. l); break end end`.
+
+This is the standard async pattern when piping or passing data between processes: the consumer waits in a loop until the producer’s data is available.

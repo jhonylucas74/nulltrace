@@ -78,7 +78,7 @@ All of these are available to scripts running inside a VM; PID, username, and pa
 - **`os.spawn(name, args)`** — Spawns a child from `/bin/<name>`. `name` is a string, `args` a table of strings (can be `{}`). Returns the new process PID.
 - **`os.spawn_path(path, args)`** — Spawns a child from the script at `path`. `path` and `args` as above. Returns the new process PID.
 - **`os.exec(name, args?)`** — Same as spawn-from-bin but fire-and-forget (no return value). Kept for backward compatibility.
-- **`os.process_status(pid)`** — Returns `"running"`, `"finished"`, or `"not_found"` for the given PID.
+- **`os.process_status(pid)`** — Returns `"running"`, `"finished"`, `"scheduled"`, or `"not_found"`. `"scheduled"` means the process was requested this tick (e.g. via `os.spawn`) but not yet created; it avoids `"not_found"` for just-spawned PIDs.
 - **`os.write_stdin(pid, line)`** — Injects a line into the given process's stdin (applied after the current tick).
 - **`os.read_stdout(pid)`** — Returns the current stdout contents for the process, or `nil` if not found.
 - **`os.parse_cmd(line)`** — Parses a command line (e.g. `cat path/file --pretty` or `sum age=2`) into `{ program = string, args = table }`. Respects quotes and key=value args.

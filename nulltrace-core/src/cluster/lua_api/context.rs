@@ -54,6 +54,9 @@ pub struct VmContext {
 
     /// Snapshot of process stdout by PID. Built at start of VM tick.
     pub process_stdout: HashMap<u64, String>,
+
+    /// Stdout of processes that finished in the previous tick (so os.read_stdout(pid) works once after exit).
+    pub last_stdout_of_finished: HashMap<u64, String>,
 }
 
 impl VmContext {
@@ -77,6 +80,7 @@ impl VmContext {
             process_status_map: HashMap::new(),
             stdin_inject_queue: Vec::new(),
             process_stdout: HashMap::new(),
+            last_stdout_of_finished: HashMap::new(),
         }
     }
 
@@ -98,6 +102,13 @@ impl VmContext {
         self.process_status_map.clear();
         self.stdin_inject_queue.clear();
         self.process_stdout.clear();
+    }
+
+    /// Call after building process_stdout from current processes so os.read_stdout(pid) works for just-finished PIDs.
+    pub fn merge_last_stdout_of_finished(&mut self) {
+        for (pid, s) in self.last_stdout_of_finished.drain() {
+            self.process_stdout.insert(pid, s);
+        }
     }
 
     /// Set the current process's I/O and args before tick.

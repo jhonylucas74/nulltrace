@@ -157,18 +157,21 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>) -> Result<()> {
         })?,
     )?;
 
-    // os.process_status(pid) -> "running" | "finished" | "not_found"
+    // os.process_status(pid) -> "running" | "finished" | "scheduled" | "not_found"
+    // "scheduled" = in spawn_queue this tick, not yet created (avoids not_found for just-spawned PIDs)
     os.set(
         "process_status",
         lua.create_function(|lua, pid: u64| {
             let ctx = lua
                 .app_data_ref::<VmContext>()
                 .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
-            let status = ctx
-                .process_status_map
-                .get(&pid)
-                .cloned()
-                .unwrap_or_else(|| "not_found".to_string());
+            let status = if let Some(s) = ctx.process_status_map.get(&pid) {
+                s.clone()
+            } else if ctx.spawn_queue.iter().any(|(p, ..)| *p == pid) {
+                "scheduled".to_string()
+            } else {
+                "not_found".to_string()
+            };
             Ok(status)
         })?,
     )?;
@@ -185,14 +188,18 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>) -> Result<()> {
         })?,
     )?;
 
-    // os.read_stdout(pid) -> string or nil
+    // os.read_stdout(pid) -> string or nil (includes stdout of just-finished processes from last_stdout_of_finished)
     os.set(
         "read_stdout",
         lua.create_function(|lua, pid: u64| {
             let ctx = lua
                 .app_data_ref::<VmContext>()
                 .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
-            let out = ctx.process_stdout.get(&pid).cloned();
+            let out = ctx
+                .process_stdout
+                .get(&pid)
+                .or_else(|| ctx.last_stdout_of_finished.get(&pid))
+                .cloned();
             Ok(match out {
                 Some(s) => Value::String(lua.create_string(&s)?),
                 None => Value::Nil,
