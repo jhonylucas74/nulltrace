@@ -2056,4 +2056,304 @@ os.write_stdin(pid, "hello")
             shell_stdout
         );
     }
+
+    /// Shell runs ls / and forwards child stdout; bootstrap has /bin.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_shell_runs_ls() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "shell-ls-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let driver_script = r#"
+local pid = os.spawn("sh", {})
+os.write_stdin(pid, "ls /")
+"#;
+        vm.os.spawn_process(driver_script, vec![], 0, "root");
+
+        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-ls-vm", 50).await;
+
+        let shell_stdout = vm
+            .os
+            .processes
+            .iter()
+            .find(|p| p.id == 2)
+            .and_then(|p| p.stdout.lock().ok())
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        assert!(
+            shell_stdout.contains("bin"),
+            "shell running ls / should show bin, got: {:?}",
+            shell_stdout
+        );
+    }
+
+    /// Shell runs echo with multiple args; stdout contains "a b c".
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_shell_runs_echo_multiple_args() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "shell-echo-args-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let driver_script = r#"
+local pid = os.spawn("sh", {})
+os.write_stdin(pid, "echo a b c")
+"#;
+        vm.os.spawn_process(driver_script, vec![], 0, "root");
+
+        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-echo-args-vm", 50).await;
+
+        let shell_stdout = vm
+            .os
+            .processes
+            .iter()
+            .find(|p| p.id == 2)
+            .and_then(|p| p.stdout.lock().ok())
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        assert!(
+            shell_stdout.contains("a b c"),
+            "shell running echo a b c should show a b c, got: {:?}",
+            shell_stdout
+        );
+    }
+
+    /// Shell runs touch; file exists after ticks.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_shell_runs_touch() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 90, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "shell-touch-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let driver_script = r#"
+local pid = os.spawn("sh", {})
+os.write_stdin(pid, "touch /tmp/shell_touch_test")
+"#;
+        vm.os.spawn_process(driver_script, vec![], 0, "root");
+
+        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-touch-vm", 50).await;
+
+        let file = fs_service
+            .read_file(vm_id, "/tmp/shell_touch_test")
+            .await
+            .unwrap();
+        assert!(
+            file.is_some(),
+            "shell running touch should create /tmp/shell_touch_test"
+        );
+    }
+
+    /// Shell runs cat on a pre-created file; stdout contains file content.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_shell_runs_cat() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 89, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "shell-cat-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+
+        fs_service
+            .write_file(
+                vm_id,
+                "/tmp/shell_cat_test",
+                b"content for cat",
+                None,
+                "root",
+            )
+            .await
+            .unwrap();
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        let driver_script = r#"
+local pid = os.spawn("sh", {})
+os.write_stdin(pid, "cat /tmp/shell_cat_test")
+"#;
+        vm.os.spawn_process(driver_script, vec![], 0, "root");
+
+        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-cat-vm", 50).await;
+
+        let shell_stdout = vm
+            .os
+            .processes
+            .iter()
+            .find(|p| p.id == 2)
+            .and_then(|p| p.stdout.lock().ok())
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        assert!(
+            shell_stdout.contains("content for cat"),
+            "shell running cat should show file content, got: {:?}",
+            shell_stdout
+        );
+    }
+
+    /// Shell runs touch then rm; file is removed after ticks.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_shell_runs_rm() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 88, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "shell-rm-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        // Driver sends "touch" first, then yields for many ticks so touch can finish and shell clears child_pid, then sends "rm".
+        let driver_script = r#"
+local pid = os.spawn("sh", {})
+os.write_stdin(pid, "touch /tmp/shell_rm_test")
+for i = 1, 60 do end
+os.write_stdin(pid, "rm /tmp/shell_rm_test")
+"#;
+        vm.os.spawn_process(driver_script, vec![], 0, "root");
+
+        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-rm-vm", 100).await;
+
+        let file = fs_service
+            .read_file(vm_id, "/tmp/shell_rm_test")
+            .await
+            .unwrap();
+        assert!(
+            file.is_none(),
+            "shell running rm should remove /tmp/shell_rm_test"
+        );
+    }
 }
