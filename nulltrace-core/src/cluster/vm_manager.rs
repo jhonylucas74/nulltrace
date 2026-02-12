@@ -879,6 +879,20 @@ end
         (all_stdout, tick_count)
     }
 
+    /// Run exactly n ticks (with spawn and stdin inject). Use when the process under test never exits (e.g. shell).
+    async fn run_n_ticks_with_spawn(
+        lua: &Lua,
+        vm: &mut VirtualMachine<'_>,
+        manager: &VmManager,
+        vm_id: Uuid,
+        hostname: &str,
+        n: usize,
+    ) {
+        for _ in 0..n {
+            let _ = vm_full_tick_async(lua, vm, manager, vm_id, hostname).await;
+        }
+    }
+
     /// Variant that simulates 60 FPS game loop: sleeps ~16.6ms between ticks.
     async fn run_tick_until_done_with_limit_60fps(
         lua: &Lua,
@@ -1884,6 +1898,136 @@ for i = 1, #t.args do io.write("_" .. t.args[i]) end
             stdout_by_pid.values().any(|s| s.contains("exec_ok")),
             "os.exec should spawn echo and output 'exec_ok', got: {:?}",
             stdout_by_pid
+        );
+    }
+
+    /// Shell parses stdin as bin command, spawns it, and relays child stdout to its own stdout.
+    #[tokio::test]
+    async fn test_shell_parses_and_runs_bin_command_relays_stdout() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 94, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "shell-echo-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        // Driver spawns shell then sends "echo hello" to shell stdin; driver exits.
+        let driver_script = r#"
+local pid = os.spawn("sh", {})
+os.write_stdin(pid, "echo hello")
+"#;
+        vm.os.spawn_process(driver_script, vec![], 0, "root");
+
+        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-echo-vm", 50).await;
+
+        let shell_stdout = vm
+            .os
+            .processes
+            .iter()
+            .find(|p| p.id == 2)
+            .and_then(|p| p.stdout.lock().ok())
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        assert!(
+            shell_stdout.contains("hello"),
+            "shell should relay echo child stdout, got: {:?}",
+            shell_stdout
+        );
+    }
+
+    /// Shell with a running child forwards stdin to the child; child (echo_stdin) echoes and shell relays.
+    #[tokio::test]
+    async fn test_shell_forwards_stdin_to_child() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "shell-forward-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        vm.attach_nic(nic);
+
+        // Driver spawns shell, sends "echo_stdin" (spawns child), then "hello" (forwarded to child).
+        let driver_script = r#"
+local pid = os.spawn("sh", {})
+os.write_stdin(pid, "echo_stdin")
+os.write_stdin(pid, "hello")
+"#;
+        vm.os.spawn_process(driver_script, vec![], 0, "root");
+
+        // Need enough ticks: shell reads "echo_stdin", spawns child; next tick reads "hello", forwards to child;
+        // stdin inject applies end-of-tick so child gets "hello" next tick; child echoes; shell relays next tick.
+        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-forward-vm", 80).await;
+
+        let any_stdout: String = vm
+            .os
+            .processes
+            .iter()
+            .filter_map(|p| p.stdout.lock().ok().map(|g| (p.id, g.clone())))
+            .fold(String::new(), |acc, (id, s)| format!("{}pid{}={:?}; ", acc, id, s));
+        let shell_stdout = vm
+            .os
+            .processes
+            .iter()
+            .find(|p| p.id == 2)
+            .and_then(|p| p.stdout.lock().ok())
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        assert!(
+            shell_stdout.contains("got:hello"),
+            "shell should forward stdin to child and relay output. shell_stdout: {:?}, all: {}",
+            shell_stdout,
+            any_stdout
         );
     }
 }

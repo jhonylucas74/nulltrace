@@ -51,11 +51,49 @@ for i = 1, #args do
 end
 "#;
 
+/// Shell: reads stdin, parses as bin command (no spawn_path). When no child: spawn(program, args).
+/// When has child: forwards stdin to child. Every loop relays child stdout to own stdout.
+pub const SH: &str = r#"
+local child_pid = nil
+while true do
+  if child_pid then
+    local out = os.read_stdout(child_pid)
+    if out and out ~= "" then io.write(out) end
+    local st = os.process_status(child_pid)
+    if st == "finished" or st == "not_found" then child_pid = nil end
+  end
+  local line = io.read()
+  if line and line ~= "" then
+    if child_pid then
+      os.write_stdin(child_pid, line)
+    else
+      local t = os.parse_cmd(line)
+      if t and t.program and t.program ~= "" then
+        child_pid = os.spawn(t.program, t.args or {})
+      end
+    end
+  end
+end
+"#;
+
+/// Echo stdin: reads one line from stdin and writes "got:" .. line (for shell forward-stdin tests).
+pub const ECHO_STDIN: &str = r#"
+while true do
+  local l = io.read()
+  if l and l ~= "" then
+    io.write("got:" .. l)
+    break
+  end
+end
+"#;
+
 /// Programs to include when bootstrapping a new VM. User can delete them later.
 pub const DEFAULT_BIN_PROGRAMS: &[(&str, &str)] = &[
     ("cat", CAT),
     ("echo", ECHO),
+    ("echo_stdin", ECHO_STDIN),
     ("ls", LS),
-    ("touch", TOUCH),
     ("rm", RM),
+    ("sh", SH),
+    ("touch", TOUCH),
 ];
