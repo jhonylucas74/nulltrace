@@ -304,11 +304,12 @@ impl VmManager {
         for pkt in packets_to_route {
             match self.router.route_packet(pkt) {
                 RouteResult::Deliver { packet, .. } => {
-                    // Find the destination VM by IP and deliver
+                    // Find the destination VM by IP; deliver only if listening on dst_port
                     let dst_ip = packet.dst_ip;
+                    let dst_port = packet.dst_port;
                     for vm in vms.iter_mut() {
                         if let Some(nic) = &mut vm.nic {
-                            if nic.ip == dst_ip {
+                            if nic.ip == dst_ip && nic.is_listening(dst_port) {
                                 nic.deliver(packet);
                                 break;
                             }
@@ -318,9 +319,10 @@ impl VmManager {
                 RouteResult::Forward { packet, .. } => {
                     // In a single-router setup, forward = deliver
                     let dst_ip = packet.dst_ip;
+                    let dst_port = packet.dst_port;
                     for vm in vms.iter_mut() {
                         if let Some(nic) = &mut vm.nic {
-                            if nic.ip == dst_ip {
+                            if nic.ip == dst_ip && nic.is_listening(dst_port) {
                                 nic.deliver(packet);
                                 break;
                             }
