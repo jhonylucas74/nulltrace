@@ -3124,6 +3124,199 @@ while true do end
     /// Max ticks for two-VM network tests. Single limit, no per-test tuning.
     const MAX_TICKS_TWO_VM_NETWORK: usize = 2000;
 
+    /// VM A runs SSH client (ssh ip_b), VM B runs ssh-server on port 22. Driver on A injects "echo hello"
+    /// into the client stdin; assert the SSH client process stdout contains "hello" (remote shell output).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_two_vms_ssh_client_to_ssh_server() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 86, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config_a = super::super::db::vm_service::VmConfig {
+            hostname: "ssh-a".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let config_b = super::super::db::vm_service::VmConfig {
+            hostname: "ssh-b".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_a, nic_a) = manager.create_vm(config_a).await.unwrap();
+        let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
+        let ip_b = nic_b.ip.to_string();
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+
+        let mut vm_a = VirtualMachine::with_id(&lua, _rec_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(&lua, _rec_b.id);
+        vm_b.attach_nic(nic_b);
+
+        // B: ssh-server listens on 22, spawns shell per client, relays stdin/stdout.
+        vm_b.os.spawn_process(bin_programs::SSH_SERVER, vec![], 0, "root");
+
+        // A: driver spawns ssh client, injects "echo hello" into its stdin, then loops so we can read client stdout.
+        let driver_script = format!(
+            r#"
+local pid = os.spawn("ssh", {{ "{}" }})
+os.write_stdin(pid, "echo hello")
+while true do end
+"#,
+            ip_b
+        );
+        vm_a.os.spawn_process(&driver_script, vec![], 0, "root");
+
+        let mut vms = vec![vm_a, vm_b];
+        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+
+        let ssh_stdout = vms[0]
+            .os
+            .processes
+            .iter()
+            .find(|p| p.args.first().map(|a| a.as_str()) == Some(ip_b.as_str()))
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+
+        assert!(
+            ssh_stdout.contains("hello"),
+            "SSH client on VM A should receive remote 'echo hello' output; got stdout: {:?}",
+            ssh_stdout
+        );
+    }
+
+    /// VM A runs two SSH clients connected to VM B's ssh-server. Asserts both sessions work and are
+    /// isolated: one client receives only "one", the other only "two" (no cross-talk).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_two_vms_two_ssh_clients_sessions_isolated() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 85, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config_a = super::super::db::vm_service::VmConfig {
+            hostname: "ssh-multi-a".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let config_b = super::super::db::vm_service::VmConfig {
+            hostname: "ssh-multi-b".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_a, nic_a) = manager.create_vm(config_a).await.unwrap();
+        let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
+        let ip_b = nic_b.ip.to_string();
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+
+        let mut vm_a = VirtualMachine::with_id(&lua, _rec_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(&lua, _rec_b.id);
+        vm_b.attach_nic(nic_b);
+
+        // B: ssh-server listens on 22, one shell per connection (key = src_ip:src_port).
+        vm_b.os.spawn_process(bin_programs::SSH_SERVER, vec![], 0, "root");
+
+        // A: driver spawns two SSH clients, injects distinct commands, then loops so we can read both stdouts.
+        let driver_script = format!(
+            r#"
+local pid1 = os.spawn("ssh", {{ "{}" }})
+local pid2 = os.spawn("ssh", {{ "{}" }})
+os.write_stdin(pid1, "echo one")
+os.write_stdin(pid2, "echo two")
+while true do end
+"#,
+            ip_b,
+            ip_b
+        );
+        vm_a.os.spawn_process(&driver_script, vec![], 0, "root");
+
+        let mut vms = vec![vm_a, vm_b];
+        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+
+        let ssh_processes: Vec<_> = vms[0]
+            .os
+            .processes
+            .iter()
+            .filter(|p| p.args.first().map(|a| a.as_str()) == Some(ip_b.as_str()))
+            .collect();
+
+        assert_eq!(
+            ssh_processes.len(),
+            2,
+            "VM A should have exactly two SSH client processes (args = [ip_b]); got {}",
+            ssh_processes.len()
+        );
+
+        let stdouts: Vec<String> = ssh_processes
+            .iter()
+            .filter_map(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .collect();
+
+        let has_one_only = stdouts
+            .iter()
+            .any(|s| s.contains("one") && !s.contains("two"));
+        let has_two_only = stdouts
+            .iter()
+            .any(|s| s.contains("two") && !s.contains("one"));
+
+        assert!(
+            has_one_only && has_two_only,
+            "Sessions must be isolated: one client stdout should contain 'one' only, the other 'two' only. stdouts: {:?}",
+            stdouts
+        );
+    }
+
     /// Realistic scenario: A sends request, B listens and responds with value "x", A writes received value to stdout.
     /// Run with a fixed tick limit; assert A has the expected stdout at the end.
     #[tokio::test(flavor = "multi_thread")]
