@@ -304,28 +304,36 @@ impl VmManager {
         for pkt in packets_to_route {
             match self.router.route_packet(pkt) {
                 RouteResult::Deliver { packet, .. } => {
-                    // Find the destination VM by IP; deliver only if listening on dst_port
                     let dst_ip = packet.dst_ip;
                     let dst_port = packet.dst_port;
                     for vm in vms.iter_mut() {
                         if let Some(nic) = &mut vm.nic {
-                            if nic.ip == dst_ip && nic.is_listening(dst_port) {
-                                nic.deliver(packet);
-                                break;
+                            if nic.ip != dst_ip {
+                                continue;
                             }
+                            if nic.is_listening(dst_port) {
+                                nic.deliver(packet);
+                            } else if nic.has_ephemeral(dst_port) {
+                                nic.deliver_to_ephemeral(dst_port, packet);
+                            }
+                            break;
                         }
                     }
                 }
                 RouteResult::Forward { packet, .. } => {
-                    // In a single-router setup, forward = deliver
                     let dst_ip = packet.dst_ip;
                     let dst_port = packet.dst_port;
                     for vm in vms.iter_mut() {
                         if let Some(nic) = &mut vm.nic {
-                            if nic.ip == dst_ip && nic.is_listening(dst_port) {
-                                nic.deliver(packet);
-                                break;
+                            if nic.ip != dst_ip {
+                                continue;
                             }
+                            if nic.is_listening(dst_port) {
+                                nic.deliver(packet);
+                            } else if nic.has_ephemeral(dst_port) {
+                                nic.deliver_to_ephemeral(dst_port, packet);
+                            }
+                            break;
                         }
                     }
                 }
@@ -363,6 +371,9 @@ impl VmManager {
                     let hostname = active.map(|a| a.hostname.as_str()).unwrap_or("unknown");
                     let ip = active.and_then(|a| a.ip);
                     ctx.set_vm(vm.id, hostname, ip);
+                    if let Some(nic) = &vm.nic {
+                        ctx.set_port_owners(nic.get_port_owners());
+                    }
                     ctx.next_pid = vm.os.next_process_id();
                     // Snapshot process status and stdout for Lua os.process_status / os.read_stdout
                     for p in &vm.os.processes {
@@ -378,6 +389,12 @@ impl VmManager {
                         while let Some(pkt) = nic.recv() {
                             ctx.net_inbound.push_back(pkt);
                         }
+                    }
+                    // Swap in this VM's connection state so sync drains into this VM's connections
+                    std::mem::swap(&mut ctx.connections, &mut vm.connections);
+                    std::mem::swap(&mut ctx.next_connection_id, &mut vm.next_connection_id);
+                    if let Some(nic) = &mut vm.nic {
+                        ctx.sync_connection_inbounds_from_nic(nic);
                     }
                 }
 
@@ -417,7 +434,23 @@ impl VmManager {
                         }
                     }
                 }
+                let finished_pids: Vec<u64> = vm
+                    .os
+                    .processes
+                    .iter()
+                    .filter(|p| p.is_finished())
+                    .map(|p| p.id)
+                    .collect();
+                for pid in &finished_pids {
+                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    ctx.close_connections_for_pid(*pid);
+                }
                 vm.os.processes.retain(|p| !p.is_finished());
+                if let Some(nic) = &mut vm.nic {
+                    for pid in &finished_pids {
+                        nic.unlisten_pid(*pid);
+                    }
+                }
 
                 // Process spawn_queue (from os.spawn / os.spawn_path / os.exec)
                 {
@@ -483,11 +516,23 @@ impl VmManager {
                         for pkt in ctx.net_outbound.drain(..) {
                             nic.send(pkt);
                         }
-                        // Sync listening ports
-                        for port in ctx.listening_ports.drain(..) {
-                            nic.listen(port);
+                        for (port, pid) in ctx.pending_listen.drain(..) {
+                            let _ = nic.try_listen(port, pid);
+                        }
+                        for port in ctx.pending_ephemeral_register.drain(..) {
+                            nic.register_ephemeral(port);
+                        }
+                        for port in ctx.pending_ephemeral_unregister.drain(..) {
+                            nic.unregister_ephemeral(port);
+                        }
+                        // Return unconsumed inbound packets to NIC so they are available next tick (process may yield mid-loop)
+                        for pkt in ctx.net_inbound.drain(..) {
+                            nic.deliver(pkt);
                         }
                     }
+                    // Swap back this VM's connection state for next tick
+                    std::mem::swap(&mut ctx.connections, &mut vm.connections);
+                    std::mem::swap(&mut ctx.next_connection_id, &mut vm.next_connection_id);
                 }
             }
 
@@ -531,6 +576,7 @@ mod tests {
     use super::super::lua_api::context::{SpawnSpec, VmContext};
     use super::super::lua_api;
     use super::super::net::ip::{Ipv4Addr, Subnet};
+    use super::super::net::packet::Packet;
     use super::super::os;
     use super::super::vm::VirtualMachine;
     use super::*;
@@ -925,6 +971,341 @@ end
         }
     }
 
+    /// Run n full game-loop ticks for VMs with network: per-VM context (with IP), NIC sync, then network_tick.
+    async fn run_n_ticks_vms_network(
+        lua: &Lua,
+        manager: &mut VmManager,
+        vms: &mut [VirtualMachine<'_>],
+        n: usize,
+    ) {
+        assert!(
+            vms.len() >= 2,
+            "run_n_ticks_vms_network expects at least 2 VMs, got {}",
+            vms.len()
+        );
+        for _ in 0..n {
+            for vm in vms.iter_mut() {
+                let (hostname, ip) = manager
+                    .get_active_vm(vm.id)
+                    .map(|a| (a.hostname.clone(), a.ip))
+                    .unwrap_or_else(|| ("unknown".to_string(), None));
+
+                {
+                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    ctx.set_vm(vm.id, &hostname, ip);
+                    if let Some(nic) = &vm.nic {
+                        ctx.set_port_owners(nic.get_port_owners());
+                    }
+                    ctx.next_pid = vm.os.next_process_id();
+                    for p in &vm.os.processes {
+                        let status = if p.is_finished() { "finished" } else { "running" };
+                        ctx.process_status_map.insert(p.id, status.to_string());
+                        if let Ok(guard) = p.stdout.lock() {
+                            ctx.process_stdout.insert(p.id, guard.clone());
+                        }
+                    }
+                    ctx.merge_last_stdout_of_finished();
+                    if let Some(nic) = &mut vm.nic {
+                        while let Some(pkt) = nic.recv() {
+                            ctx.net_inbound.push_back(pkt);
+                        }
+                    }
+                    std::mem::swap(&mut ctx.connections, &mut vm.connections);
+                    std::mem::swap(&mut ctx.next_connection_id, &mut vm.next_connection_id);
+                    if let Some(nic) = &mut vm.nic {
+                        ctx.sync_connection_inbounds_from_nic(nic);
+                    }
+                }
+
+                for process in &mut vm.os.processes {
+                    {
+                        let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                        ctx.current_pid = process.id;
+                        ctx.current_uid = process.user_id;
+                        ctx.current_username = process.username.clone();
+                        ctx.set_current_process(
+                            process.stdin.clone(),
+                            process.stdout.clone(),
+                            process.args.clone(),
+                            process.forward_stdout_to.clone(),
+                        );
+                    }
+                    if !process.is_finished() {
+                        process.tick();
+                    }
+                    {
+                        let ctx = lua.app_data_ref::<VmContext>().unwrap();
+                        if ctx.current_uid != process.user_id {
+                            process.user_id = ctx.current_uid;
+                            process.username = ctx.current_username.clone();
+                        }
+                    }
+                }
+                {
+                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    for p in &vm.os.processes {
+                        if p.is_finished() {
+                            if let Ok(guard) = p.stdout.lock() {
+                                ctx.last_stdout_of_finished.insert(p.id, guard.clone());
+                            }
+                        }
+                    }
+                }
+                let finished_pids: Vec<u64> = vm
+                    .os
+                    .processes
+                    .iter()
+                    .filter(|p| p.is_finished())
+                    .map(|p| p.id)
+                    .collect();
+                for pid in &finished_pids {
+                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    ctx.close_connections_for_pid(*pid);
+                }
+                vm.os.processes.retain(|p| !p.is_finished());
+                if let Some(nic) = &mut vm.nic {
+                    for pid in &finished_pids {
+                        nic.unlisten_pid(*pid);
+                    }
+                }
+
+                let spawn_queue = {
+                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    std::mem::take(&mut ctx.spawn_queue)
+                };
+                let vm_id = vm.id;
+                for (pid, parent_id, spec, args, uid, username, forward_stdout) in spawn_queue {
+                    let path = match &spec {
+                        SpawnSpec::Bin(name) => format!("/bin/{}", name),
+                        SpawnSpec::Path(p) => p.clone(),
+                    };
+                    let forward_stdout_to = if forward_stdout && parent_id != 0 {
+                        vm.os
+                            .processes
+                            .iter()
+                            .find(|p| p.id == parent_id)
+                            .map(|p| p.stdout.clone())
+                    } else {
+                        None
+                    };
+                    let result = manager.fs_service.read_file(vm_id, &path).await;
+                    if let Ok(Some((data, _))) = result {
+                        if let Ok(lua_code) = String::from_utf8(data) {
+                            let parent = if parent_id == 0 { None } else { Some(parent_id) };
+                            vm.os.spawn_process_with_id(
+                                pid,
+                                parent,
+                                &lua_code,
+                                args,
+                                uid,
+                                &username,
+                                forward_stdout_to,
+                            );
+                        }
+                    }
+                }
+
+                let stdin_inject = {
+                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    std::mem::take(&mut ctx.stdin_inject_queue)
+                };
+                for (pid, line) in stdin_inject {
+                    if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == pid) {
+                        if let Ok(mut guard) = p.stdin.lock() {
+                            guard.push_back(line);
+                        }
+                    }
+                }
+
+                {
+                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    if let Some(nic) = &mut vm.nic {
+                        for pkt in ctx.net_outbound.drain(..) {
+                            nic.send(pkt);
+                        }
+                        for (port, pid) in ctx.pending_listen.drain(..) {
+                            let _ = nic.try_listen(port, pid);
+                        }
+                        for port in ctx.pending_ephemeral_register.drain(..) {
+                            nic.register_ephemeral(port);
+                        }
+                        for port in ctx.pending_ephemeral_unregister.drain(..) {
+                            nic.unregister_ephemeral(port);
+                        }
+                        for pkt in ctx.net_inbound.drain(..) {
+                            nic.deliver(pkt);
+                        }
+                    }
+                    std::mem::swap(&mut ctx.connections, &mut vm.connections);
+                    std::mem::swap(&mut ctx.next_connection_id, &mut vm.next_connection_id);
+                }
+            }
+
+            manager.network_tick(vms);
+        }
+    }
+
+    /// Run one tick for a single VM only (by index), no network_tick. Used to inspect VM state after tick.
+    async fn run_one_tick_single_vm(
+        lua: &Lua,
+        manager: &mut VmManager,
+        vms: &mut [VirtualMachine<'_>],
+        vm_index: usize,
+    ) {
+        let vm = &mut vms[vm_index];
+        let (hostname, ip) = manager
+            .get_active_vm(vm.id)
+            .map(|a| (a.hostname.clone(), a.ip))
+            .unwrap_or_else(|| ("unknown".to_string(), None));
+
+        {
+            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            ctx.set_vm(vm.id, &hostname, ip);
+            if let Some(nic) = &vm.nic {
+                ctx.set_port_owners(nic.get_port_owners());
+            }
+            ctx.next_pid = vm.os.next_process_id();
+            for p in &vm.os.processes {
+                let status = if p.is_finished() { "finished" } else { "running" };
+                ctx.process_status_map.insert(p.id, status.to_string());
+                if let Ok(guard) = p.stdout.lock() {
+                    ctx.process_stdout.insert(p.id, guard.clone());
+                }
+            }
+            ctx.merge_last_stdout_of_finished();
+            if let Some(nic) = &mut vm.nic {
+                while let Some(pkt) = nic.recv() {
+                    ctx.net_inbound.push_back(pkt);
+                }
+            }
+            std::mem::swap(&mut ctx.connections, &mut vm.connections);
+            std::mem::swap(&mut ctx.next_connection_id, &mut vm.next_connection_id);
+            if let Some(nic) = &mut vm.nic {
+                ctx.sync_connection_inbounds_from_nic(nic);
+            }
+        }
+
+        for process in &mut vm.os.processes {
+            {
+                let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                ctx.current_pid = process.id;
+                ctx.current_uid = process.user_id;
+                ctx.current_username = process.username.clone();
+                ctx.set_current_process(
+                    process.stdin.clone(),
+                    process.stdout.clone(),
+                    process.args.clone(),
+                    process.forward_stdout_to.clone(),
+                );
+            }
+            if !process.is_finished() {
+                process.tick();
+            }
+            {
+                let ctx = lua.app_data_ref::<VmContext>().unwrap();
+                if ctx.current_uid != process.user_id {
+                    process.user_id = ctx.current_uid;
+                    process.username = ctx.current_username.clone();
+                }
+            }
+        }
+        {
+            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            for p in &vm.os.processes {
+                if p.is_finished() {
+                    if let Ok(guard) = p.stdout.lock() {
+                        ctx.last_stdout_of_finished.insert(p.id, guard.clone());
+                    }
+                }
+            }
+        }
+        let finished_pids: Vec<u64> = vm
+            .os
+            .processes
+            .iter()
+            .filter(|p| p.is_finished())
+            .map(|p| p.id)
+            .collect();
+        for pid in &finished_pids {
+            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            ctx.close_connections_for_pid(*pid);
+        }
+        vm.os.processes.retain(|p| !p.is_finished());
+        if let Some(nic) = &mut vm.nic {
+            for pid in &finished_pids {
+                nic.unlisten_pid(*pid);
+            }
+        }
+
+        let spawn_queue = {
+            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            std::mem::take(&mut ctx.spawn_queue)
+        };
+        let vm_id = vm.id;
+        for (pid, parent_id, spec, args, uid, username, forward_stdout) in spawn_queue {
+            let path = match &spec {
+                SpawnSpec::Bin(name) => format!("/bin/{}", name),
+                SpawnSpec::Path(p) => p.clone(),
+            };
+            let forward_stdout_to = if forward_stdout && parent_id != 0 {
+                vm.os
+                    .processes
+                    .iter()
+                    .find(|p| p.id == parent_id)
+                    .map(|p| p.stdout.clone())
+            } else {
+                None
+            };
+            let result = manager.fs_service.read_file(vm_id, &path).await;
+            if let Ok(Some((data, _))) = result {
+                if let Ok(lua_code) = String::from_utf8(data) {
+                    let parent = if parent_id == 0 { None } else { Some(parent_id) };
+                    vm.os.spawn_process_with_id(
+                        pid,
+                        parent,
+                        &lua_code,
+                        args,
+                        uid,
+                        &username,
+                        forward_stdout_to,
+                    );
+                }
+            }
+        }
+
+        let stdin_inject = {
+            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            std::mem::take(&mut ctx.stdin_inject_queue)
+        };
+        for (pid, line) in stdin_inject {
+            if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == pid) {
+                if let Ok(mut guard) = p.stdin.lock() {
+                    guard.push_back(line);
+                }
+            }
+        }
+
+        {
+            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            if let Some(nic) = &mut vm.nic {
+                for pkt in ctx.net_outbound.drain(..) {
+                    nic.send(pkt);
+                }
+                for (port, pid) in ctx.pending_listen.drain(..) {
+                    let _ = nic.try_listen(port, pid);
+                }
+                for port in ctx.pending_ephemeral_register.drain(..) {
+                    nic.register_ephemeral(port);
+                }
+                for port in ctx.pending_ephemeral_unregister.drain(..) {
+                    nic.unregister_ephemeral(port);
+                }
+            }
+            std::mem::swap(&mut ctx.connections, &mut vm.connections);
+            std::mem::swap(&mut ctx.next_connection_id, &mut vm.next_connection_id);
+        }
+    }
+
     /// Variant that simulates 60 FPS game loop: sleeps ~16.6ms between ticks.
     async fn run_tick_until_done_with_limit_60fps(
         lua: &Lua,
@@ -962,7 +1343,19 @@ end
                     stdout_result = process.stdout.lock().unwrap().clone();
                 }
             }
+            let finished_pids: Vec<u64> = vm
+                .os
+                .processes
+                .iter()
+                .filter(|p| p.is_finished())
+                .map(|p| p.id)
+                .collect();
             vm.os.processes.retain(|p| !p.is_finished());
+            if let Some(nic) = &mut vm.nic {
+                for pid in &finished_pids {
+                    nic.unlisten_pid(*pid);
+                }
+            }
             if vm.os.processes.is_empty() || vm.os.is_finished() {
                 break;
             }
@@ -2354,6 +2747,858 @@ os.write_stdin(pid, "rm /tmp/shell_rm_test")
         assert!(
             file.is_none(),
             "shell running rm should remove /tmp/shell_rm_test"
+        );
+    }
+
+    /// Minimal two-VM network: B sends "hello" to A (port 0); A receives and writes to stdout.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_two_vms_network_send_recv() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 97, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "net-a".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_a, nic_a) = manager.create_vm(config).await.unwrap();
+        let ip_a = nic_a.ip.to_string();
+        let config_b = super::super::db::vm_service::VmConfig {
+            hostname: "net-b".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+
+        let mut vm_a = VirtualMachine::with_id(&lua, _rec_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(&lua, _rec_b.id);
+        vm_b.attach_nic(nic_b);
+
+        // A: listen on a port, then loop recv and write
+        const PORT: u16 = 12345;
+        let recv_script = format!(
+            r#"
+net.listen({})
+for i = 1, 50 do
+  local r = net.recv()
+  if r then io.write(r.data) end
+end
+"#,
+            PORT
+        );
+        vm_a.os.spawn_process(&recv_script, vec![], 0, "root");
+
+        // B: use connection API to send to A (no net.listen(0))
+        let send_script = format!(
+            r#"
+local conn = net.connect("{}", {})
+conn:send("hello")
+"#,
+            ip_a,
+            PORT
+        );
+        vm_b.os.spawn_process(&send_script, vec![], 0, "root");
+
+        let mut vms = vec![vm_a, vm_b];
+        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, 80).await;
+
+        let vm_a_stdout = vms[0]
+            .os
+            .processes
+            .iter()
+            .next()
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+        assert!(
+            vm_a_stdout.contains("hello"),
+            "VM A should receive 'hello' from B, got: {:?}",
+            vm_a_stdout
+        );
+    }
+
+    /// Verify router delivers a packet from VM A to VM B when B is listening on dst_port.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_two_vms_router_delivers_to_listening_port() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 96, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "rtr-a".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_a, nic_a) = manager.create_vm(config).await.unwrap();
+        let ip_a = nic_a.ip;
+        let config_b = super::super::db::vm_service::VmConfig {
+            hostname: "rtr-b".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
+        let ip_b = nic_b.ip;
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+
+        let mut vm_a = VirtualMachine::with_id(&lua, _rec_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(&lua, _rec_b.id);
+        vm_b.attach_nic(nic_b);
+
+        // B only listens on 22 (no process that runs forever; we just need listening_ports set)
+        vm_b
+            .os
+            .spawn_process("net.listen(22)", vec![], 0, "root");
+
+        let mut vms = vec![vm_a, vm_b];
+        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, 2).await;
+
+        // B should have run and called net.listen(22), so B's NIC is listening on 22
+        assert!(
+            vms[1].nic.as_ref().map_or(false, |n| n.is_listening(22)),
+            "VM B NIC should be listening on 22"
+        );
+
+        // Manually inject one packet: A -> B, port 22
+        let pkt = Packet::tcp(ip_a, 0, ip_b, 22, b"hello".to_vec());
+        if let Some(nic) = &mut vms[0].nic {
+            nic.send(pkt);
+        }
+
+        manager.network_tick(&mut vms);
+
+        assert!(
+            vms[1].nic.as_ref().map_or(false, |n| n.has_inbound()),
+            "VM B should have received the packet after network_tick"
+        );
+        let received = vms[1].nic.as_mut().and_then(|n| n.recv());
+        assert_eq!(
+            received.as_ref().and_then(|p| p.payload_str()),
+            Some("hello"),
+            "VM B should have received payload 'hello'"
+        );
+    }
+
+    /// One port per process: second process on the same VM calling net.listen(same_port) must fail.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_net_listen_same_port_second_fails() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 98, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "listen-a".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_a, nic_a) = manager.create_vm(config).await.unwrap();
+        let config_b = super::super::db::vm_service::VmConfig {
+            hostname: "listen-b".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+
+        let mut vm_a = VirtualMachine::with_id(&lua, _rec_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(&lua, _rec_b.id);
+        vm_b.attach_nic(nic_b);
+
+        // VM A: process 1 listens on 8080 and exits
+        vm_a.os.spawn_process("net.listen(8080)", vec![], 0, "root");
+        // VM A: process 2 tries to listen on 8080 (must fail), writes "ok" or "fail", then loops so we can read stdout
+        vm_a.os.spawn_process(
+            r#"
+local ok, err = pcall(function() net.listen(8080) end)
+io.write(ok and "ok" or "fail")
+while true do end
+"#,
+            vec![],
+            0,
+            "root",
+        );
+
+        let mut vms = vec![vm_a, vm_b];
+        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, 100).await;
+
+        let second_stdout = vms[0]
+            .os
+            .processes
+            .iter()
+            .find(|p| p.stdout.lock().map_or(false, |s| s.contains("fail") || s.contains("ok")))
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+        assert!(
+            second_stdout.contains("fail"),
+            "Second process's net.listen(8080) should fail (address in use); got stdout: {:?}",
+            second_stdout
+        );
+    }
+
+    /// Connection API: client uses net.connect, conn:send, conn:recv (no net.listen(0)). Assert response received.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_net_connect_request_response() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 99, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config_a = super::super::db::vm_service::VmConfig {
+            hostname: "conn-a".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_a, nic_a) = manager.create_vm(config_a).await.unwrap();
+        let config_b = super::super::db::vm_service::VmConfig {
+            hostname: "conn-b".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
+        let ip_b = nic_b.ip.to_string();
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+
+        let mut vm_a = VirtualMachine::with_id(&lua, _rec_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(&lua, _rec_b.id);
+        vm_b.attach_nic(nic_b);
+
+        const PORT: u16 = 7777;
+        vm_b.os.spawn_process(
+            &format!(
+                r#"
+net.listen({})
+while true do
+  local r = net.recv()
+  if r then net.send(r.src_ip, r.src_port, "pong") end
+end
+"#,
+                PORT
+            ),
+            vec![],
+            0,
+            "root",
+        );
+        vm_a.os.spawn_process(
+            &format!(
+                r#"
+local conn = net.connect("{}", {})
+conn:send("ping")
+while true do
+  local r = conn:recv()
+  if r then io.write(r.data); conn:close(); break end
+end
+while true do end
+"#,
+                ip_b,
+                PORT
+            ),
+            vec![],
+            0,
+            "root",
+        );
+
+        let mut vms = vec![vm_a, vm_b];
+        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, 500).await;
+
+        let a_stdout = vms[0]
+            .os
+            .processes
+            .iter()
+            .next()
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+        assert!(
+            a_stdout.contains("pong"),
+            "VM A (connection API client) should receive 'pong'; got stdout: {:?}",
+            a_stdout
+        );
+    }
+
+    /// Max ticks for two-VM network tests. Single limit, no per-test tuning.
+    const MAX_TICKS_TWO_VM_NETWORK: usize = 2000;
+
+    /// Realistic scenario: A sends request, B listens and responds with value "x", A writes received value to stdout.
+    /// Run with a fixed tick limit; assert A has the expected stdout at the end.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_two_vms_a_request_b_response_stdout() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config_a = super::super::db::vm_service::VmConfig {
+            hostname: "req-a".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let config_b = super::super::db::vm_service::VmConfig {
+            hostname: "req-b".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_record_a, nic_a) = manager.create_vm(config_a).await.unwrap();
+        let (_record_b, nic_b) = manager.create_vm(config_b).await.unwrap();
+        let ip_b = nic_b.ip.to_string();
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+
+        let mut vm_a = VirtualMachine::with_id(&lua, _record_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(&lua, _record_b.id);
+        vm_b.attach_nic(nic_b);
+
+        // B: listen on port; loop forever until first request, then respond with "x" and break
+        const LISTEN_PORT: u16 = 9999;
+        let b_script = format!(
+            r#"
+net.listen({})
+while true do
+  local r = net.recv()
+  if r then
+    net.send(r.src_ip, r.src_port, "x")
+    break
+  end
+end
+"#,
+            LISTEN_PORT
+        );
+        vm_b.os.spawn_process(&b_script, vec![], 0, "root");
+
+        // A: use connection API to send request to B, then loop recv on connection (no net.listen(0))
+        let a_script = format!(
+            r#"
+local conn = net.connect("{}", {})
+conn:send("request")
+while true do
+  local r = conn:recv()
+  if r then
+    io.write(r.data)
+  end
+end
+"#,
+            ip_b,
+            LISTEN_PORT
+        );
+        vm_a.os.spawn_process(&a_script, vec![], 0, "root");
+
+        let mut vms = vec![vm_a, vm_b];
+        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+
+        let a_stdout = vms[0]
+            .os
+            .processes
+            .iter()
+            .next()
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+
+        // Inspect NIC inbound queues: if packets are there, they arrived but were not consumed by the process
+        let a_inbound_count = vms[0]
+            .nic
+            .as_ref()
+            .map(|n| n.inbound.len())
+            .unwrap_or(0);
+        let b_inbound_count = vms[1]
+            .nic
+            .as_ref()
+            .map(|n| n.inbound.len())
+            .unwrap_or(0);
+
+        assert!(
+            a_stdout.contains("x"),
+            "VM A should have received and written 'x' to stdout. \
+             a_stdout={:?}; \
+             A NIC inbound={} (if >0, response arrived but A process did not consume); \
+             B NIC inbound={} (if >0, request arrived but B process did not consume)",
+            a_stdout, a_inbound_count, b_inbound_count
+        );
+    }
+
+    /// Multi-request / multi-response: A sends 1 request, B sends 4 responses; A sends 1 more, B sends 1. Assert A stdout is "12345".
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_two_vms_multi_request_multi_response_stdout() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config_a = super::super::db::vm_service::VmConfig {
+            hostname: "multi-a".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let config_b = super::super::db::vm_service::VmConfig {
+            hostname: "multi-b".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_record_a, nic_a) = manager.create_vm(config_a).await.unwrap();
+        let (_record_b, nic_b) = manager.create_vm(config_b).await.unwrap();
+        let ip_b = nic_b.ip.to_string();
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+
+        let mut vm_a = VirtualMachine::with_id(&lua, _record_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(&lua, _record_b.id);
+        vm_b.attach_nic(nic_b);
+
+        const LISTEN_PORT: u16 = 9998;
+        // B: on 1st request send "1","2","3","4"; on 2nd request send "5". No break.
+        let b_script = format!(
+            r#"
+net.listen({})
+local req = 0
+while true do
+  local r = net.recv()
+  if r then
+    req = req + 1
+    if req == 1 then
+      net.send(r.src_ip, r.src_port, "1")
+      net.send(r.src_ip, r.src_port, "2")
+      net.send(r.src_ip, r.src_port, "3")
+      net.send(r.src_ip, r.src_port, "4")
+    else
+      net.send(r.src_ip, r.src_port, "5")
+    end
+  end
+end
+"#,
+            LISTEN_PORT
+        );
+        vm_b.os.spawn_process(&b_script, vec![], 0, "root");
+
+        // A: connection API; send req1, recv until 4 then send req2, recv 1 more; write all to stdout.
+        let a_script = format!(
+            r#"
+local conn = net.connect("{}", {})
+conn:send("req1")
+local n = 0
+while true do
+  local r = conn:recv()
+  if r then
+    io.write(r.data)
+    n = n + 1
+    if n == 4 then
+      conn:send("req2")
+    end
+  end
+end
+"#,
+            ip_b,
+            LISTEN_PORT
+        );
+        vm_a.os.spawn_process(&a_script, vec![], 0, "root");
+
+        let mut vms = vec![vm_a, vm_b];
+        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+
+        let a_stdout = vms[0]
+            .os
+            .processes
+            .iter()
+            .next()
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+
+        let a_inbound_count = vms[0]
+            .nic
+            .as_ref()
+            .map(|n| n.inbound.len())
+            .unwrap_or(0);
+        let b_inbound_count = vms[1]
+            .nic
+            .as_ref()
+            .map(|n| n.inbound.len())
+            .unwrap_or(0);
+
+        assert!(
+            a_stdout.contains("12345"),
+            "VM A should have received and written '12345' to stdout. \
+             a_stdout={:?}; \
+             A NIC inbound={}; B NIC inbound={}",
+            a_stdout, a_inbound_count, b_inbound_count
+        );
+    }
+
+    /// B listens on two ports (80 and 9999); A sends distinct payload to each; B echoes back. Assert A stdout contains both.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_two_vms_b_two_ports_echo_stdout() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 90, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config_a = super::super::db::vm_service::VmConfig {
+            hostname: "twoport-a".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let config_b = super::super::db::vm_service::VmConfig {
+            hostname: "twoport-b".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_record_a, nic_a) = manager.create_vm(config_a).await.unwrap();
+        let (_record_b, nic_b) = manager.create_vm(config_b).await.unwrap();
+        let ip_b = nic_b.ip.to_string();
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+
+        let mut vm_a = VirtualMachine::with_id(&lua, _record_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(&lua, _record_b.id);
+        vm_b.attach_nic(nic_b);
+
+        // B: listen on 80 and 9999; echo back r.data for each received packet
+        let b_script = r#"
+net.listen(80)
+net.listen(9999)
+while true do
+  local r = net.recv()
+  if r then
+    net.send(r.src_ip, r.src_port, r.data)
+  end
+end
+"#;
+        vm_b.os.spawn_process(b_script, vec![], 0, "root");
+
+        // A: two connections to B (port 80 and 9999), send distinct payloads, then loop recv on both (no net.listen(0))
+        let a_script = format!(
+            r#"
+local c80 = net.connect("{}", 80)
+local c9999 = net.connect("{}", 9999)
+c80:send("port80")
+c9999:send("port9999")
+while true do
+  local r = c80:recv()
+  if r then io.write(r.data) end
+  r = c9999:recv()
+  if r then io.write(r.data) end
+end
+"#,
+            ip_b,
+            ip_b
+        );
+        vm_a.os.spawn_process(&a_script, vec![], 0, "root");
+
+        let mut vms = vec![vm_a, vm_b];
+        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+
+        let a_stdout = vms[0]
+            .os
+            .processes
+            .iter()
+            .next()
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+
+        let a_inbound = vms[0].nic.as_ref().map(|n| n.inbound.len()).unwrap_or(0);
+        let b_inbound = vms[1].nic.as_ref().map(|n| n.inbound.len()).unwrap_or(0);
+
+        assert!(
+            a_stdout.contains("port80") && a_stdout.contains("port9999"),
+            "VM A should have received both echoed payloads. \
+             a_stdout={:?}; A NIC inbound={}; B NIC inbound={}",
+            a_stdout, a_inbound, b_inbound
+        );
+    }
+
+    /// Three VMs: A sends request to B and to C; B and C respond with "B" and "C". Assert A stdout contains both.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_three_vms_a_requests_b_and_c_stdout() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = |hostname: &str| super::super::db::vm_service::VmConfig {
+            hostname: hostname.to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_record_a, nic_a) = manager.create_vm(config("three-a")).await.unwrap();
+        let (_record_b, nic_b) = manager.create_vm(config("three-b")).await.unwrap();
+        let (_record_c, nic_c) = manager.create_vm(config("three-c")).await.unwrap();
+        let ip_b = nic_b.ip.to_string();
+        let ip_c = nic_c.ip.to_string();
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+
+        let mut vm_a = VirtualMachine::with_id(&lua, _record_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(&lua, _record_b.id);
+        vm_b.attach_nic(nic_b);
+        let mut vm_c = VirtualMachine::with_id(&lua, _record_c.id);
+        vm_c.attach_nic(nic_c);
+
+        const PORT_B: u16 = 9000;
+        const PORT_C: u16 = 9001;
+
+        let b_script = format!(
+            r#"
+net.listen({})
+while true do
+  local r = net.recv()
+  if r then
+    net.send(r.src_ip, r.src_port, "B")
+  end
+end
+"#,
+            PORT_B
+        );
+        vm_b.os.spawn_process(&b_script, vec![], 0, "root");
+
+        let c_script = format!(
+            r#"
+net.listen({})
+while true do
+  local r = net.recv()
+  if r then
+    net.send(r.src_ip, r.src_port, "C")
+  end
+end
+"#,
+            PORT_C
+        );
+        vm_c.os.spawn_process(&c_script, vec![], 0, "root");
+
+        let a_script = format!(
+            r#"
+local conn_b = net.connect("{}", {})
+local conn_c = net.connect("{}", {})
+conn_b:send("req")
+conn_c:send("req")
+while true do
+  local r = conn_b:recv()
+  if r then io.write(r.data) end
+  r = conn_c:recv()
+  if r then io.write(r.data) end
+end
+"#,
+            ip_b,
+            PORT_B,
+            ip_c,
+            PORT_C
+        );
+        vm_a.os.spawn_process(&a_script, vec![], 0, "root");
+
+        let mut vms = vec![vm_a, vm_b, vm_c];
+        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+
+        let a_stdout = vms[0]
+            .os
+            .processes
+            .iter()
+            .next()
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+
+        let a_inbound = vms[0].nic.as_ref().map(|n| n.inbound.len()).unwrap_or(0);
+        let b_inbound = vms[1].nic.as_ref().map(|n| n.inbound.len()).unwrap_or(0);
+        let c_inbound = vms[2].nic.as_ref().map(|n| n.inbound.len()).unwrap_or(0);
+
+        assert!(
+            a_stdout.contains("B") && a_stdout.contains("C"),
+            "VM A should have received both 'B' and 'C'. \
+             a_stdout={:?}; A NIC inbound={}; B={}; C={}",
+            a_stdout, a_inbound, b_inbound, c_inbound
         );
     }
 }

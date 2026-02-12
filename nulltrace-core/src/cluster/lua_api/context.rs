@@ -1,11 +1,17 @@
 #![allow(dead_code)]
 
+use crate::net::connection::ConnectionState;
 use crate::net::ip::Ipv4Addr;
+use crate::net::nic::NIC;
 use crate::net::packet::Packet;
 use sqlx::PgPool;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
+
+/// Ephemeral port range (IANA dynamic/private). Not in LISTEN; bound to a connection.
+const EPHEMERAL_PORT_MIN: u16 = 49152;
+const EPHEMERAL_PORT_MAX: u16 = 65535;
 
 /// Spawn target: from /bin by name or from a file path.
 #[derive(Clone, Debug)]
@@ -32,6 +38,18 @@ pub struct VmContext {
     pub net_outbound: Vec<Packet>,
     pub net_inbound: VecDeque<Packet>,
     pub listening_ports: Vec<u16>,
+    /// Port -> pid that owns it (from NIC at start of tick). Used by net.listen to reject same-port by another process.
+    pub port_owners: HashMap<u16, u64>,
+    /// (port, pid) to apply to NIC at end of tick.
+    pub pending_listen: Vec<(u16, u64)>,
+
+    /// Connection-based API: connection_id -> state.
+    pub connections: HashMap<u64, ConnectionState>,
+    pub next_connection_id: u64,
+    /// Ports to register as ephemeral on NIC at end of tick.
+    pub pending_ephemeral_register: Vec<u16>,
+    /// Ports to unregister (conn:close or process exit).
+    pub pending_ephemeral_unregister: Vec<u16>,
 
     /// stdin/stdout for the currently executing process (set before each tick)
     pub current_stdin: Option<Arc<Mutex<VecDeque<String>>>>,
@@ -74,6 +92,12 @@ impl VmContext {
             net_outbound: Vec::new(),
             net_inbound: VecDeque::new(),
             listening_ports: Vec::new(),
+            port_owners: HashMap::new(),
+            pending_listen: Vec::new(),
+            connections: HashMap::new(),
+            next_connection_id: 1,
+            pending_ephemeral_register: Vec::new(),
+            pending_ephemeral_unregister: Vec::new(),
             current_stdin: None,
             current_stdout: None,
             current_stdout_forward: None,
@@ -98,6 +122,11 @@ impl VmContext {
         self.net_outbound.clear();
         self.net_inbound.clear();
         self.listening_ports.clear();
+        self.port_owners.clear();
+        self.pending_listen.clear();
+        // connections and next_connection_id are swapped with VM each tick, not cleared here
+        self.pending_ephemeral_register.clear();
+        self.pending_ephemeral_unregister.clear();
         self.current_stdin = None;
         self.current_stdout = None;
         self.current_stdout_forward = None;
@@ -106,6 +135,43 @@ impl VmContext {
         self.process_status_map.clear();
         self.stdin_inject_queue.clear();
         self.process_stdout.clear();
+    }
+
+    /// Set port ownership snapshot from the NIC (call after set_vm when VM has a NIC).
+    pub fn set_port_owners(&mut self, owners: HashMap<u16, u64>) {
+        self.port_owners = owners;
+    }
+
+    /// Allocate an ephemeral port not in port_owners and not used by any connection. Returns None if exhausted.
+    pub fn alloc_ephemeral_port(&self) -> Option<u16> {
+        let in_use: std::collections::HashSet<u16> = self
+            .port_owners
+            .keys()
+            .chain(self.connections.values().map(|c| &c.local_port))
+            .copied()
+            .collect();
+        (EPHEMERAL_PORT_MIN..=EPHEMERAL_PORT_MAX).find(|p| !in_use.contains(p))
+    }
+
+    /// Drain NIC ephemeral queues into each connection's inbound. Call at VM tick start (after loading net_inbound).
+    pub fn sync_connection_inbounds_from_nic(&mut self, nic: &mut NIC) {
+        for conn in self.connections.values_mut() {
+            nic.drain_ephemeral_into(conn.local_port, &mut conn.inbound);
+        }
+    }
+
+    /// Close all connections owned by this pid; push their local ports to pending_ephemeral_unregister.
+    pub fn close_connections_for_pid(&mut self, pid: u64) {
+        let ports: Vec<u16> = self
+            .connections
+            .iter()
+            .filter(|(_, c)| c.pid == pid)
+            .map(|(_, c)| c.local_port)
+            .collect();
+        for port in ports {
+            self.pending_ephemeral_unregister.push(port);
+        }
+        self.connections.retain(|_, c| c.pid != pid);
     }
 
     /// Call after building process_stdout from current processes so os.read_stdout(pid) works for just-finished PIDs.

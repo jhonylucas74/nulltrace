@@ -1,0 +1,13 @@
+---
+description: VM does automatic yield; do not use native yield in Lua
+globs:
+alwaysApply: true
+---
+
+# No native yield in Lua
+
+The VM **already does automatic yield** (e.g. interrupt every N instructions in the Luau runtime). Scripts are scheduled tick-by-tick; you do **not** need to call `coroutine.yield()` or any native yield from Lua.
+
+- **Do not:** Add `coroutine.yield()` or similar in Lua scripts for “cooperative” scheduling.
+- **Do:** Use **infinite loops** when a process must stay alive waiting for I/O (e.g. `while true do local r = net.recv(); if r then ... break end end`). The automatic interrupt will yield between ticks so the process does not block others.
+- **Why:** The runtime handles preemption; native yield in Lua is unnecessary and we keep the model simple.

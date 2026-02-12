@@ -1,3 +1,4 @@
+pub mod connection;
 pub mod ip;
 pub mod packet;
 pub mod nic;

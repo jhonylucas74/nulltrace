@@ -1,0 +1,49 @@
+---
+description: Best practices for network communication between VMs (net.connect, net.send, net.recv, net.listen)
+globs:
+alwaysApply: true
+---
+
+# VM network communication (two or more VMs)
+
+When writing Lua scripts that communicate between VMs, use the connection-based API for clients and `net.listen` for servers so requests and responses are delivered and testable.
+
+## Preferred: connection-based client (no net.listen(0))
+
+- **Client (e.g. VM A):** Use `net.connect(host, port)` to create a connection. The stack allocates an ephemeral port automatically; you do **not** call `net.listen(0)`.
+- **API:** `conn = net.connect(host, port)`; then `conn:send(data)`, `r = conn:recv()` (returns packet table or nil), and `conn:close()` when done. Responses are delivered to the connection’s ephemeral port and appear in `conn:recv()`.
+- **Legacy:** `net.listen(0)` plus `net.send` / `net.recv()` still works for senders that expect replies, but the connection API is preferred.
+
+## Listener must call net.listen(port)
+
+- The **receiver** VM must call `net.listen(port)` before any packet can be delivered to it. The router delivers to a NIC that is listening on `dst_port` or that has an ephemeral port bound to a connection.
+
+## Use a loop to receive; do not assume one recv is enough
+
+- Execution is **tick-based**. Packets are delivered at the end of a tick; the process may run before the packet arrives. A single `net.recv()` or `conn:recv()` may return `nil`.
+- **Pattern:** Use `while true do local r = conn:recv(); if r then ... end end` (or `net.recv()` for server) so the process keeps running until data arrives. The VM’s automatic yield (see no-lua-native-yield rule) will suspend the process between ticks so others can run.
+- **Do not** use a fixed `for i = 1, N` that exits after N nil receives; the process would die before the response arrives.
+
+## Keep the process alive if you need to assert on its stdout
+
+- If a test (or any code) will read a process’s stdout after the run (e.g. to assert it received a response), **do not** use `break` to exit the receive loop. Once the process exits, it is removed and stdout may be unreachable or from a different run.
+- **Do:** Use `while true do ... end` with no `break` after handling the response, so the process stays in the list and stdout can be read.
+
+## Request–response pattern
+
+- **Server (e.g. VM B):** `net.listen(port)`; then in a loop, `r = net.recv()`; when `r` is set, reply with `net.send(r.src_ip, r.src_port, response_data)` so the packet goes back to the sender (or the sender’s connection).
+- **Client (e.g. VM A):** `conn = net.connect(server_ip, server_port)`; `conn:send(request_data)`; then loop with `conn:recv()` and process each response (e.g. `io.write(r.data)`). Call `conn:close()` when done to release the ephemeral port.
+- Unconsumed inbound packets are returned to the NIC at the end of each VM turn, so multiple responses can be consumed over multiple ticks without loss.
+
+## Tests: distinct subnet and tick limit
+
+- Use a **distinct subnet** per test (e.g. 10.0.90.0/24, 10.0.91.0/24) to avoid port or IP clashes between tests.
+- Use a **single tick limit** (e.g. `MAX_TICKS_TWO_VM_NETWORK`) and `run_n_ticks_vms_network`; do not tune tick counts per test (e.g. 10 vs 200) to make a test pass—fix the script or the network behavior instead.
+- When asserting on VM A’s stdout, ensure A’s script uses an infinite receive loop (no `break`) so the process is still present when the test reads stdout.
+
+## Summary
+
+- **Client:** Prefer `net.connect(host, port)` and `conn:send`, `conn:recv`, `conn:close` (no `net.listen(0)`).
+- **Server:** `net.listen(port)`; receive with `net.recv()`; reply with `net.send(r.src_ip, r.src_port, data)`.
+- Receive in a `while true` loop; do not rely on a single recv.
+- Do not `break` out of the loop if you need to read that process’s stdout later.

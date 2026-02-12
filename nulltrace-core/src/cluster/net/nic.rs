@@ -2,7 +2,7 @@
 
 use super::ip::{Ipv4Addr, Subnet};
 use super::packet::Packet;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 /// A simulated Network Interface Card (NIC).
 ///
@@ -17,6 +17,10 @@ pub struct NIC {
     pub outbound: VecDeque<Packet>,
     /// Ports this NIC is listening on (for incoming connections).
     pub listening_ports: Vec<u16>,
+    /// Port -> process id that registered it. Enforces one process per port.
+    port_owner: HashMap<u16, u64>,
+    /// Ephemeral ports (connection-bound): packets for these ports go to connection queues, not listening.
+    ephemeral_inbound: HashMap<u16, VecDeque<Packet>>,
 }
 
 impl NIC {
@@ -33,6 +37,8 @@ impl NIC {
             inbound: VecDeque::new(),
             outbound: VecDeque::new(),
             listening_ports: Vec::new(),
+            port_owner: HashMap::new(),
+            ephemeral_inbound: HashMap::new(),
         }
     }
 
@@ -78,21 +84,87 @@ impl NIC {
         !self.outbound.is_empty()
     }
 
-    /// Start listening on a port.
+    /// Start listening on a port (legacy; no owner). Prefer `try_listen(port, pid)` for per-process ownership.
     pub fn listen(&mut self, port: u16) {
         if !self.listening_ports.contains(&port) {
             self.listening_ports.push(port);
+            self.port_owner.insert(port, 0);
+        }
+    }
+
+    /// Try to bind port for the given process. Returns Err(()) if port is already owned by another pid.
+    pub fn try_listen(&mut self, port: u16, pid: u64) -> Result<(), ()> {
+        match self.port_owner.get(&port) {
+            Some(&owner) if owner != pid => return Err(()),
+            Some(_) => return Ok(()), // same pid, idempotent
+            None => {}
+        }
+        self.port_owner.insert(port, pid);
+        if !self.listening_ports.contains(&port) {
+            self.listening_ports.push(port);
+        }
+        Ok(())
+    }
+
+    /// Return a clone of port -> owner for the game loop to pass into context.
+    pub fn get_port_owners(&self) -> HashMap<u16, u64> {
+        self.port_owner.clone()
+    }
+
+    /// Release all ports owned by this process (e.g. when process exits).
+    pub fn unlisten_pid(&mut self, pid: u64) {
+        let ports_to_remove: Vec<u16> = self
+            .port_owner
+            .iter()
+            .filter(|&(_, owner)| *owner == pid)
+            .map(|(&port, _)| port)
+            .collect();
+        for port in ports_to_remove {
+            self.port_owner.remove(&port);
+            self.listening_ports.retain(|&p| p != port);
         }
     }
 
     /// Stop listening on a port.
     pub fn unlisten(&mut self, port: u16) {
+        self.port_owner.remove(&port);
         self.listening_ports.retain(|&p| p != port);
     }
 
     /// Check if this NIC is listening on a specific port.
     pub fn is_listening(&self, port: u16) -> bool {
         self.listening_ports.contains(&port)
+    }
+
+    /// Register an ephemeral port (connection-bound). Packets for this port are queued here until drained into context.
+    pub fn register_ephemeral(&mut self, port: u16) {
+        self.ephemeral_inbound
+            .entry(port)
+            .or_insert_with(VecDeque::new);
+    }
+
+    /// Unregister an ephemeral port and drop its queue. Call on conn:close().
+    pub fn unregister_ephemeral(&mut self, port: u16) {
+        self.ephemeral_inbound.remove(&port);
+    }
+
+    /// Deliver a packet to an ephemeral port's queue. Call when dst_port is ephemeral (not listening).
+    pub fn deliver_to_ephemeral(&mut self, port: u16, packet: Packet) {
+        if let Some(q) = self.ephemeral_inbound.get_mut(&port) {
+            q.push_back(packet);
+        }
+    }
+
+    /// True if this port is registered as ephemeral (connection-bound).
+    pub fn has_ephemeral(&self, port: u16) -> bool {
+        self.ephemeral_inbound.contains_key(&port)
+    }
+
+    /// Drain packets for an ephemeral port into the given queue. Used at VM tick start to sync into connection inbound.
+    pub fn drain_ephemeral_into(&mut self, port: u16, target: &mut VecDeque<Packet>) {
+        if let Some(q) = self.ephemeral_inbound.get_mut(&port) {
+            target.append(q);
+        }
     }
 
     /// Format the MAC address as a string.
