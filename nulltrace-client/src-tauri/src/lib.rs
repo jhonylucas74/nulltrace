@@ -66,11 +66,15 @@ fn get_app_version(app: tauri::AppHandle) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(grpc::new_terminal_sessions())
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             run_luau,
             grpc::grpc_ping,
             grpc::grpc_login,
+            grpc::terminal_connect,
+            grpc::terminal_send_stdin,
+            grpc::terminal_disconnect,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

@@ -30,6 +30,32 @@
   color: var(--term-red);
 }
 
+/* Inline segments from shell output: colors and formatting */
+.segmentRed {
+  color: var(--term-red);
+}
+.segmentGreen {
+  color: var(--term-green);
+}
+.segmentYellow {
+  color: var(--term-yellow);
+}
+.segmentBlue {
+  color: var(--term-blue);
+}
+.segmentCyan {
+  color: var(--term-cyan, #89d4b4);
+}
+.segmentMagenta {
+  color: var(--term-magenta, #f5c2e7);
+}
+.segmentStrong {
+  font-weight: 700;
+}
+.segmentItalic {
+  font-style: italic;
+}
+
 .promptText {
   color: var(--term-green);
 }

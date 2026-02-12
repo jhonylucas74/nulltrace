@@ -5,6 +5,7 @@ service GameService {
   rpc SayHello (HelloRequest) returns (HelloResponse);
   rpc Ping (PingRequest) returns (PingResponse);
   rpc Login (LoginRequest) returns (LoginResponse);
+  rpc TerminalStream (stream TerminalClientMessage) returns (stream TerminalServerMessage);
 }
 
 message HelloRequest {
@@ -30,4 +31,42 @@ message LoginResponse {
   bool success = 1;
   string player_id = 2;
   string error_message = 3;
+}
+
+message TerminalClientMessage {
+  oneof msg {
+    OpenTerminal open_terminal = 1;
+    StdinData stdin = 2;
+  }
+}
+
+message OpenTerminal {
+  string player_id = 1;
+}
+
+message StdinData {
+  bytes data = 1;
+}
+
+message TerminalServerMessage {
+  oneof msg {
+    TerminalOpened terminal_opened = 1;
+    StdoutData stdout = 2;
+    TerminalClosed terminal_closed = 3;
+    TerminalError terminal_error = 4;
+  }
+}
+
+message TerminalOpened {
+  string session_id = 1;
+}
+
+message StdoutData {
+  bytes data = 1;
+}
+
+message TerminalClosed {}
+
+message TerminalError {
+  string message = 1;
 }

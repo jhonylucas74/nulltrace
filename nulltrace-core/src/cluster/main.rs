@@ -1,5 +1,6 @@
 mod bench_scripts;
 mod bin_programs;
+mod path_util;
 mod process;
 mod process_parser;
 mod vm;
@@ -8,6 +9,7 @@ mod net;
 mod db;
 mod grpc;
 mod lua_api;
+mod terminal_hub;
 mod vm_manager;
 
 use db::fs_service::FsService;
@@ -17,6 +19,7 @@ use db::vm_service::VmService;
 use grpc::game::game_service_server::GameServiceServer;
 use grpc::ClusterGameService;
 use lua_api::context::VmContext;
+use terminal_hub::new_hub;
 use net::ip::{Ipv4Addr, Subnet};
 use os::create_lua_state;
 use std::sync::Arc;
@@ -173,9 +176,11 @@ async fn main() {
 
     println!("[cluster] Ready. {} VM active (Haru's VM). Starting game loop and gRPC server...", vms.len());
 
+    let terminal_hub = new_hub();
+
     // ── gRPC server (runs in background task) ──
     let grpc_addr = GRPC_ADDR.parse().expect("Invalid gRPC address");
-    let game_svc = ClusterGameService::new(player_service.clone());
+    let game_svc = ClusterGameService::new(player_service.clone(), terminal_hub.clone());
     let game_server = GameServiceServer::new(game_svc);
     tokio::spawn(async move {
         Server::builder()
@@ -189,5 +194,5 @@ async fn main() {
     println!("[cluster] gRPC server listening on {}", GRPC_ADDR);
 
     // ── Game loop (main task) ──
-    manager.run_loop(&lua, &mut vms).await;
+    manager.run_loop(&lua, &mut vms, terminal_hub).await;
 }

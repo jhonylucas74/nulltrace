@@ -211,6 +211,36 @@ impl FsService {
         }
     }
 
+    /// Standard subdirectories created inside each user's home (Documents, Downloads, etc.).
+    pub const STANDARD_HOME_SUBDIRS: &[&str] = &[
+        "Documents",
+        "Downloads",
+        "Images",
+        "Desktop",
+        "Music",
+        "Videos",
+    ];
+
+    /// Create standard home subdirs (Documents, Downloads, Images, etc.) under home_path if they don't exist.
+    pub async fn ensure_standard_home_subdirs(
+        &self,
+        vm_id: Uuid,
+        home_path: &str,
+        owner: &str,
+    ) -> Result<(), sqlx::Error> {
+        for name in Self::STANDARD_HOME_SUBDIRS {
+            let subdir = if home_path == "/" {
+                format!("/{name}")
+            } else {
+                format!("{home_path}/{name}")
+            };
+            if self.resolve_path(vm_id, &subdir).await?.is_none() {
+                self.mkdir(vm_id, &subdir, owner).await?;
+            }
+        }
+        Ok(())
+    }
+
     /// Create a directory. Parent must exist.
     pub async fn mkdir(&self, vm_id: Uuid, path: &str, owner: &str) -> Result<Uuid, sqlx::Error> {
         let (parent_path, dir_name) = split_path(path);
@@ -270,6 +300,7 @@ impl FsService {
         // Top-level directories
         let dirs = ["home", "etc", "tmp", "bin", "var"];
         let mut var_id: Option<Uuid> = None;
+        let mut home_id: Option<Uuid> = None;
 
         for dir in dirs {
             let id: Uuid = sqlx::query_scalar(
@@ -288,6 +319,39 @@ impl FsService {
             if dir == "var" {
                 var_id = Some(id);
             }
+            if dir == "home" {
+                home_id = Some(id);
+            }
+        }
+
+        // /root (default home for root user)
+        sqlx::query(
+            r#"
+            INSERT INTO fs_nodes (vm_id, parent_id, name, node_type)
+            VALUES ($1, $2, 'root', 'directory')
+            "#,
+        )
+        .bind(vm_id)
+        .bind(root_id)
+        .execute(&self.pool)
+        .await?;
+        self.ensure_standard_home_subdirs(vm_id, "/root", "root")
+            .await?;
+
+        // /home/user (default home for non-root user)
+        if let Some(home_id) = home_id {
+            sqlx::query(
+                r#"
+                INSERT INTO fs_nodes (vm_id, parent_id, name, node_type)
+                VALUES ($1, $2, 'user', 'directory')
+                "#,
+            )
+            .bind(vm_id)
+            .bind(home_id)
+            .execute(&self.pool)
+            .await?;
+            self.ensure_standard_home_subdirs(vm_id, "/home/user", "user")
+                .await?;
         }
 
         // /var/log
@@ -501,20 +565,19 @@ mod tests {
         let pool = super::super::test_pool().await;
         let (vm_id, vm_svc, fs_svc) = setup_vm(&pool).await;
 
-        // Create /home/user
-        fs_svc.mkdir(vm_id, "/home/user", "root").await.unwrap();
-
+        // Bootstrap already creates /home/user; list /home and expect user
         let entries = fs_svc.ls(vm_id, "/home").await.unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].name, "user");
-        assert_eq!(entries[0].node_type, "directory");
+        assert!(entries.iter().any(|e| e.name == "user" && e.node_type == "directory"));
 
-        // Create nested /home/user/documents
+        // Create nested /home/user/documents (bootstrap already created Documents, Downloads, etc.)
         fs_svc.mkdir(vm_id, "/home/user/documents", "root").await.unwrap();
 
         let entries = fs_svc.ls(vm_id, "/home/user").await.unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].name, "documents");
+        assert!(
+            entries.iter().any(|e| e.name == "documents"),
+            "/home/user should contain documents, got: {:?}",
+            entries.iter().map(|e| &e.name).collect::<Vec<_>>()
+        );
 
         cleanup(&vm_svc, vm_id).await;
     }
@@ -730,17 +793,17 @@ mod tests {
         let pool = super::super::test_pool().await;
         let (vm_id, vm_svc, fs_svc) = setup_vm(&pool).await;
 
-        fs_svc.mkdir(vm_id, "/home/user", "root").await.unwrap();
+        fs_svc.mkdir(vm_id, "/home/customuser", "root").await.unwrap();
         fs_svc
-            .write_file(vm_id, "/home/user/notes.txt", b"important", None, "root")
+            .write_file(vm_id, "/home/customuser/notes.txt", b"important", None, "root")
             .await
             .unwrap();
 
-        // Delete /home/user -> should cascade delete notes.txt
-        let deleted = fs_svc.rm(vm_id, "/home/user").await.unwrap();
+        // Delete /home/customuser -> should cascade delete notes.txt
+        let deleted = fs_svc.rm(vm_id, "/home/customuser").await.unwrap();
         assert!(deleted);
 
-        let result = fs_svc.resolve_path(vm_id, "/home/user").await.unwrap();
+        let result = fs_svc.resolve_path(vm_id, "/home/customuser").await.unwrap();
         assert!(result.is_none());
 
         cleanup(&vm_svc, vm_id).await;
@@ -823,9 +886,8 @@ mod tests {
         fs_svc.mkdir(vm_id, "/home/alice", "alice").await.unwrap();
 
         let entries = fs_svc.ls(vm_id, "/home").await.unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].name, "alice");
-        assert_eq!(entries[0].owner, "alice");
+        let alice = entries.iter().find(|e| e.name == "alice").expect("alice dir should exist");
+        assert_eq!(alice.owner, "alice");
 
         cleanup(&vm_svc, vm_id).await;
     }

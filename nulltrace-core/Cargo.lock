@@ -1159,6 +1159,7 @@ dependencies = [
  "sqlx",
  "sysinfo",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tonic-build",
  "tonic-web",

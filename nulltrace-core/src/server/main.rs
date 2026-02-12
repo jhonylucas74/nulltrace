@@ -1,18 +1,27 @@
 use game::game_service_server::{GameService, GameServiceServer};
 use game::{
     HelloRequest, HelloResponse, LoginRequest, LoginResponse, PingRequest, PingResponse,
+    TerminalClientMessage, TerminalServerMessage,
 };
 use tonic::{Request, Response, Status, transport::Server};
+use tokio_stream::wrappers::ReceiverStream;
 
 pub mod game {
     tonic::include_proto!("game");
 }
 
+use game::terminal_server_message::Msg as TerminalServerMsg;
+use game::TerminalError;
+
 #[derive(Default)]
 pub struct MyGameService {}
 
+type TerminalStreamStream = ReceiverStream<Result<TerminalServerMessage, Status>>;
+
 #[tonic::async_trait]
 impl GameService for MyGameService {
+    type TerminalStreamStream = TerminalStreamStream;
+
     async fn say_hello(
         &self,
         request: Request<HelloRequest>,
@@ -45,6 +54,21 @@ impl GameService for MyGameService {
             player_id: String::new(),
             error_message: "Use the unified cluster binary for login".to_string(),
         }))
+    }
+
+    async fn terminal_stream(
+        &self,
+        _request: Request<tonic::Streaming<TerminalClientMessage>>,
+    ) -> Result<Response<TerminalStreamStream>, Status> {
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        let _ = tx
+            .send(Ok(TerminalServerMessage {
+                msg: Some(TerminalServerMsg::TerminalError(TerminalError {
+                    message: "Use the unified cluster binary for terminal".to_string(),
+                })),
+            }))
+            .await;
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 }
 

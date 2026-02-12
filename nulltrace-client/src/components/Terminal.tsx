@@ -1,5 +1,8 @@
-import { useState, useRef, useEffect, KeyboardEvent } from "react";
+import { useState, useRef, useEffect, useCallback, KeyboardEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { runMockCommand, isClearCommand } from "../lib/mockCommands";
+import { useAuth } from "../contexts/AuthContext";
 import styles from "./Terminal.module.css";
 
 interface TerminalProps {
@@ -11,13 +14,106 @@ interface LineItem {
   content: string;
 }
 
+/** Supported inline tag types: colors and formatting (strong/bold, italic/em). */
+type SegmentType =
+  | "normal"
+  | "red"
+  | "green"
+  | "yellow"
+  | "blue"
+  | "cyan"
+  | "magenta"
+  | "strong"
+  | "italic";
+
+interface ColorSegment {
+  type: SegmentType;
+  text: string;
+}
+
+const TAG_REGEX =
+  /<(red|green|yellow|blue|cyan|magenta|strong|b|italic|i|em)>(.*?)<\/\1>/gs;
+
+function normalizeTag(tag: string): SegmentType {
+  switch (tag.toLowerCase()) {
+    case "b":
+      return "strong";
+    case "i":
+    case "em":
+      return "italic";
+    default:
+      return tag as SegmentType;
+  }
+}
+
+/** Parses shell tags (e.g. <red>...</red>, <strong>...</strong>) into segments. */
+function parseColorTags(text: string): ColorSegment[] {
+  const segments: ColorSegment[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  TAG_REGEX.lastIndex = 0;
+  while ((match = TAG_REGEX.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: "normal", text: text.slice(lastIndex, match.index) });
+    }
+    segments.push({ type: normalizeTag(match[1]), text: match[2] });
+    lastIndex = TAG_REGEX.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    segments.push({ type: "normal", text: text.slice(lastIndex) });
+  }
+  if (segments.length === 0) {
+    segments.push({ type: "normal", text: text });
+  }
+  return segments;
+}
+
+const SEGMENT_CLASS: Record<Exclude<SegmentType, "normal">, string> = {
+  red: styles.segmentRed,
+  green: styles.segmentGreen,
+  yellow: styles.segmentYellow,
+  blue: styles.segmentBlue,
+  cyan: styles.segmentCyan,
+  magenta: styles.segmentMagenta,
+  strong: styles.segmentStrong,
+  italic: styles.segmentItalic,
+};
+
+function renderLineContent(content: string, _lineType: "output" | "error") {
+  const segments = parseColorTags(content);
+  return (
+    <>
+      {segments.map((seg, j) =>
+        seg.type === "normal" ? (
+          <span key={j}>{seg.text}</span>
+        ) : (
+          <span key={j} className={SEGMENT_CLASS[seg.type]}>
+            {renderLineContent(seg.text, _lineType)}
+          </span>
+        )
+      )}
+    </>
+  );
+}
+
+interface TerminalOutputPayload {
+  sessionId: string;
+  type: "stdout" | "closed" | "error";
+  data?: string;
+}
+
 export default function Terminal({ username }: TerminalProps) {
+  const { playerId } = useAuth();
   const [lines, setLines] = useState<LineItem[]>([
     { type: "output", content: "Welcome to nulltrace. Type 'help' for commands." },
   ]);
   const [input, setInput] = useState("");
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionEnded, setSessionEnded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  sessionIdRef.current = sessionId;
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
@@ -25,34 +121,108 @@ export default function Terminal({ username }: TerminalProps) {
 
   const prompt = `${username}@nulltrace:~$ `;
 
-  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    const cmd = input;
-    setInput("");
+  // Connect to VM shell when we have playerId (Tauri only)
+  useEffect(() => {
+    if (!playerId) return;
 
-    if (isClearCommand(cmd)) {
-      setLines([]);
-      return;
+    let unlisten: (() => void) | undefined;
+
+    (async () => {
+      try {
+        const sid = await invoke<string>("terminal_connect", { playerId });
+        sessionIdRef.current = sid;
+        setSessionId(sid);
+        setSessionEnded(false);
+        setLines([{ type: "output", content: "Connected to VM shell." }]);
+
+        unlisten = await listen<TerminalOutputPayload>("terminal-output", (event) => {
+          const payload = event.payload;
+          if (payload.sessionId !== sid) return;
+
+          if (payload.type === "stdout" && payload.data !== undefined) {
+            setLines((prev) => [
+              ...prev,
+              ...payload.data!
+                .split("\n")
+                .filter((s) => s.length > 0)
+                .map((content) => ({ type: "output" as const, content })),
+            ]);
+          } else if (payload.type === "closed") {
+            setSessionEnded(true);
+            setLines((prev) => [...prev, { type: "output", content: "Session ended." }]);
+            sessionIdRef.current = null;
+            setSessionId(null);
+          } else if (payload.type === "error" && payload.data) {
+            setLines((prev) => [...prev, { type: "error", content: payload.data! }]);
+          }
+        });
+      } catch (e) {
+        setLines((prev) => [
+          ...prev,
+          { type: "error", content: `Failed to connect: ${String(e)}` },
+        ]);
+      }
+    })();
+
+    return () => {
+      unlisten?.();
+      const sid = sessionIdRef.current;
+      if (sid) {
+        invoke("terminal_disconnect", { sessionId: sid }).catch(() => {});
+      }
+    };
+  }, [playerId]);
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const cmd = input;
+      setInput("");
+
+      if (isClearCommand(cmd)) {
+        setLines([]);
+        return;
+      }
+
+      setLines((prev) => [...prev, { type: "prompt", content: prompt + cmd }]);
+
+      if (sessionId && !sessionEnded) {
+        invoke("terminal_send_stdin", { sessionId, data: cmd + "\n" }).catch((err) => {
+          setLines((prev) => [...prev, { type: "error", content: String(err) }]);
+        });
+      } else {
+        const output = runMockCommand(cmd, username);
+        const newLines: LineItem[] = output.map((line) => ({
+          type: line.startsWith("Command not found") ? "error" : "output",
+          content: line,
+        }));
+        setLines((prev) => [...prev, ...newLines]);
+      }
+    },
+    [input, prompt, sessionId, sessionEnded, username]
+  );
+
+  const handleContainerMouseUp = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest(`.${styles.inputRow}`)) return;
+    const selection = window.getSelection?.();
+    if (!selection?.toString().trim()) {
+      inputRef.current?.focus();
     }
-
-    setLines((prev) => [...prev, { type: "prompt", content: prompt + cmd }]);
-
-    const output = runMockCommand(cmd, username);
-    const newLines: LineItem[] = output.map((line) => ({
-      type: line.startsWith("Command not found") ? "error" : "output",
-      content: line,
-    }));
-    setLines((prev) => [...prev, ...newLines]);
-  }
+  }, []);
 
   return (
     <div
       className={styles.terminal}
       onMouseDown={(e) => {
-        e.preventDefault();
-        inputRef.current?.focus();
+        const target = e.target as HTMLElement;
+        if (target.closest(`.${styles.inputRow}`)) {
+          e.preventDefault();
+          inputRef.current?.focus();
+        }
       }}
+      onMouseUp={handleContainerMouseUp}
     >
       <div className={styles.scroll} ref={scrollRef}>
         {lines.map((line, i) => (
@@ -63,7 +233,7 @@ export default function Terminal({ username }: TerminalProps) {
                 <span className={styles.cmd}>{line.content.slice(prompt.length)}</span>
               </>
             ) : (
-              line.content
+              renderLineContent(line.content, line.type === "error" ? "error" : "output")
             )}
           </div>
         ))}

@@ -2063,6 +2063,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-shell",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tonic-build",
 ]

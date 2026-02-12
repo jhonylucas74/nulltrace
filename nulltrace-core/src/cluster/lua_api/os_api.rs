@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use super::context::{SpawnSpec, VmContext};
+use crate::path_util;
 use crate::process_parser;
 use crate::db::user_service::UserService;
 use mlua::{Lua, Result, Value};
@@ -99,6 +100,40 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>) -> Result<()> {
                 .app_data_ref::<VmContext>()
                 .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
             Ok(ctx.current_uid == 0)
+        })?,
+    )?;
+
+    // os.get_home() -> string. Current user's home directory (e.g. "/root"). Fallback "/" if user not found.
+    {
+        let svc = user_service.clone();
+        os.set(
+            "get_home",
+            lua.create_function(move |lua, ()| {
+                let ctx = lua
+                    .app_data_ref::<VmContext>()
+                    .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+                let vm_id = ctx.vm_id;
+                let username = ctx.current_username.clone();
+                drop(ctx);
+
+                let svc = svc.clone();
+                let home = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        svc.get_user(vm_id, &username).await
+                    })
+                })
+                .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+
+                Ok(home.map(|u| u.home_dir).unwrap_or_else(|| "/".to_string()))
+            })?,
+        )?;
+    }
+
+    // os.path_resolve(base, rel) -> string. Resolves relative path against base (handles ".", "..", absolute rel).
+    os.set(
+        "path_resolve",
+        lua.create_function(|_lua, (base, rel): (String, String)| {
+            Ok(path_util::resolve_relative(&base, &rel))
         })?,
     )?;
 

@@ -51,14 +51,39 @@ for i = 1, #args do
 end
 "#;
 
-/// Shell: reads stdin, parses as bin command (no spawn_path). When no child: spawn(program, args, { forward_stdout = true }).
-/// When has child: forwards stdin to child. Child stdout is forwarded to shell natively by the VM.
+/// Shell: reads stdin, parses as bin command (no spawn_path). Maintains cwd; cd and pwd are builtins.
+/// Commands ls, touch, cat, rm get path args resolved against cwd. Unknown commands print "<red>Command not found</red>".
 pub const SH: &str = r#"
 local child_pid = nil
+local last_program = nil
+local last_not_found_pid = nil
+local child_ever_ran = false
+local cwd = os.get_home() or "/"
 while true do
   if child_pid then
     local st = os.process_status(child_pid)
-    if st == "finished" or st == "not_found" then child_pid = nil end
+    if st == "not_found" then
+      -- Process was reaped after exit: do not print "Command not found".
+      if child_ever_ran then
+        child_pid = nil
+        last_not_found_pid = nil
+        child_ever_ran = false
+      -- Same tick as spawn the child is not created yet; wait one more tick.
+      elseif last_not_found_pid == child_pid then
+        io.write("<red>Command not found: " .. (last_program or "?") .. "</red>\n")
+        child_pid = nil
+        last_not_found_pid = nil
+      else
+        last_not_found_pid = child_pid
+      end
+    elseif st == "finished" then
+      child_pid = nil
+      last_not_found_pid = nil
+      child_ever_ran = false
+    else
+      child_ever_ran = true
+      last_not_found_pid = nil
+    end
   end
   local line = io.read()
   if line and line ~= "" then
@@ -67,7 +92,36 @@ while true do
     else
       local t = os.parse_cmd(line)
       if t and t.program and t.program ~= "" then
-        child_pid = os.spawn(t.program, t.args or {}, { forward_stdout = true })
+        local prog = t.program
+        local args = t.args or {}
+        if prog == "pwd" then
+          io.write(cwd .. "\n")
+        elseif prog == "cd" then
+          if #args < 1 then
+            cwd = os.get_home() or "/"
+          else
+            -- arg1 used as-is; if client sends trailing newline, parse_cmd typically yields clean args
+            local arg1 = args[1]
+            cwd = os.path_resolve(cwd, arg1)
+          end
+        else
+          local spawn_args = args
+          if prog == "ls" or prog == "touch" or prog == "cat" or prog == "rm" then
+            spawn_args = {}
+            if prog == "ls" and #args < 1 then
+              spawn_args[1] = cwd
+            else
+              for i = 1, #args do
+                local p = args[i]
+                spawn_args[i] = (p:sub(1, 1) == "/") and p or os.path_resolve(cwd, p)
+              end
+            end
+          end
+          last_program = prog
+          last_not_found_pid = nil
+          child_ever_ran = false
+          child_pid = os.spawn(prog, spawn_args, { forward_stdout = true })
+        end
       end
     end
   end

@@ -133,6 +133,23 @@ impl VmService {
 
         Ok(recs)
     }
+
+    /// Returns the VM owned by the given player (owner_id), if any.
+    pub async fn get_vm_by_owner_id(&self, owner_id: Uuid) -> Result<Option<VmRecord>, sqlx::Error> {
+        let rec = sqlx::query_as::<_, VmRecord>(
+            r#"
+            SELECT id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
+                   ip, subnet, gateway, mac, owner_id, created_at, updated_at
+            FROM vms WHERE owner_id = $1
+            LIMIT 1
+            "#,
+        )
+        .bind(owner_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(rec)
+    }
 }
 
 #[cfg(test)]
