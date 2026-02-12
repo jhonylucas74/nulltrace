@@ -2,6 +2,7 @@ pub mod vm_service;
 pub mod fs_service;
 pub mod user_service;
 pub mod player_service;
+pub mod faction_service;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -40,6 +41,12 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .await?;
     fs_service::FsService::migrate_fs_contents_to_blob_store(pool).await?;
     sqlx::raw_sql(include_str!("../../../migrations/008_drop_fs_contents_data.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/009_add_player_points.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/010_create_factions.sql"))
         .execute(pool)
         .await?;
     Ok(())

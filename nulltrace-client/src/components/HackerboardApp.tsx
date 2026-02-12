@@ -806,7 +806,7 @@ export default function HackerboardApp() {
                     <h3 className={styles.createFactionTitle}>Create a faction</h3>
                     <CreateFactionForm
                       onCreate={(name) => {
-                        createFaction(name, currentUserHacker.id);
+                        void createFaction(name, currentUserHacker.id);
                       }}
                     />
                   </div>
@@ -826,7 +826,7 @@ export default function HackerboardApp() {
                 setGroupMessageText={setGroupMessageText}
                 onSendGroupMessage={handleSendGroupMessage}
                 onInviteMember={(userId) => sendFactionInvite(currentUserHacker.id, userId, currentUserFaction!.id)}
-                onLeaveFaction={() => leaveFaction(currentUserHacker.id)}
+                onLeaveFaction={() => void leaveFaction(currentUserHacker.id)}
               />
             )}
           </div>

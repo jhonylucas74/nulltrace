@@ -1,0 +1,25 @@
+---
+description: gRPC routes must verify authentication and pass token; exception is Ping
+globs:
+alwaysApply: true
+---
+
+# gRPC authentication and token
+
+On **gRPC routes**, always verify that the user is authenticated and that the token is used correctly. The only exception is the **Ping** gRPC route (and explicitly auth-related routes: Login, RefreshToken).
+
+## Server (GameService / gRPC handlers)
+
+- **Do:** For every gRPC RPC that performs user-specific or protected operations, call `authenticate_request(&request)?` at the start of the handler. Use the returned claims (e.g. `claims.sub` for player_id) for authorization; do not trust client-provided identifiers without validating the token.
+- **Exceptions (no auth required):**
+  - **Ping** – health/liveness check; no token.
+  - **Login** – user is not yet authenticated.
+  - **RefreshToken** – uses token in the request body for renewal, not metadata.
+- **Do not:** Add new gRPC RPCs that access player/VM/data without calling `authenticate_request` first. Do not rely on client-sent player_id or user id without validating the JWT.
+
+## Client (gRPC client calls)
+
+- **Do:** When calling any gRPC method **other than Ping** (and other explicit exceptions above), send the auth token in request metadata (e.g. `Authorization: Bearer <token>`). Use the project’s gRPC context or interceptor so authenticated calls always include the token.
+- **Exception:** Do not send a token for Ping (and for Login, which uses credentials in the request body).
+
+This keeps gRPC routes secure and consistent: only Ping (and auth flows) are unauthenticated; all other routes require a valid token and server-side verification.

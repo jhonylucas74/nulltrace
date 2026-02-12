@@ -13,6 +13,7 @@ mod lua_api;
 mod terminal_hub;
 mod vm_manager;
 
+use db::faction_service::FactionService;
 use db::fs_service::FsService;
 use db::player_service::PlayerService;
 use db::user_service::UserService;
@@ -50,6 +51,7 @@ async fn main() {
     let fs_service = Arc::new(FsService::new(pool.clone()));
     let user_service = Arc::new(UserService::new(pool.clone()));
     let player_service = Arc::new(PlayerService::new(pool.clone()));
+    let faction_service = Arc::new(FactionService::new(pool.clone()));
 
     // ── Seed default player (Haru) if not present ──
     player_service
@@ -186,6 +188,7 @@ async fn main() {
         vm_service.clone(),
         fs_service.clone(),
         user_service.clone(),
+        faction_service.clone(),
         terminal_hub.clone(),
     );
     let game_server = GameServiceServer::new(game_svc);

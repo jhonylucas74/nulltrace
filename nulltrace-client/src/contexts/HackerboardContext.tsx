@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useMemo, useState, useCallback } from "react";
+import React, { createContext, useContext, useMemo, useState, useCallback, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useAuth } from "./AuthContext";
 
 export interface Hacker {
   id: string;
@@ -293,8 +295,8 @@ interface HackerboardContextValue {
   getFactionGroupMessages: (factionId: string) => FactionGroupMessage[];
   sendFactionGroupMessage: (factionId: string, senderId: string, body: string) => void;
   getEffectiveFactionId: (userId: string) => string | null;
-  createFaction: (name: string, creatorUserId: string) => Faction;
-  leaveFaction: (userId: string) => void;
+  createFaction: (name: string, creatorUserId: string) => Promise<Faction | null>;
+  leaveFaction: (userId: string) => void | Promise<void>;
   sendFactionInvite: (fromUserId: string, toUserId: string, factionId: string) => void;
   acceptFactionInvite: (messageId: string, acceptingUserId: string) => void;
   declineFactionInvite: (messageId: string) => void;
@@ -318,6 +320,7 @@ function computeFactionsWithRank(hackers: Hacker[], factions: Faction[]): Factio
 }
 
 export function HackerboardProvider({ children }: { children: React.ReactNode }) {
+  const { token } = useAuth();
   const [feed, setFeed] = useState<FeedPost[]>(() => buildInitialFeed(MOCK_HACKERS));
   const [userLikedPostIds, setUserLikedPostIds] = useState<Set<string>>(new Set());
   const [dmConversations, setDmConversations] = useState<Record<string, DMMessage[]>>(buildInitialDmConversations);
@@ -327,36 +330,126 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
   const [factions, setFactions] = useState<Faction[]>(() => [...MOCK_FACTIONS]);
   const [membershipOverlay, setMembershipOverlay] = useState<Record<string, string | null>>({});
 
-  const hackers = useMemo(() => computeHackersWithRank(MOCK_HACKERS), []);
-  const factionsWithRank = useMemo(
-    () => computeFactionsWithRank(MOCK_HACKERS, factions),
-    [factions]
-  );
+  const [apiRanking, setApiRanking] = useState<{ hackers: Hacker[]; factions: Faction[] } | null>(null);
+  const [rankingRefreshTrigger, setRankingRefreshTrigger] = useState(0);
+
+  const fetchRanking = useCallback(async () => {
+    if (!token) {
+      setApiRanking(null);
+      return;
+    }
+    try {
+      const res = await invoke<{
+        entries: Array<{
+          rank: number;
+          player_id: string;
+          username: string;
+          points: number;
+          faction_id: string;
+          faction_name: string;
+        }>;
+        error_message: string;
+      }>("grpc_get_ranking", { token });
+      if (res.error_message) {
+        setApiRanking(null);
+        return;
+      }
+      const hackersFromApi: Hacker[] = res.entries.map((e) => ({
+        id: e.player_id,
+        username: e.username,
+        points: e.points,
+        factionId: e.faction_id || null,
+      }));
+      const factionMap = new Map<string, { name: string; memberIds: string[] }>();
+      for (const e of res.entries) {
+        if (!e.faction_id) continue;
+        const cur = factionMap.get(e.faction_id);
+        if (cur) {
+          cur.memberIds.push(e.player_id);
+        } else {
+          factionMap.set(e.faction_id, { name: e.faction_name || "Faction", memberIds: [e.player_id] });
+        }
+      }
+      const factionsFromApi: Faction[] = Array.from(factionMap.entries()).map(([id, v]) => ({
+        id,
+        name: v.name,
+        memberIds: v.memberIds,
+      }));
+      setApiRanking({ hackers: hackersFromApi, factions: factionsFromApi });
+    } catch {
+      setApiRanking(null);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchRanking();
+  }, [fetchRanking, rankingRefreshTrigger]);
+
+  const hackers = useMemo(() => {
+    const list = apiRanking?.hackers ?? MOCK_HACKERS;
+    return computeHackersWithRank(list);
+  }, [apiRanking]);
+
+  const factionsWithRank = useMemo(() => {
+    if (apiRanking) {
+      return computeFactionsWithRank(apiRanking.hackers, apiRanking.factions);
+    }
+    return computeFactionsWithRank(MOCK_HACKERS, factions);
+  }, [apiRanking, factions]);
 
   const getEffectiveFactionId = useCallback(
     (userId: string): string | null => {
       if (userId in membershipOverlay) return membershipOverlay[userId];
-      return MOCK_HACKERS.find((h) => h.id === userId)?.factionId ?? null;
+      const list = apiRanking?.hackers ?? MOCK_HACKERS;
+      return list.find((h) => h.id === userId)?.factionId ?? null;
     },
-    [membershipOverlay]
+    [membershipOverlay, apiRanking]
   );
 
-  const createFaction = useCallback((name: string, creatorUserId: string): Faction => {
-    const id = `f-${Date.now()}`;
-    const faction: Faction = { id, name, memberIds: [creatorUserId] };
-    setFactions((prev) => [...prev, faction]);
-    setMembershipOverlay((prev) => ({ ...prev, [creatorUserId]: id }));
-    return faction;
-  }, []);
+  const createFaction = useCallback(
+    async (name: string, creatorUserId: string): Promise<Faction | null> => {
+      if (token && apiRanking) {
+        try {
+          const res = await invoke<{ faction_id: string; name: string; error_message: string }>(
+            "grpc_create_faction",
+            { name: name.trim(), token }
+          );
+          if (res.error_message) return null;
+          setRankingRefreshTrigger((t) => t + 1);
+          return { id: res.faction_id, name: res.name, memberIds: [creatorUserId] };
+        } catch {
+          return null;
+        }
+      }
+      const id = `f-${Date.now()}`;
+      const faction: Faction = { id, name, memberIds: [creatorUserId] };
+      setFactions((prev) => [...prev, faction]);
+      setMembershipOverlay((prev) => ({ ...prev, [creatorUserId]: id }));
+      return faction;
+    },
+    [token, apiRanking]
+  );
 
-  const leaveFaction = useCallback((userId: string) => {
-    const currentFactionId = membershipOverlay[userId] ?? MOCK_HACKERS.find((h) => h.id === userId)?.factionId ?? null;
-    if (!currentFactionId) return;
-    setFactions((prev) =>
-      prev.map((f) => (f.id === currentFactionId ? { ...f, memberIds: f.memberIds.filter((id) => id !== userId) } : f))
-    );
-    setMembershipOverlay((prev) => ({ ...prev, [userId]: null }));
-  }, [membershipOverlay]);
+  const leaveFaction = useCallback(
+    async (userId: string) => {
+      if (token && apiRanking) {
+        try {
+          await invoke<{ success: boolean; error_message: string }>("grpc_leave_faction", { token });
+          setRankingRefreshTrigger((t) => t + 1);
+        } catch {
+          // ignore
+        }
+        return;
+      }
+      const currentFactionId = membershipOverlay[userId] ?? MOCK_HACKERS.find((h) => h.id === userId)?.factionId ?? null;
+      if (!currentFactionId) return;
+      setFactions((prev) =>
+        prev.map((f) => (f.id === currentFactionId ? { ...f, memberIds: f.memberIds.filter((id) => id !== userId) } : f))
+      );
+      setMembershipOverlay((prev) => ({ ...prev, [userId]: null }));
+    },
+    [token, apiRanking, membershipOverlay]
+  );
 
   const sendFactionInvite = useCallback(
     (fromUserId: string, toUserId: string, factionId: string) => {

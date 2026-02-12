@@ -2,6 +2,7 @@
 //! Used by the unified cluster binary.
 
 use super::bin_programs;
+use super::db::faction_service::FactionService;
 use super::db::fs_service::FsService;
 use super::db::player_service::PlayerService;
 use super::db::user_service::{UserService, VmUser};
@@ -20,12 +21,15 @@ pub mod game {
 
 use game::game_service_server::GameService;
 use game::{
-    CopyPathRequest, CopyPathResponse, FsEntry, GetDiskUsageRequest, GetDiskUsageResponse,
-    GetHomePathRequest, GetHomePathResponse, HelloRequest, HelloResponse, ListFsRequest,
-    ListFsResponse, LoginRequest, LoginResponse, MovePathRequest, MovePathResponse, OpenTerminal,
-    PingRequest, PingResponse, RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest,
-    RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, StdinData, StdoutData,
-    TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened, TerminalServerMessage,
+    CopyPathRequest, CopyPathResponse, CreateFactionRequest, CreateFactionResponse, FsEntry,
+    GetDiskUsageRequest, GetDiskUsageResponse, GetHomePathRequest, GetHomePathResponse,
+    GetPlayerProfileRequest, GetPlayerProfileResponse, GetRankingRequest, GetRankingResponse,
+    GetSysinfoRequest, GetSysinfoResponse, HelloRequest, HelloResponse, LeaveFactionRequest,
+    LeaveFactionResponse, ListFsRequest, ListFsResponse, LoginRequest, LoginResponse,
+    MovePathRequest, MovePathResponse, OpenTerminal, PingRequest, PingResponse, RankingEntry,
+    RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest, RenamePathResponse,
+    RestoreDiskRequest, RestoreDiskResponse, StdinData, StdoutData, TerminalClientMessage,
+    TerminalClosed, TerminalError, TerminalOpened, TerminalServerMessage,
 };
 
 pub struct ClusterGameService {
@@ -33,6 +37,7 @@ pub struct ClusterGameService {
     vm_service: Arc<VmService>,
     fs_service: Arc<FsService>,
     user_service: Arc<UserService>,
+    faction_service: Arc<FactionService>,
     terminal_hub: Arc<TerminalHub>,
 }
 
@@ -42,6 +47,7 @@ impl ClusterGameService {
         vm_service: Arc<VmService>,
         fs_service: Arc<FsService>,
         user_service: Arc<UserService>,
+        faction_service: Arc<FactionService>,
         terminal_hub: Arc<TerminalHub>,
     ) -> Self {
         Self {
@@ -49,6 +55,7 @@ impl ClusterGameService {
             vm_service,
             fs_service,
             user_service,
+            faction_service,
             terminal_hub,
         }
     }
@@ -310,6 +317,29 @@ impl GameService for ClusterGameService {
         Ok(Response::new(GetDiskUsageResponse {
             used_bytes,
             total_bytes,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn get_sysinfo(
+        &self,
+        request: Request<GetSysinfoRequest>,
+    ) -> Result<Response<GetSysinfoResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let vm = self
+            .vm_service
+            .get_vm_by_owner_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("No VM found for this player"))?;
+
+        Ok(Response::new(GetSysinfoResponse {
+            cpu_cores: vm.cpu_cores as i32,
+            memory_mb: vm.memory_mb,
+            disk_mb: vm.disk_mb,
             error_message: String::new(),
         }))
     }
@@ -663,6 +693,166 @@ impl GameService for ClusterGameService {
             })),
         }
     }
+
+    async fn get_ranking(
+        &self,
+        request: Request<GetRankingRequest>,
+    ) -> Result<Response<GetRankingResponse>, Status> {
+        let _ = self.authenticate_request(&request)?;
+
+        let rows = self
+            .player_service
+            .get_ranking()
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let mut entries = Vec::with_capacity(rows.len());
+        for (rank, id, username, points, faction_id) in rows {
+            let faction_id_str = faction_id.map(|u| u.to_string()).unwrap_or_default();
+            let faction_name = match faction_id {
+                Some(fid) => self
+                    .faction_service
+                    .get_by_id(fid)
+                    .await
+                    .map_err(|e| Status::internal(e.to_string()))?
+                    .map(|f| f.name)
+                    .unwrap_or_default(),
+                None => String::new(),
+            };
+            entries.push(RankingEntry {
+                rank,
+                player_id: id.to_string(),
+                username,
+                points,
+                faction_id: faction_id_str,
+                faction_name,
+            });
+        }
+
+        Ok(Response::new(GetRankingResponse {
+            entries,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn get_player_profile(
+        &self,
+        request: Request<GetPlayerProfileRequest>,
+    ) -> Result<Response<GetPlayerProfileResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let ranking = self
+            .player_service
+            .get_ranking()
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let player_rank = ranking
+            .iter()
+            .position(|(_, id, _, _, _)| *id == player_id)
+            .map(|i| (i + 1) as u32)
+            .unwrap_or(0);
+
+        let player = self
+            .player_service
+            .get_by_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("Player not found"))?;
+
+        let (faction_id_str, faction_name) = match player.faction_id {
+            Some(fid) => {
+                let name = self
+                    .faction_service
+                    .get_by_id(fid)
+                    .await
+                    .map_err(|e| Status::internal(e.to_string()))?
+                    .map(|f| f.name)
+                    .unwrap_or_default();
+                (fid.to_string(), name)
+            }
+            None => (String::new(), String::new()),
+        };
+
+        Ok(Response::new(GetPlayerProfileResponse {
+            rank: player_rank,
+            points: player.points,
+            faction_id: faction_id_str,
+            faction_name,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn create_faction(
+        &self,
+        request: Request<CreateFactionRequest>,
+    ) -> Result<Response<CreateFactionResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let name = request.into_inner().name.trim().to_string();
+        if name.is_empty() {
+            return Ok(Response::new(CreateFactionResponse {
+                faction_id: String::new(),
+                name: String::new(),
+                error_message: "Faction name is required".to_string(),
+            }));
+        }
+
+        let player = self
+            .player_service
+            .get_by_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("Player not found"))?;
+
+        if player.faction_id.is_some() {
+            return Ok(Response::new(CreateFactionResponse {
+                faction_id: String::new(),
+                name: String::new(),
+                error_message: "Already in a faction; leave first".to_string(),
+            }));
+        }
+
+        let faction = self
+            .faction_service
+            .create(&name, player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        self.player_service
+            .set_faction_id(player_id, Some(faction.id))
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(CreateFactionResponse {
+            faction_id: faction.id.to_string(),
+            name: faction.name,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn leave_faction(
+        &self,
+        request: Request<LeaveFactionRequest>,
+    ) -> Result<Response<LeaveFactionResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        self.player_service
+            .set_faction_id(player_id, None)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(LeaveFactionResponse {
+            success: true,
+            error_message: String::new(),
+        }))
+    }
 }
 
 /// Returns true if path is under home (normalized, no traversal).
@@ -723,8 +913,8 @@ async fn vm_and_owner(
 #[cfg(test)]
 mod tests {
     use super::super::db::{
-        self, fs_service::FsService, player_service::PlayerService, user_service::UserService,
-        vm_service::VmService,
+        self, faction_service::FactionService, fs_service::FsService,
+        player_service::PlayerService, user_service::UserService, vm_service::VmService,
     };
     use super::super::terminal_hub::new_hub;
     use super::*;
@@ -737,6 +927,7 @@ mod tests {
             Arc::new(VmService::new(pool.clone())),
             Arc::new(FsService::new(pool.clone())),
             Arc::new(UserService::new(pool.clone())),
+            Arc::new(FactionService::new(pool.clone())),
             new_hub(),
         )
     }

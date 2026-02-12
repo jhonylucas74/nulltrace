@@ -15,6 +15,8 @@ pub struct Player {
     pub id: Uuid,
     pub username: String,
     pub password_hash: String,
+    pub points: i32,
+    pub faction_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -45,7 +47,7 @@ impl PlayerService {
             r#"
             INSERT INTO players (id, username, password_hash)
             VALUES ($1, $2, $3)
-            RETURNING id, username, password_hash, created_at, updated_at
+            RETURNING id, username, password_hash, points, faction_id, created_at, updated_at
             "#,
         )
         .bind(id)
@@ -60,7 +62,7 @@ impl PlayerService {
     pub async fn get_by_username(&self, username: &str) -> Result<Option<Player>, sqlx::Error> {
         let rec = sqlx::query_as::<_, Player>(
             r#"
-            SELECT id, username, password_hash, created_at, updated_at
+            SELECT id, username, password_hash, points, faction_id, created_at, updated_at
             FROM players WHERE username = $1
             "#,
         )
@@ -74,7 +76,7 @@ impl PlayerService {
     pub async fn get_by_id(&self, id: Uuid) -> Result<Option<Player>, sqlx::Error> {
         let rec = sqlx::query_as::<_, Player>(
             r#"
-            SELECT id, username, password_hash, created_at, updated_at
+            SELECT id, username, password_hash, points, faction_id, created_at, updated_at
             FROM players WHERE id = $1
             "#,
         )
@@ -105,6 +107,59 @@ impl PlayerService {
         }
         self.create_player(SEED_USERNAME, SEED_PASSWORD).await?;
         Ok(())
+    }
+
+    /// Add delta to player points (can be negative). Returns new points.
+    pub async fn add_points(&self, player_id: Uuid, delta: i32) -> Result<i32, sqlx::Error> {
+        let rec = sqlx::query_as::<_, (i32,)>(
+            r#"
+            UPDATE players SET points = points + $2, updated_at = now()
+            WHERE id = $1
+            RETURNING points
+            "#,
+        )
+        .bind(player_id)
+        .bind(delta)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(rec.0)
+    }
+
+    /// Set faction for a player (None to leave faction).
+    pub async fn set_faction_id(
+        &self,
+        player_id: Uuid,
+        faction_id: Option<Uuid>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE players SET faction_id = $2, updated_at = now()
+            WHERE id = $1
+            "#,
+        )
+        .bind(player_id)
+        .bind(faction_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Ranking: all players ordered by points DESC with 1-based rank.
+    pub async fn get_ranking(&self) -> Result<Vec<(u32, Uuid, String, i32, Option<Uuid>)>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (i64, Uuid, String, i32, Option<Uuid>)>(
+            r#"
+            SELECT ROW_NUMBER() OVER (ORDER BY points DESC) AS rank,
+                   id, username, points, faction_id
+            FROM players
+            ORDER BY points DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(r, id, u, p, f)| (r as u32, id, u, p, f))
+            .collect())
     }
 }
 

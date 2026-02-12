@@ -8,12 +8,17 @@ service GameService {
   rpc RefreshToken (RefreshTokenRequest) returns (RefreshTokenResponse);
   rpc TerminalStream (stream TerminalClientMessage) returns (stream TerminalServerMessage);
   rpc GetDiskUsage (GetDiskUsageRequest) returns (GetDiskUsageResponse);
+  rpc GetSysinfo (GetSysinfoRequest) returns (GetSysinfoResponse);
   rpc RestoreDisk (RestoreDiskRequest) returns (RestoreDiskResponse);
   rpc GetHomePath (GetHomePathRequest) returns (GetHomePathResponse);
   rpc ListFs (ListFsRequest) returns (ListFsResponse);
   rpc CopyPath (CopyPathRequest) returns (CopyPathResponse);
   rpc MovePath (MovePathRequest) returns (MovePathResponse);
   rpc RenamePath (RenamePathRequest) returns (RenamePathResponse);
+  rpc GetRanking (GetRankingRequest) returns (GetRankingResponse);
+  rpc GetPlayerProfile (GetPlayerProfileRequest) returns (GetPlayerProfileResponse);
+  rpc CreateFaction (CreateFactionRequest) returns (CreateFactionResponse);
+  rpc LeaveFaction (LeaveFactionRequest) returns (LeaveFactionResponse);
 }
 
 message HelloRequest {
@@ -100,6 +105,15 @@ message GetDiskUsageResponse {
   string error_message = 3;
 }
 
+message GetSysinfoRequest {}
+
+message GetSysinfoResponse {
+  int32 cpu_cores = 1;
+  int32 memory_mb = 2;
+  int32 disk_mb = 3;
+  string error_message = 4;
+}
+
 message RestoreDiskRequest {
   string player_id = 1;
 }
@@ -163,6 +177,49 @@ message RenamePathRequest {
 }
 
 message RenamePathResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message GetRankingRequest {}
+
+message RankingEntry {
+  uint32 rank = 1;
+  string player_id = 2;
+  string username = 3;
+  int32 points = 4;
+  string faction_id = 5;
+  string faction_name = 6;
+}
+
+message GetRankingResponse {
+  repeated RankingEntry entries = 1;
+  string error_message = 2;
+}
+
+message GetPlayerProfileRequest {}
+
+message GetPlayerProfileResponse {
+  uint32 rank = 1;
+  int32 points = 2;
+  string faction_id = 3;
+  string faction_name = 4;
+  string error_message = 5;
+}
+
+message CreateFactionRequest {
+  string name = 1;
+}
+
+message CreateFactionResponse {
+  string faction_id = 1;
+  string name = 2;
+  string error_message = 3;
+}
+
+message LeaveFactionRequest {}
+
+message LeaveFactionResponse {
   bool success = 1;
   string error_message = 2;
 }

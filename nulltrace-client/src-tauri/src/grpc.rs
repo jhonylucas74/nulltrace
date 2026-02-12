@@ -8,9 +8,10 @@ use game::game_service_client::GameServiceClient;
 use game::terminal_client_message::Msg as TerminalClientMsg;
 use game::terminal_server_message::Msg as TerminalServerMsg;
 use game::{
-    CopyPathRequest, GetDiskUsageRequest, GetHomePathRequest, ListFsRequest, LoginRequest,
-    MovePathRequest, OpenTerminal, PingRequest, RenamePathRequest, RestoreDiskRequest, StdinData,
-    TerminalClientMessage, TerminalOpened,
+    CopyPathRequest, CreateFactionRequest, GetDiskUsageRequest, GetHomePathRequest,
+    GetPlayerProfileRequest, GetRankingRequest, GetSysinfoRequest, LeaveFactionRequest, ListFsRequest,
+    LoginRequest, MovePathRequest, OpenTerminal, PingRequest, RenamePathRequest, RestoreDiskRequest,
+    StdinData, TerminalClientMessage, TerminalOpened,
 };
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -145,6 +146,47 @@ pub async fn grpc_disk_usage(
     })
 }
 
+/// Response for grpc_sysinfo command.
+#[derive(serde::Serialize)]
+pub struct SysinfoResponse {
+    pub cpu_cores: i32,
+    pub memory_mb: i32,
+    pub disk_mb: i32,
+    pub error_message: String,
+}
+
+/// Tauri command: Get VM specs (CPU, RAM total, disk total) for the player's VM.
+#[tauri::command]
+pub async fn grpc_sysinfo(player_id: String, token: String) -> Result<SysinfoResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(GetSysinfoRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .get_sysinfo(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(SysinfoResponse {
+        cpu_cores: response.cpu_cores,
+        memory_mb: response.memory_mb,
+        disk_mb: response.disk_mb,
+        error_message: response.error_message,
+    })
+}
+
 /// Response for grpc_restore_disk command.
 #[derive(serde::Serialize)]
 pub struct RestoreDiskCommandResponse {
@@ -182,6 +224,184 @@ pub async fn grpc_restore_disk(
         })?
         .into_inner();
     Ok(RestoreDiskCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+/// Single entry in ranking response.
+#[derive(serde::Serialize)]
+pub struct RankingEntryResponse {
+    pub rank: u32,
+    pub player_id: String,
+    pub username: String,
+    pub points: i32,
+    pub faction_id: String,
+    pub faction_name: String,
+}
+
+/// Response for grpc_get_ranking command.
+#[derive(serde::Serialize)]
+pub struct GetRankingCommandResponse {
+    pub entries: Vec<RankingEntryResponse>,
+    pub error_message: String,
+}
+
+/// Tauri command: Get player ranking (authenticated).
+#[tauri::command]
+pub async fn grpc_get_ranking(token: String) -> Result<GetRankingCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(GetRankingRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .get_ranking(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(GetRankingCommandResponse {
+        entries: response
+            .entries
+            .into_iter()
+            .map(|e| RankingEntryResponse {
+                rank: e.rank,
+                player_id: e.player_id,
+                username: e.username,
+                points: e.points,
+                faction_id: e.faction_id,
+                faction_name: e.faction_name,
+            })
+            .collect(),
+        error_message: response.error_message,
+    })
+}
+
+/// Response for grpc_get_player_profile command.
+#[derive(serde::Serialize)]
+pub struct GetPlayerProfileCommandResponse {
+    pub rank: u32,
+    pub points: i32,
+    pub faction_id: String,
+    pub faction_name: String,
+    pub error_message: String,
+}
+
+/// Tauri command: Get current player profile (rank, points, faction).
+#[tauri::command]
+pub async fn grpc_get_player_profile(token: String) -> Result<GetPlayerProfileCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(GetPlayerProfileRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .get_player_profile(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(GetPlayerProfileCommandResponse {
+        rank: response.rank,
+        points: response.points,
+        faction_id: response.faction_id,
+        faction_name: response.faction_name,
+        error_message: response.error_message,
+    })
+}
+
+/// Response for grpc_create_faction command.
+#[derive(serde::Serialize)]
+pub struct CreateFactionCommandResponse {
+    pub faction_id: String,
+    pub name: String,
+    pub error_message: String,
+}
+
+/// Tauri command: Create a faction (authenticated). Creator joins it.
+#[tauri::command]
+pub async fn grpc_create_faction(name: String, token: String) -> Result<CreateFactionCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(CreateFactionRequest { name: name.clone() });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .create_faction(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(CreateFactionCommandResponse {
+        faction_id: response.faction_id,
+        name: response.name,
+        error_message: response.error_message,
+    })
+}
+
+/// Response for grpc_leave_faction command.
+#[derive(serde::Serialize)]
+pub struct LeaveFactionCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Leave current faction (authenticated).
+#[tauri::command]
+pub async fn grpc_leave_faction(token: String) -> Result<LeaveFactionCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(LeaveFactionRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .leave_faction(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(LeaveFactionCommandResponse {
         success: response.success,
         error_message: response.error_message,
     })
