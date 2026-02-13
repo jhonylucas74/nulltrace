@@ -23,9 +23,9 @@ pub struct VirtualMachine {
     pub lua: Lua,
 }
 
-/// Ticks per second from CPU cores. Fixed at 1 for now (logic to be restored later).
+/// Ticks per second from CPU cores. Fixed at 15 for now (logic to be restored later).
 pub fn ticks_per_second_from_cpu(_cpu_cores: i16) -> u32 {
-    1
+    15
 }
 
 impl VirtualMachine {

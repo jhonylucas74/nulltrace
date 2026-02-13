@@ -39,7 +39,7 @@ const SNAPSHOT_INTERVAL_TICKS: u64 = 60;
 
 const TPS: u32 = 60;
 const TICK_TIME: Duration = Duration::from_millis(1000 / TPS as u64);
-const TEST_DURATION_SECS: u64 = 300; // Stress test duration (5 minutes)
+const TEST_DURATION_SECS: u64 = 30; // Stress test duration (30 seconds)
 
 pub struct VmManager {
     pub vm_service: Arc<VmService>,
@@ -458,6 +458,7 @@ impl VmManager {
 
         let mut tick_count: u64 = 0;
         let start = Instant::now();
+        let mut last_budget_reset = Instant::now();
 
         // Executable VM indices (those with budget remaining). Rebuilt every second; shrinks as VMs exhaust budget.
         let mut executable_vm_indices: Vec<usize> = Vec::new();
@@ -636,9 +637,9 @@ impl VmManager {
             }
 
             // ═══ TICK BUDGET: executable VM list ═══
-            // Every second: reset budgets; only VMs with remaining_ticks > 0 are executable.
+            // Every 0.5 seconds (real time): reset budgets; only VMs with remaining_ticks > 0 are executable.
             // Same logic for both game and stress mode (stress performs better with smaller loop).
-            if tick_count % (TPS as u64) == 0 {
+            if last_budget_reset.elapsed() >= Duration::from_millis(500) {
                 for vm in vms.iter_mut() {
                     if vm.has_running_processes() {
                         vm.remaining_ticks = vm.ticks_per_second;
@@ -647,6 +648,7 @@ impl VmManager {
                 executable_vm_indices = (0..vms.len())
                     .filter(|&i| vms[i].has_running_processes() && vms[i].remaining_ticks > 0)
                     .collect();
+                last_budget_reset = Instant::now();
             }
 
             // ═══ PARALLEL VM PROCESSING ═══
