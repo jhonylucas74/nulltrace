@@ -87,3 +87,17 @@
 .input::placeholder {
   color: var(--text-muted);
 }
+
+/* Memory limit modal */
+.memoryModalText {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--term-red);
+  margin: 0 0 0.75rem;
+}
+
+.memoryModalSubtext {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  margin: 0;
+}

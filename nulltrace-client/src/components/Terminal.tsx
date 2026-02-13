@@ -110,6 +110,12 @@ interface TerminalOutputPayload {
 const CONNECT_ERROR_MESSAGE =
   "Unexpected error. Could not load the shell (missing or corrupted). The terminal will close.";
 
+const MAX_LINES = 100;
+
+function trimToLast<T>(arr: T[]): T[] {
+  return arr.length > MAX_LINES ? arr.slice(-MAX_LINES) : arr;
+}
+
 export default function Terminal({ username, windowId }: TerminalProps) {
   const { playerId, token, logout } = useAuth();
   const navigate = useNavigate();
@@ -121,6 +127,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [connectErrorModalOpen, setConnectErrorModalOpen] = useState(false);
+  const [memoryLimitModalOpen, setMemoryLimitModalOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -161,20 +168,29 @@ export default function Terminal({ username, windowId }: TerminalProps) {
           if (payload.sessionId !== sid) return;
 
           if (payload.type === "stdout" && payload.data !== undefined) {
-            setLines((prev) => [
-              ...prev,
-              ...payload.data!
-                .split("\n")
-                .filter((s) => s.length > 0)
-                .map((content) => ({ type: "output" as const, content })),
-            ]);
+            setLines((prev) =>
+              trimToLast([
+                ...prev,
+                ...payload.data!
+                  .split("\n")
+                  .filter((s) => s.length > 0)
+                  .map((content) => ({ type: "output" as const, content })),
+              ])
+            );
           } else if (payload.type === "closed") {
             setSessionEnded(true);
-            setLines((prev) => [...prev, { type: "output", content: "Session ended." }]);
+            setLines((prev) => trimToLast([...prev, { type: "output", content: "Session ended." }]));
             sessionIdRef.current = null;
             setSessionId(null);
           } else if (payload.type === "error" && payload.data) {
-            setLines((prev) => [...prev, { type: "error", content: payload.data! }]);
+            const msg = payload.data;
+            setLines((prev) => trimToLast([...prev, { type: "error", content: msg }]));
+            setSessionEnded(true);
+            sessionIdRef.current = null;
+            setSessionId(null);
+            if (msg.toLowerCase().includes("memory limit")) {
+              setMemoryLimitModalOpen(true);
+            }
           }
         });
       } catch (e) {
@@ -212,11 +228,11 @@ export default function Terminal({ username, windowId }: TerminalProps) {
         return;
       }
 
-      setLines((prev) => [...prev, { type: "prompt", content: prompt + cmd }]);
+      setLines((prev) => trimToLast([...prev, { type: "prompt", content: prompt + cmd }]));
 
       if (sessionId && !sessionEnded) {
         invoke("terminal_send_stdin", { sessionId, data: cmd + "\n" }).catch((err) => {
-          setLines((prev) => [...prev, { type: "error", content: String(err) }]);
+          setLines((prev) => trimToLast([...prev, { type: "error", content: String(err) }]));
         });
       } else {
         const output = runMockCommand(cmd, username);
@@ -224,7 +240,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
           type: line.startsWith("Command not found") ? "error" : "output",
           content: line,
         }));
-        setLines((prev) => [...prev, ...newLines]);
+        setLines((prev) => trimToLast([...prev, ...newLines]));
       }
     },
     [input, prompt, sessionId, sessionEnded, username]
@@ -241,6 +257,13 @@ export default function Terminal({ username, windowId }: TerminalProps) {
 
   function handleConnectErrorModalClose() {
     setConnectErrorModalOpen(false);
+    if (windowId) {
+      close(windowId);
+    }
+  }
+
+  function handleMemoryLimitModalClose() {
+    setMemoryLimitModalOpen(false);
     if (windowId) {
       close(windowId);
     }
@@ -265,6 +288,19 @@ export default function Terminal({ username, windowId }: TerminalProps) {
         primaryButton={{ label: "OK", onClick: handleConnectErrorModalClose }}
       >
         <p>{CONNECT_ERROR_MESSAGE}</p>
+      </Modal>
+      <Modal
+        open={memoryLimitModalOpen}
+        onClose={handleMemoryLimitModalClose}
+        title="Memory Limit Reached"
+        primaryButton={{ label: "OK", onClick: handleMemoryLimitModalClose }}
+      >
+        <p className={styles.memoryModalText}>
+          All processes have been killed.
+        </p>
+        <p className={styles.memoryModalSubtext}>
+          You can open a new terminal session to continue.
+        </p>
       </Modal>
       <div className={styles.scroll} ref={scrollRef}>
         {lines.map((line, i) => (

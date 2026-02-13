@@ -7,9 +7,9 @@ use mlua::Lua;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-pub struct VirtualMachine<'a> {
+pub struct VirtualMachine {
     pub id: Uuid,
-    pub os: OS<'a>,
+    pub os: OS,
     pub nic: Option<NIC>,
     /// Connection state (net.connect) persisted per VM across ticks.
     pub connections: HashMap<u64, ConnectionState>,
@@ -20,32 +20,31 @@ pub struct VirtualMachine<'a> {
     pub remaining_ticks: u32,
     /// Max process ticks per second (derived from cpu_cores).
     pub ticks_per_second: u32,
-    lua: &'a Lua,
+    pub lua: Lua,
 }
 
-/// Ticks per second from CPU cores (1 core=10, 2=20, 4=40, 8+=60 capped at game TPS).
-pub fn ticks_per_second_from_cpu(cpu_cores: i16) -> u32 {
-    let n = cpu_cores.max(1) as u32;
-    (n * 10).min(60)
+/// Ticks per second from CPU cores. Fixed at 1 for now (logic to be restored later).
+pub fn ticks_per_second_from_cpu(_cpu_cores: i16) -> u32 {
+    1
 }
 
-impl<'a> VirtualMachine<'a> {
+impl VirtualMachine {
     /// Create a VM with default cpu_cores=1 (e.g. stress test).
-    pub fn new(lua: &'a Lua) -> Self {
+    pub fn new(lua: Lua) -> Self {
         Self::with_id_and_cpu(lua, Uuid::new_v4(), 1)
     }
 
     /// Create a VM with a specific ID (for restoring from DB). Uses cpu_cores=1.
-    pub fn with_id(lua: &'a Lua, id: Uuid) -> Self {
+    pub fn with_id(lua: Lua, id: Uuid) -> Self {
         Self::with_id_and_cpu(lua, id, 1)
     }
 
     /// Create a VM with a specific ID and CPU cores (for restoring from DB with processor info).
-    pub fn with_id_and_cpu(lua: &'a Lua, id: Uuid, cpu_cores: i16) -> Self {
+    pub fn with_id_and_cpu(lua: Lua, id: Uuid, cpu_cores: i16) -> Self {
         let ticks_per_second = ticks_per_second_from_cpu(cpu_cores);
         Self {
             id,
-            os: OS::new(lua),
+            os: OS::new(),
             nic: None,
             connections: HashMap::new(),
             next_connection_id: 1,
@@ -63,5 +62,14 @@ impl<'a> VirtualMachine<'a> {
 
     pub fn attach_nic(&mut self, nic: NIC) {
         self.nic = Some(nic);
+    }
+
+    /// Resets the Lua state after memory limit exceeded: clears processes, drops old Lua, replaces with new.
+    /// The factory creates a fresh Lua (sandbox, APIs, VmContext, memory limit).
+    pub fn reset_lua_state(&mut self, factory: impl FnOnce() -> Result<Lua, mlua::Error>) -> Result<(), mlua::Error> {
+        self.os.processes.clear();
+        let new_lua = factory()?;
+        self.lua = new_lua;
+        Ok(())
     }
 }

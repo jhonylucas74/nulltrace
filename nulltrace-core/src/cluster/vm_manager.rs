@@ -16,7 +16,6 @@ use super::terminal_hub::{SessionReady, TerminalHub, TerminalSession};
 use super::vm::VirtualMachine;
 use super::vm_worker::{VmWorker, WorkerResult};
 use dashmap::DashMap;
-use mlua::Lua;
 use sqlx::PgPool;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -40,7 +39,7 @@ const SNAPSHOT_INTERVAL_TICKS: u64 = 60;
 
 const TPS: u32 = 60;
 const TICK_TIME: Duration = Duration::from_millis(1000 / TPS as u64);
-const TEST_DURATION_SECS: u64 = 60; // Stress test duration (1 minute)
+const TEST_DURATION_SECS: u64 = 300; // Stress test duration (5 minutes)
 
 pub struct VmManager {
     pub vm_service: Arc<VmService>,
@@ -279,12 +278,7 @@ impl VmManager {
     }
 
     /// Destroy a VM: delete from DB (cascades FS), unregister from DNS/NetManager.
-    pub async fn destroy_vm(
-        &mut self,
-        vm_id: Uuid,
-        terminal_hub: Arc<TerminalHub>,
-        process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
-    ) -> Result<(), String> {
+    pub async fn destroy_vm(&mut self, vm_id: Uuid) -> Result<(), String> {
         // Remove from active first
         if let Some(pos) = self.active_vms.iter().position(|v| v.id == vm_id) {
             let vm = self.active_vms.remove(pos);
@@ -297,70 +291,12 @@ impl VmManager {
         }
         self.player_owned_vm_ids.remove(&vm_id);
 
-        // Clean up terminal sessions for this VM
-        {
-            let mut hub = terminal_hub.lock().unwrap();
-            let session_ids_to_remove: Vec<Uuid> = hub
-                .sessions
-                .iter()
-                .filter(|(_, session)| session.vm_id == vm_id)
-                .map(|(id, _)| *id)
-                .collect();
-
-            for session_id in session_ids_to_remove {
-                hub.sessions.remove(&session_id);
-                // Note: channels will be dropped automatically, closing gRPC streams
-            }
-        }
-
-        // Clean up process snapshots for this VM
-        process_snapshot_store.remove(&vm_id);
-
         self.vm_service
             .delete_vm(vm_id)
             .await
             .map_err(|e| format!("DB error: {}", e))?;
 
         Ok(())
-    }
-
-    /// Remove destroyed VMs from the vms Vec (VMs that are in vms but not in active_vms).
-    /// Also cleans up associated terminal sessions and process snapshots.
-    pub fn remove_destroyed_vms(
-        &mut self,
-        vms: &mut Vec<VirtualMachine>,
-        terminal_hub: Arc<TerminalHub>,
-        process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
-    ) {
-        // Identify VMs that are in the Vec but not in active_vms
-        let active_ids: HashSet<Uuid> = self.active_vms.iter().map(|v| v.id).collect();
-        let destroyed_vm_ids: Vec<Uuid> = vms
-            .iter()
-            .filter(|vm| !active_ids.contains(&vm.id))
-            .map(|vm| vm.id)
-            .collect();
-
-        for vm_id in destroyed_vm_ids {
-            // Remove from vms Vec
-            if let Some(pos) = vms.iter().position(|v| v.id == vm_id) {
-                vms.remove(pos);
-            }
-
-            // Clean up sessions
-            let mut hub = terminal_hub.lock().unwrap();
-            let session_ids: Vec<Uuid> = hub
-                .sessions
-                .iter()
-                .filter(|(_, s)| s.vm_id == vm_id)
-                .map(|(id, _)| *id)
-                .collect();
-            for sid in session_ids {
-                hub.sessions.remove(&sid);
-            }
-
-            // Clean up snapshots
-            process_snapshot_store.remove(&vm_id);
-        }
     }
 
     /// Restore player-owned VMs from DB that were running/crashed. Returns records to rebuild structs.
@@ -475,10 +411,9 @@ impl VmManager {
     /// Only processes VMs in executable_indices; each VM runs one process per tick (round-robin).
     ///
     /// Returns total process ticks executed across all workers.
-    /// Uses the same Lua state that created the VMs' processes so io.read/io.write see correct stdin/stdout.
+    /// Each VM has its own Lua state; VmContext is set on that VM's Lua.
     fn process_vms_parallel(
         &self,
-        lua: &Lua,
         vms: &mut [VirtualMachine],
         executable_indices: &[usize],
         _pool: &PgPool,
@@ -492,11 +427,7 @@ impl VmManager {
             .map(|a| (a.id, a.hostname.clone(), a.ip))
             .collect();
 
-        // Use the same Lua that created the VMs (and their process threads) so VmContext is correct
-        let worker = VmWorker {
-            worker_id: 0,
-            lua,
-        };
+        let worker = VmWorker { worker_id: 0 };
         let result = worker.process_chunk(vms, executable_indices, &active_vm_metadata);
         let total_ticks = result.process_ticks;
 
@@ -506,10 +437,10 @@ impl VmManager {
     /// Run the main game loop.
     pub async fn run_loop(
         &mut self,
-        lua: &Lua,
-        vms: &mut Vec<VirtualMachine<'_>>,
+        vms: &mut Vec<VirtualMachine>,
         terminal_hub: Arc<TerminalHub>,
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
+        vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
         pool: &PgPool,
         stress_mode: bool,
     ) {
@@ -531,8 +462,8 @@ impl VmManager {
         // Executable VM indices (those with budget remaining). Rebuilt every second; shrinks as VMs exhaust budget.
         let mut executable_vm_indices: Vec<usize> = Vec::new();
 
-        // Stress test metrics (pre-allocate for 60s @ 60 TPS = 3600 ticks)
-        let mut tick_durations: Vec<Duration> = Vec::with_capacity(3600);
+        // Stress test metrics (pre-allocate for 5min @ 60 TPS = 18000 ticks)
+        let mut tick_durations: Vec<Duration> = Vec::with_capacity(TEST_DURATION_SECS as usize * 60);
         let mut min_duration = Duration::MAX;
         let mut max_duration = Duration::ZERO;
         let mut slow_ticks: u64 = 0;
@@ -576,6 +507,7 @@ impl VmManager {
                         })
                         .collect();
                     process_snapshot_store.insert(vm.id, snapshots);
+                    vm_lua_memory_store.insert(vm.id, vm.lua.used_memory() as u64);
                 }
             }
 
@@ -652,6 +584,7 @@ impl VmManager {
                     });
                     let pid = vm.os.next_process_id();
                     vm.os.spawn_process_with_id(
+                        &vm.lua,
                         pid,
                         None,
                         &lua_code,
@@ -663,12 +596,14 @@ impl VmManager {
                     );
                     let (stdout_tx, stdout_rx) = mpsc::channel(32);
                     let (stdin_tx, stdin_rx) = mpsc::channel(32);
+                    let (error_tx, error_rx) = mpsc::channel(4);
                     let session_id = Uuid::new_v4();
                     let session = TerminalSession {
                         vm_id,
                         pid,
                         stdout_tx,
                         stdin_rx,
+                        error_tx,
                         last_stdout_len: 0,
                     };
                     let ready = SessionReady {
@@ -677,6 +612,7 @@ impl VmManager {
                         pid,
                         stdout_rx,
                         stdin_tx,
+                        error_rx,
                     };
                     {
                         let mut hub = terminal_hub.lock().unwrap();
@@ -716,7 +652,6 @@ impl VmManager {
             // ═══ PARALLEL VM PROCESSING ═══
             // Process executable VMs only (one process per VM per tick, round-robin).
             let (process_ticks, worker_results) = self.process_vms_parallel(
-                lua,
                 vms,
                 &executable_vm_indices,
                 pool,
@@ -732,6 +667,40 @@ impl VmManager {
                 }
             }
             executable_vm_indices.retain(|&idx| vms[idx].remaining_ticks > 0);
+
+            // ═══ MEMORY EXCEEDED: reset Lua state for VMs that hit limit ═══
+            for result in &worker_results {
+                for vm_id in &result.memory_exceeded_vms {
+                    // Notify terminal sessions for this VM before reset (process will be gone)
+                    {
+                        let mut hub = terminal_hub.lock().unwrap();
+                        let to_remove: Vec<Uuid> = hub
+                            .sessions
+                            .iter()
+                            .filter(|(_, s)| s.vm_id == *vm_id)
+                            .map(|(id, _)| *id)
+                            .collect();
+                        for id in to_remove {
+                            if let Some(session) = hub.sessions.get_mut(&id) {
+                                let msg = "Memory limit reached. Killing process...".to_string();
+                                let _ = session.stdout_tx.try_send(format!("\n\n<red>{} </red>\n", msg));
+                                let _ = session.error_tx.try_send(msg);
+                            }
+                            hub.sessions.remove(&id);
+                        }
+                    }
+                    if let Some(vm) = vms.iter_mut().find(|v| v.id == *vm_id) {
+                        let pool = pool.clone();
+                        let fs = self.fs_service.clone();
+                        let us = self.user_service.clone();
+                        if let Err(e) = vm.reset_lua_state(|| crate::create_vm_lua_state(pool, fs, us)) {
+                            println!("[cluster] WARNING: VM {} memory reset failed: {}", vm_id, e);
+                        } else {
+                            println!("[cluster] VM {} exceeded memory limit, state reset", vm_id);
+                        }
+                    }
+                }
+            }
 
             // ═══ SEQUENTIAL POST-PROCESSING ═══
             // Apply network operations and process spawn/stdin queues from workers
@@ -797,6 +766,7 @@ impl VmManager {
                                 };
                                 let parent = if *parent_id == 0 { None } else { Some(*parent_id) };
                                 vm.os.spawn_process_with_id(
+                                    &vm.lua,
                                     *pid,
                                     parent,
                                     &lua_code,
@@ -867,11 +837,12 @@ impl VmManager {
                     }
                 }
                 for id in to_remove {
-                    let (vm_id, pid) = hub
-                        .sessions
-                        .get(&id)
-                        .map(|s| (s.vm_id, s.pid))
-                        .unwrap_or((Uuid::nil(), 0));
+                    let (vm_id, pid) = if let Some(session) = hub.sessions.get_mut(&id) {
+                        let _ = session.error_tx.try_send("Process terminated.".to_string());
+                        (session.vm_id, session.pid)
+                    } else {
+                        (Uuid::nil(), 0)
+                    };
                     hub.sessions.remove(&id);
                     if let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) {
                         vm.os.kill_process_and_descendants(pid);
@@ -915,6 +886,7 @@ impl VmManager {
                         })
                         .collect();
                     process_snapshot_store.insert(vm.id, snapshots);
+                    vm_lua_memory_store.insert(vm.id, vm.lua.used_memory() as u64);
                 }
             }
 
@@ -932,32 +904,16 @@ impl VmManager {
                 slow_ticks += 1;
             }
 
-            // Log every 5 seconds with enhanced memory monitoring
+            // Log every 5 seconds
             if tick_count % (TPS as u64 * 5) == 0 {
                 let uptime = start.elapsed().as_secs();
-                let total_connections: usize = vms.iter().map(|vm| vm.connections.len()).sum();
-                let total_sessions = {
-                    let hub = terminal_hub.lock().unwrap();
-                    hub.sessions.len()
-                };
-                let total_snapshots = process_snapshot_store.len();
-
                 println!(
-                    "[cluster] Tick {} | {} VMs | {} conns | {} sessions | {} snapshots | {}s up | {:.1} TPS",
+                    "[cluster] Tick {} | {} VMs active | uptime {}s | {:.1} TPS",
                     tick_count,
                     vms.len(),
-                    total_connections,
-                    total_sessions,
-                    total_snapshots,
                     uptime,
                     tick_count as f64 / uptime as f64,
                 );
-
-                // Periodic cleanup: remove destroyed VMs and their associated resources (game mode only)
-                // In stress mode, VMs are not tracked in active_vms, so this would incorrectly remove all VMs
-                if !stress_mode {
-                    self.remove_destroyed_vms(vms, terminal_hub.clone(), process_snapshot_store.clone());
-                }
             }
         }
 
@@ -976,6 +932,17 @@ impl VmManager {
             println!("Configuration:");
             println!("  VMs: {}", vms.len());
             println!("  Total Processes: {}\n", vms.iter().map(|vm| vm.os.processes.len()).sum::<usize>());
+
+            // Lua state memory (per-VM heap)
+            let total_lua_bytes: usize = vms.iter().map(|vm| vm.lua.used_memory()).sum();
+            let avg_lua_bytes = if vms.is_empty() {
+                0
+            } else {
+                total_lua_bytes / vms.len()
+            };
+            println!("Lua Memory (Per-VM State):");
+            println!("  Total: {} bytes ({:.2} MB)", total_lua_bytes, total_lua_bytes as f64 / 1_048_576.0);
+            println!("  Average per VM: {} bytes ({:.2} KB)\n", avg_lua_bytes, avg_lua_bytes as f64 / 1024.0);
 
             println!("Performance:");
             println!("  Duration: {:.2}s (test runtime)\n", duration.as_secs_f64());
@@ -1006,8 +973,7 @@ impl VmManager {
     #[cfg(test)]
     pub async fn run_n_ticks_with_terminal_hub(
         &mut self,
-        lua: &Lua,
-        vms: &mut Vec<VirtualMachine<'_>>,
+        vms: &mut Vec<VirtualMachine>,
         terminal_hub: Arc<TerminalHub>,
         n: usize,
     ) {
@@ -1085,6 +1051,7 @@ impl VmManager {
                     });
                     let pid = vm.os.next_process_id();
                     vm.os.spawn_process_with_id(
+                        &vm.lua,
                         pid,
                         None,
                         &lua_code,
@@ -1096,12 +1063,14 @@ impl VmManager {
                     );
                     let (stdout_tx, stdout_rx) = mpsc::channel(32);
                     let (stdin_tx, stdin_rx) = mpsc::channel(32);
+                    let (error_tx, error_rx) = mpsc::channel(4);
                     let session_id = Uuid::new_v4();
                     let session = TerminalSession {
                         vm_id,
                         pid,
                         stdout_tx,
                         stdin_rx,
+                        error_tx,
                         last_stdout_len: 0,
                     };
                     let ready = SessionReady {
@@ -1110,6 +1079,7 @@ impl VmManager {
                         pid,
                         stdout_rx,
                         stdin_tx,
+                        error_rx,
                     };
                     {
                         let mut hub = terminal_hub.lock().unwrap();
@@ -1136,7 +1106,7 @@ impl VmManager {
             for vm in vms.iter_mut() {
                 {
                     let active = self.active_vms.iter().find(|a| a.id == vm.id);
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                     let hostname = active.map(|a| a.hostname.as_str()).unwrap_or("unknown");
                     let ip = active.and_then(|a| a.ip);
                     ctx.set_vm(vm.id, hostname, ip);
@@ -1164,9 +1134,10 @@ impl VmManager {
                     }
                 }
 
+                let mut memory_exceeded = false;
                 for process in &mut vm.os.processes {
                     {
-                        let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                        let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                         ctx.current_pid = process.id;
                         ctx.current_uid = process.user_id;
                         ctx.current_username = process.username.clone();
@@ -1178,47 +1149,81 @@ impl VmManager {
                         );
                     }
                     if !process.is_finished() {
-                        process.tick();
+                        if let Err(e) = process.tick() {
+                            if matches!(e, mlua::Error::MemoryError(_)) {
+                                memory_exceeded = true;
+                            }
+                            break;
+                        }
                     }
                     {
-                        let ctx = lua.app_data_ref::<VmContext>().unwrap();
+                        let ctx = vm.lua.app_data_ref::<VmContext>().unwrap();
                         if ctx.current_uid != process.user_id {
                             process.user_id = ctx.current_uid;
                             process.username = ctx.current_username.clone();
                         }
                     }
                 }
-                {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-                    for p in &vm.os.processes {
-                        if p.is_finished() {
-                            if let Ok(guard) = p.stdout.lock() {
-                                ctx.last_stdout_of_finished.insert(p.id, guard.clone());
+                if memory_exceeded {
+                    // Notify terminal sessions for this VM before reset
+                    {
+                        let mut hub = terminal_hub.lock().unwrap();
+                        let to_remove: Vec<Uuid> = hub
+                            .sessions
+                            .iter()
+                            .filter(|(_, s)| s.vm_id == vm.id)
+                            .map(|(id, _)| *id)
+                            .collect();
+                        for id in to_remove {
+                            if let Some(session) = hub.sessions.get_mut(&id) {
+                                let msg = "Memory limit reached. Killing process...".to_string();
+                                let _ = session.stdout_tx.try_send(format!("\n\n<red>{} </red>\n", msg));
+                                let _ = session.error_tx.try_send(msg);
+                            }
+                            hub.sessions.remove(&id);
+                        }
+                    }
+                    let pool = self.vm_service.pool().clone();
+                    let fs = self.fs_service.clone();
+                    let us = self.user_service.clone();
+                    if let Err(e) = vm.reset_lua_state(|| crate::create_vm_lua_state(pool, fs, us)) {
+                        println!("[cluster] WARNING: VM {} memory reset failed: {}", vm.id, e);
+                    } else {
+                        println!("[cluster] VM {} exceeded memory limit, state reset", vm.id);
+                    }
+                } else {
+                    {
+                        let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
+                        for p in &vm.os.processes {
+                            if p.is_finished() {
+                                if let Ok(guard) = p.stdout.lock() {
+                                    ctx.last_stdout_of_finished.insert(p.id, guard.clone());
+                                }
                             }
                         }
                     }
-                }
-                let finished_pids: Vec<u64> = vm
-                    .os
-                    .processes
-                    .iter()
-                    .filter(|p| p.is_finished())
-                    .map(|p| p.id)
-                    .collect();
-                for pid in &finished_pids {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-                    ctx.close_connections_for_pid(*pid);
-                }
-                vm.os.processes.retain(|p| !p.is_finished());
-                if let Some(nic) = &mut vm.nic {
+                    let finished_pids: Vec<u64> = vm
+                        .os
+                        .processes
+                        .iter()
+                        .filter(|p| p.is_finished())
+                        .map(|p| p.id)
+                        .collect();
                     for pid in &finished_pids {
-                        nic.unlisten_pid(*pid);
+                        let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
+                        ctx.close_connections_for_pid(*pid);
+                    }
+                    vm.os.processes.retain(|p| !p.is_finished());
+                    if let Some(nic) = &mut vm.nic {
+                        for pid in &finished_pids {
+                            nic.unlisten_pid(*pid);
+                        }
                     }
                 }
 
                 // Process spawn_queue
                 {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                     let spawn_queue = std::mem::take(&mut ctx.spawn_queue);
                     let vm_id = ctx.vm_id;
                     drop(ctx);
@@ -1249,6 +1254,7 @@ impl VmManager {
                                 };
                                 let parent = if parent_id == 0 { None } else { Some(parent_id) };
                                 vm.os.spawn_process_with_id(
+                                    &vm.lua,
                                     pid,
                                     parent,
                                     &lua_code,
@@ -1265,7 +1271,7 @@ impl VmManager {
 
                 // Apply stdin inject queue
                 {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                     let stdin_inject = std::mem::take(&mut ctx.stdin_inject_queue);
                     drop(ctx);
                     for (pid, line) in stdin_inject {
@@ -1279,7 +1285,7 @@ impl VmManager {
 
                 // Apply outbound packets
                 {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                     if let Some(nic) = &mut vm.nic {
                         for pkt in ctx.net_outbound.drain(..) {
                             nic.send(pkt);
@@ -1339,11 +1345,12 @@ impl VmManager {
                     }
                 }
                 for id in to_remove {
-                    let (vm_id, pid) = hub
-                        .sessions
-                        .get(&id)
-                        .map(|s| (s.vm_id, s.pid))
-                        .unwrap_or((Uuid::nil(), 0));
+                    let (vm_id, pid) = if let Some(session) = hub.sessions.get_mut(&id) {
+                        let _ = session.error_tx.try_send("Process terminated.".to_string());
+                        (session.vm_id, session.pid)
+                    } else {
+                        (Uuid::nil(), 0)
+                    };
                     hub.sessions.remove(&id);
                     if let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) {
                         vm.os.kill_process_and_descendants(pid);
@@ -1365,14 +1372,11 @@ mod tests {
     use super::super::db::{self, fs_service::FsService, player_service::PlayerService};
     use super::super::db::{user_service::UserService, vm_service::VmService};
     use super::super::lua_api::context::{SpawnSpec, VmContext};
-    use super::super::lua_api;
     use super::super::net::ip::{Ipv4Addr, Subnet};
     use super::super::net::packet::Packet;
-    use super::super::os;
     use super::super::terminal_hub;
     use super::*;
     use tokio::sync::oneshot;
-    use mlua::Lua;
     use std::collections::HashMap;
     use std::sync::Arc;
     use uuid::Uuid;
@@ -1410,21 +1414,18 @@ mod tests {
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let echo_code = bin_programs::ECHO;
-        vm.os.spawn_process(echo_code, vec!["hello".to_string()], 0, "root");
+        vm.os.spawn_process(&vm.lua, echo_code, vec!["hello".to_string()], 0, "root");
 
         let mut stdout_result = String::new();
         let max_ticks = 100;
         for _ in 0..max_ticks {
             {
-                let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                 ctx.set_vm(vm_id, "tick-test-vm", None);
             }
 
@@ -1433,7 +1434,7 @@ mod tests {
                     continue;
                 }
                 {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                     ctx.current_pid = process.id;
                     ctx.current_uid = process.user_id;
                     ctx.current_username = process.username.clone();
@@ -1444,7 +1445,7 @@ mod tests {
                         process.forward_stdout_to.clone(),
                     );
                 }
-                process.tick();
+                process.tick().expect("process tick failed");
                 if process.is_finished() {
                     stdout_result = process.stdout.lock().unwrap().clone();
                 }
@@ -1496,11 +1497,8 @@ mod tests {
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let read_script = r#"
@@ -1509,7 +1507,7 @@ if line then
     io.write("read: " .. line .. "\n")
 end
 "#;
-        vm.os.spawn_process(read_script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua, read_script, vec![], 0, "root");
 
         let process = vm.os.processes.first_mut().unwrap();
         {
@@ -1521,7 +1519,7 @@ end
         let max_ticks = 100;
         for _ in 0..max_ticks {
             {
-                let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                 ctx.set_vm(vm_id, "stdin-test-vm", None);
             }
 
@@ -1530,7 +1528,7 @@ end
                     continue;
                 }
                 {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                     ctx.current_pid = process.id;
                     ctx.current_uid = process.user_id;
                     ctx.current_username = process.username.clone();
@@ -1541,7 +1539,7 @@ end
                         process.forward_stdout_to.clone(),
                     );
                 }
-                process.tick();
+                process.tick().expect("process tick failed");
                 if process.is_finished() {
                     stdout_result = process.stdout.lock().unwrap().clone();
                 }
@@ -1562,17 +1560,15 @@ end
 
     /// Helper: run tick loop until process finishes, return stdout.
     fn run_tick_until_done(
-        lua: &Lua,
         vm: &mut VirtualMachine,
         vm_id: Uuid,
         hostname: &str,
     ) -> String {
-        run_tick_until_done_with_limit(lua, vm, vm_id, hostname, 100).0
+        run_tick_until_done_with_limit(vm, vm_id, hostname, 100).0
     }
 
     /// Helper: run tick loop with max ticks, return (stdout, tick_count).
     fn run_tick_until_done_with_limit(
-        lua: &Lua,
         vm: &mut VirtualMachine,
         vm_id: Uuid,
         hostname: &str,
@@ -1583,7 +1579,7 @@ end
         for _ in 0..max_ticks {
             tick_count += 1;
             {
-                let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                 ctx.set_vm(vm_id, hostname, None);
             }
             for process in &mut vm.os.processes {
@@ -1591,7 +1587,7 @@ end
                     continue;
                 }
                 {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                     ctx.current_pid = process.id;
                     ctx.current_uid = process.user_id;
                     ctx.current_username = process.username.clone();
@@ -1602,7 +1598,7 @@ end
                         process.forward_stdout_to.clone(),
                     );
                 }
-                process.tick();
+                process.tick().expect("process tick failed");
                 if process.is_finished() {
                     stdout_result = process.stdout.lock().unwrap().clone();
                 }
@@ -1617,15 +1613,14 @@ end
 
     /// Performs one full VM tick including spawn_queue and stdin_inject_queue (so os.spawn/os.spawn_path children run).
     async fn vm_full_tick_async(
-        lua: &Lua,
-        vm: &mut VirtualMachine<'_>,
+        vm: &mut VirtualMachine,
         manager: &VmManager,
         vm_id: Uuid,
         hostname: &str,
     ) -> HashMap<u64, String> {
         let mut finished_stdout = HashMap::new();
         {
-            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
             ctx.set_vm(vm_id, hostname, None);
             ctx.next_pid = vm.os.next_process_id();
             for p in &vm.os.processes {
@@ -1642,7 +1637,7 @@ end
                 continue;
             }
             {
-                let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                 ctx.current_pid = process.id;
                 ctx.current_uid = process.user_id;
                 ctx.current_username = process.username.clone();
@@ -1653,14 +1648,14 @@ end
                     process.forward_stdout_to.clone(),
                 );
             }
-            process.tick();
+            process.tick().expect("process tick failed");
             if process.is_finished() {
                 if let Ok(guard) = process.stdout.lock() {
                     finished_stdout.insert(process.id, guard.clone());
                 }
             }
             {
-                let ctx = lua.app_data_ref::<VmContext>().unwrap();
+                let ctx = vm.lua.app_data_ref::<VmContext>().unwrap();
                 if ctx.current_uid != process.user_id {
                     process.user_id = ctx.current_uid;
                     process.username = ctx.current_username.clone();
@@ -1668,7 +1663,7 @@ end
             }
         }
         {
-            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
             for p in &vm.os.processes {
                 if p.is_finished() {
                     if let Ok(guard) = p.stdout.lock() {
@@ -1680,7 +1675,7 @@ end
         vm.os.processes.retain(|p| !p.is_finished());
 
         let spawn_queue = {
-            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
             std::mem::take(&mut ctx.spawn_queue)
         };
         for (pid, parent_id, spec, args, uid, username, forward_stdout) in spawn_queue {
@@ -1706,6 +1701,7 @@ end
                     };
                     let parent = if parent_id == 0 { None } else { Some(parent_id) };
                     vm.os.spawn_process_with_id(
+                        &vm.lua,
                         pid,
                         parent,
                         &lua_code,
@@ -1720,7 +1716,7 @@ end
         }
 
         let stdin_inject = {
-            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
             std::mem::take(&mut ctx.stdin_inject_queue)
         };
         for (pid, line) in stdin_inject {
@@ -1735,8 +1731,7 @@ end
 
     /// Run full ticks (with spawn and stdin inject) until VM has no processes or max_ticks. Returns (pid -> stdout for each finished process, tick_count).
     async fn run_tick_until_done_with_spawn(
-        lua: &Lua,
-        vm: &mut VirtualMachine<'_>,
+        vm: &mut VirtualMachine,
         manager: &VmManager,
         vm_id: Uuid,
         hostname: &str,
@@ -1746,7 +1741,7 @@ end
         let mut tick_count = 0;
         for _ in 0..max_ticks {
             tick_count += 1;
-            let finished = vm_full_tick_async(lua, vm, manager, vm_id, hostname).await;
+            let finished = vm_full_tick_async(vm, manager, vm_id, hostname).await;
             for (pid, out) in finished {
                 all_stdout.insert(pid, out);
             }
@@ -1759,23 +1754,21 @@ end
 
     /// Run exactly n ticks (with spawn and stdin inject). Use when the process under test never exits (e.g. shell).
     async fn run_n_ticks_with_spawn(
-        lua: &Lua,
-        vm: &mut VirtualMachine<'_>,
+        vm: &mut VirtualMachine,
         manager: &VmManager,
         vm_id: Uuid,
         hostname: &str,
         n: usize,
     ) {
         for _ in 0..n {
-            let _ = vm_full_tick_async(lua, vm, manager, vm_id, hostname).await;
+            let _ = vm_full_tick_async(vm, manager, vm_id, hostname).await;
         }
     }
 
     /// Run n full game-loop ticks for VMs with network: per-VM context (with IP), NIC sync, then network_tick.
     async fn run_n_ticks_vms_network(
-        lua: &Lua,
         manager: &mut VmManager,
-        vms: &mut [VirtualMachine<'_>],
+        vms: &mut [VirtualMachine],
         n: usize,
     ) {
         assert!(
@@ -1791,7 +1784,7 @@ end
                     .unwrap_or_else(|| ("unknown".to_string(), None));
 
                 {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                     ctx.set_vm(vm.id, &hostname, ip);
                     if let Some(nic) = &vm.nic {
                         ctx.set_port_owners(nic.get_port_owners());
@@ -1817,9 +1810,10 @@ end
                     }
                 }
 
+                let mut memory_exceeded = false;
                 for process in &mut vm.os.processes {
                     {
-                        let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                        let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                         ctx.current_pid = process.id;
                         ctx.current_uid = process.user_id;
                         ctx.current_username = process.username.clone();
@@ -1831,46 +1825,58 @@ end
                         );
                     }
                     if !process.is_finished() {
-                        process.tick();
+                        if let Err(e) = process.tick() {
+                            if matches!(e, mlua::Error::MemoryError(_)) {
+                                memory_exceeded = true;
+                            }
+                            break;
+                        }
                     }
                     {
-                        let ctx = lua.app_data_ref::<VmContext>().unwrap();
+                        let ctx = vm.lua.app_data_ref::<VmContext>().unwrap();
                         if ctx.current_uid != process.user_id {
                             process.user_id = ctx.current_uid;
                             process.username = ctx.current_username.clone();
                         }
                     }
                 }
-                {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-                    for p in &vm.os.processes {
-                        if p.is_finished() {
-                            if let Ok(guard) = p.stdout.lock() {
-                                ctx.last_stdout_of_finished.insert(p.id, guard.clone());
+                if memory_exceeded {
+                    let pool = manager.vm_service.pool().clone();
+                    let fs = manager.fs_service.clone();
+                    let us = manager.user_service.clone();
+                    let _ = vm.reset_lua_state(|| crate::create_vm_lua_state(pool, fs, us));
+                } else {
+                    {
+                        let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
+                        for p in &vm.os.processes {
+                            if p.is_finished() {
+                                if let Ok(guard) = p.stdout.lock() {
+                                    ctx.last_stdout_of_finished.insert(p.id, guard.clone());
+                                }
                             }
                         }
                     }
-                }
-                let finished_pids: Vec<u64> = vm
-                    .os
-                    .processes
-                    .iter()
-                    .filter(|p| p.is_finished())
-                    .map(|p| p.id)
-                    .collect();
-                for pid in &finished_pids {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-                    ctx.close_connections_for_pid(*pid);
-                }
-                vm.os.processes.retain(|p| !p.is_finished());
-                if let Some(nic) = &mut vm.nic {
+                    let finished_pids: Vec<u64> = vm
+                        .os
+                        .processes
+                        .iter()
+                        .filter(|p| p.is_finished())
+                        .map(|p| p.id)
+                        .collect();
                     for pid in &finished_pids {
-                        nic.unlisten_pid(*pid);
+                        let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
+                        ctx.close_connections_for_pid(*pid);
+                    }
+                    vm.os.processes.retain(|p| !p.is_finished());
+                    if let Some(nic) = &mut vm.nic {
+                        for pid in &finished_pids {
+                            nic.unlisten_pid(*pid);
+                        }
                     }
                 }
 
                 let spawn_queue = {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                     std::mem::take(&mut ctx.spawn_queue)
                 };
                 let vm_id = vm.id;
@@ -1897,6 +1903,7 @@ end
                             };
                             let parent = if parent_id == 0 { None } else { Some(parent_id) };
                             vm.os.spawn_process_with_id(
+                                &vm.lua,
                                 pid,
                                 parent,
                                 &lua_code,
@@ -1911,7 +1918,7 @@ end
                 }
 
                 let stdin_inject = {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                     std::mem::take(&mut ctx.stdin_inject_queue)
                 };
                 for (pid, line) in stdin_inject {
@@ -1923,7 +1930,7 @@ end
                 }
 
                 {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                     if let Some(nic) = &mut vm.nic {
                         for pkt in ctx.net_outbound.drain(..) {
                             nic.send(pkt);
@@ -1952,9 +1959,8 @@ end
 
     /// Run one tick for a single VM only (by index), no network_tick. Used to inspect VM state after tick.
     async fn run_one_tick_single_vm(
-        lua: &Lua,
         manager: &mut VmManager,
-        vms: &mut [VirtualMachine<'_>],
+        vms: &mut [VirtualMachine],
         vm_index: usize,
     ) {
         let vm = &mut vms[vm_index];
@@ -1964,7 +1970,7 @@ end
             .unwrap_or_else(|| ("unknown".to_string(), None));
 
         {
-            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
             ctx.set_vm(vm.id, &hostname, ip);
             if let Some(nic) = &vm.nic {
                 ctx.set_port_owners(nic.get_port_owners());
@@ -1990,9 +1996,10 @@ end
             }
         }
 
+        let mut memory_exceeded = false;
         for process in &mut vm.os.processes {
             {
-                let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                 ctx.current_pid = process.id;
                 ctx.current_uid = process.user_id;
                 ctx.current_username = process.username.clone();
@@ -2004,46 +2011,58 @@ end
                 );
             }
             if !process.is_finished() {
-                process.tick();
+                if let Err(e) = process.tick() {
+                    if matches!(e, mlua::Error::MemoryError(_)) {
+                        memory_exceeded = true;
+                    }
+                    break;
+                }
             }
             {
-                let ctx = lua.app_data_ref::<VmContext>().unwrap();
+                let ctx = vm.lua.app_data_ref::<VmContext>().unwrap();
                 if ctx.current_uid != process.user_id {
                     process.user_id = ctx.current_uid;
                     process.username = ctx.current_username.clone();
                 }
             }
         }
-        {
-            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-            for p in &vm.os.processes {
-                if p.is_finished() {
-                    if let Ok(guard) = p.stdout.lock() {
-                        ctx.last_stdout_of_finished.insert(p.id, guard.clone());
+        if memory_exceeded {
+            let pool = manager.vm_service.pool().clone();
+            let fs = manager.fs_service.clone();
+            let us = manager.user_service.clone();
+            let _ = vm.reset_lua_state(|| crate::create_vm_lua_state(pool, fs, us));
+        } else {
+            {
+                let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
+                for p in &vm.os.processes {
+                    if p.is_finished() {
+                        if let Ok(guard) = p.stdout.lock() {
+                            ctx.last_stdout_of_finished.insert(p.id, guard.clone());
+                        }
                     }
                 }
             }
-        }
-        let finished_pids: Vec<u64> = vm
-            .os
-            .processes
-            .iter()
-            .filter(|p| p.is_finished())
-            .map(|p| p.id)
-            .collect();
-        for pid in &finished_pids {
-            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-            ctx.close_connections_for_pid(*pid);
-        }
-        vm.os.processes.retain(|p| !p.is_finished());
-        if let Some(nic) = &mut vm.nic {
+            let finished_pids: Vec<u64> = vm
+                .os
+                .processes
+                .iter()
+                .filter(|p| p.is_finished())
+                .map(|p| p.id)
+                .collect();
             for pid in &finished_pids {
-                nic.unlisten_pid(*pid);
+                let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
+                ctx.close_connections_for_pid(*pid);
+            }
+            vm.os.processes.retain(|p| !p.is_finished());
+            if let Some(nic) = &mut vm.nic {
+                for pid in &finished_pids {
+                    nic.unlisten_pid(*pid);
+                }
             }
         }
 
         let spawn_queue = {
-            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
             std::mem::take(&mut ctx.spawn_queue)
         };
         let vm_id = vm.id;
@@ -2070,6 +2089,7 @@ end
                     };
                     let parent = if parent_id == 0 { None } else { Some(parent_id) };
                     vm.os.spawn_process_with_id(
+                        &vm.lua,
                         pid,
                         parent,
                         &lua_code,
@@ -2084,7 +2104,7 @@ end
         }
 
         let stdin_inject = {
-            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
             std::mem::take(&mut ctx.stdin_inject_queue)
         };
         for (pid, line) in stdin_inject {
@@ -2096,7 +2116,7 @@ end
         }
 
         {
-            let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+            let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
             if let Some(nic) = &mut vm.nic {
                 for pkt in ctx.net_outbound.drain(..) {
                     nic.send(pkt);
@@ -2118,8 +2138,7 @@ end
 
     /// Variant that simulates 60 FPS game loop: sleeps ~16.6ms between ticks.
     async fn run_tick_until_done_with_limit_60fps(
-        lua: &Lua,
-        vm: &mut VirtualMachine<'_>,
+        vm: &mut VirtualMachine,
         vm_id: Uuid,
         hostname: &str,
         max_ticks: usize,
@@ -2129,7 +2148,7 @@ end
         for _ in 0..max_ticks {
             tick_count += 1;
             {
-                let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                 ctx.set_vm(vm_id, hostname, None);
             }
             for process in &mut vm.os.processes {
@@ -2137,7 +2156,7 @@ end
                     continue;
                 }
                 {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
                     ctx.current_pid = process.id;
                     ctx.current_uid = process.user_id;
                     ctx.current_username = process.username.clone();
@@ -2148,7 +2167,7 @@ end
                         process.forward_stdout_to.clone(),
                     );
                 }
-                process.tick();
+                process.tick().expect("process tick failed");
                 if process.is_finished() {
                     stdout_result = process.stdout.lock().unwrap().clone();
                 }
@@ -2207,14 +2226,11 @@ end
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
-        vm.os.spawn_process(
+        vm.os.spawn_process(&vm.lua,
             bench_scripts::BENCHMARK_LOOP,
             vec![],
             0,
@@ -2223,7 +2239,7 @@ end
 
         const MAX_TICKS: usize = 100_000;
         let (stdout, tick_count) =
-            run_tick_until_done_with_limit_60fps(&lua, &mut vm, vm_id, "bench-vm", MAX_TICKS).await;
+            run_tick_until_done_with_limit_60fps(&mut vm, vm_id, "bench-vm", MAX_TICKS).await;
 
         assert!(
             vm.os.processes.is_empty(),
@@ -2277,21 +2293,18 @@ end
             .await
             .unwrap();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
-        vm.os.spawn_process(
+        vm.os.spawn_process(&vm.lua,
             bin_programs::CAT,
             vec!["/tmp/cat_test.txt".to_string()],
             0,
             "root",
         );
 
-        let stdout = run_tick_until_done(&lua, &mut vm, vm_id, "cat-test-vm");
+        let stdout = run_tick_until_done(&mut vm, vm_id, "cat-test-vm");
 
         assert!(
             stdout.contains("hello from file"),
@@ -2333,16 +2346,13 @@ end
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
-        vm.os.spawn_process(bin_programs::LS, vec!["/".to_string()], 0, "root");
+        vm.os.spawn_process(&vm.lua, bin_programs::LS, vec!["/".to_string()], 0, "root");
 
-        let stdout = run_tick_until_done(&lua, &mut vm, vm_id, "ls-test-vm");
+        let stdout = run_tick_until_done(&mut vm, vm_id, "ls-test-vm");
 
         assert!(
             stdout.contains("bin"),
@@ -2389,22 +2399,19 @@ end
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let touch_path = "/tmp/touch_created.txt";
-        vm.os.spawn_process(
+        vm.os.spawn_process(&vm.lua,
             bin_programs::TOUCH,
             vec![touch_path.to_string()],
             0,
             "root",
         );
 
-        run_tick_until_done(&lua, &mut vm, vm_id, "touch-test-vm");
+        run_tick_until_done(&mut vm, vm_id, "touch-test-vm");
 
         let content = fs_service.read_file(vm_id, touch_path).await.unwrap();
         assert!(
@@ -2455,16 +2462,13 @@ end
             .await
             .unwrap();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
-        vm.os.spawn_process(bin_programs::RM, vec![rm_path.to_string()], 0, "root");
+        vm.os.spawn_process(&vm.lua,bin_programs::RM, vec![rm_path.to_string()], 0, "root");
 
-        run_tick_until_done(&lua, &mut vm, vm_id, "rm-test-vm");
+        run_tick_until_done(&mut vm, vm_id, "rm-test-vm");
 
         let content = fs_service.read_file(vm_id, rm_path).await.unwrap();
         assert!(
@@ -2641,20 +2645,18 @@ end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let parent_script = r#"
 local pid = os.spawn("echo", {"from_spawn"})
 io.write("pid=" .. pid .. "\n")
 "#;
-        vm.os.spawn_process(parent_script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,parent_script, vec![], 0, "root");
 
         let (stdout_by_pid, _) =
-            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "os-spawn-vm", 100).await;
+            run_tick_until_done_with_spawn(&mut vm, &manager, vm_id, "os-spawn-vm", 100).await;
 
         assert!(
             stdout_by_pid.get(&2).map(|s| s.contains("from_spawn")).unwrap_or(false),
@@ -2704,19 +2706,17 @@ io.write("pid=" .. pid .. "\n")
             .await
             .unwrap();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let parent_script = r#"
 os.spawn_path("/tmp/spawn_path_test.lua", {})
 "#;
-        vm.os.spawn_process(parent_script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,parent_script, vec![], 0, "root");
 
         let (stdout_by_pid, _) =
-            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "spawn-path-vm", 100)
+            run_tick_until_done_with_spawn(&mut vm, &manager, vm_id, "spawn-path-vm", 100)
                 .await;
 
         assert!(
@@ -2755,17 +2755,15 @@ os.spawn_path("/tmp/spawn_path_test.lua", {})
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let script = r#"io.write(os.process_status(999))"#;
-        vm.os.spawn_process(script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,script, vec![], 0, "root");
 
         let (stdout_by_pid, _) =
-            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "status-vm", 50).await;
+            run_tick_until_done_with_spawn(&mut vm, &manager, vm_id, "status-vm", 50).await;
 
         let out = stdout_by_pid.get(&1).map(|s| s.as_str()).unwrap_or("");
         assert!(out.contains("not_found"), "expected 'not_found', got: {:?}", out);
@@ -2800,10 +2798,8 @@ os.spawn_path("/tmp/spawn_path_test.lua", {})
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         // Child may be reaped (removed from list) before parent runs again, so status becomes "not_found"; accept both.
@@ -2817,10 +2813,9 @@ while true do
   end
 end
 "#;
-        vm.os.spawn_process(script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,script, vec![], 0, "root");
 
         let (stdout_by_pid, _) = run_tick_until_done_with_spawn(
-            &lua,
             &mut vm,
             &manager,
             vm_id,
@@ -2881,20 +2876,18 @@ end
             .await
             .unwrap();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let parent_script = r#"
 local pid = os.spawn_path("/tmp/read_stdin.lua", {})
 os.write_stdin(pid, "hello")
 "#;
-        vm.os.spawn_process(parent_script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,parent_script, vec![], 0, "root");
 
         let (stdout_by_pid, _) =
-            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "stdin-vm", 200).await;
+            run_tick_until_done_with_spawn(&mut vm, &manager, vm_id, "stdin-vm", 200).await;
 
         assert!(
             stdout_by_pid.values().any(|s| s.contains("got:hello")),
@@ -2932,10 +2925,8 @@ os.write_stdin(pid, "hello")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         // Parent spawns echo child; each loop consumes any stdout, exits when child is finished or not_found.
@@ -2950,10 +2941,9 @@ while true do
   end
 end
 "#;
-        vm.os.spawn_process(script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,script, vec![], 0, "root");
 
         let (stdout_by_pid, tick_count) = run_tick_until_done_with_spawn(
-            &lua,
             &mut vm,
             &manager,
             vm_id,
@@ -3012,20 +3002,18 @@ end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let script = r#"
 local t = os.parse_cmd("cat file.txt --pretty")
 io.write(t.program .. "|" .. table.concat(t.args, ","))
 "#;
-        vm.os.spawn_process(script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,script, vec![], 0, "root");
 
         let (stdout_by_pid, _) =
-            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "parse-vm", 50).await;
+            run_tick_until_done_with_spawn(&mut vm, &manager, vm_id, "parse-vm", 50).await;
 
         let out = stdout_by_pid.get(&1).map(|s| s.as_str()).unwrap_or("");
         assert!(
@@ -3064,10 +3052,8 @@ io.write(t.program .. "|" .. table.concat(t.args, ","))
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let script = r#"
@@ -3075,10 +3061,10 @@ local t = os.parse_cmd("sum age=2")
 io.write(t.program)
 for i = 1, #t.args do io.write("_" .. t.args[i]) end
 "#;
-        vm.os.spawn_process(script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,script, vec![], 0, "root");
 
         let (stdout_by_pid, _) =
-            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "parse-kv-vm", 50).await;
+            run_tick_until_done_with_spawn(&mut vm, &manager, vm_id, "parse-kv-vm", 50).await;
 
         let out = stdout_by_pid.get(&1).map(|s| s.as_str()).unwrap_or("");
         assert!(out.contains("sum"), "program should be 'sum', got: {:?}", out);
@@ -3118,17 +3104,15 @@ for i = 1, #t.args do io.write("_" .. t.args[i]) end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let script = r#"os.exec("echo", {"exec_ok"})"#;
-        vm.os.spawn_process(script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,script, vec![], 0, "root");
 
         let (stdout_by_pid, _) =
-            run_tick_until_done_with_spawn(&lua, &mut vm, &manager, vm_id, "exec-vm", 100).await;
+            run_tick_until_done_with_spawn(&mut vm, &manager, vm_id, "exec-vm", 100).await;
 
         assert!(
             stdout_by_pid.values().any(|s| s.contains("exec_ok")),
@@ -3167,10 +3151,8 @@ for i = 1, #t.args do io.write("_" .. t.args[i]) end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         // Driver spawns shell then sends "echo hello" to shell stdin; driver exits.
@@ -3178,9 +3160,9 @@ for i = 1, #t.args do io.write("_" .. t.args[i]) end
 local pid = os.spawn("sh", {})
 os.write_stdin(pid, "echo hello")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
 
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-echo-vm", 50).await;
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-echo-vm", 50).await;
 
         let shell_stdout = vm
             .os
@@ -3227,10 +3209,8 @@ os.write_stdin(pid, "echo hello")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         // Driver spawns shell, sends "echo_stdin" (spawns child), then "hello" (forwarded to child).
@@ -3239,11 +3219,11 @@ local pid = os.spawn("sh", {})
 os.write_stdin(pid, "echo_stdin")
 os.write_stdin(pid, "hello")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
 
         // Need enough ticks: shell reads "echo_stdin", spawns child; next tick reads "hello", forwards to child;
         // stdin inject applies end-of-tick so child gets "hello" next tick; child echoes; shell relays next tick.
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-forward-vm", 80).await;
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-forward-vm", 80).await;
 
         let shell_stdout = vm
             .os
@@ -3290,19 +3270,17 @@ os.write_stdin(pid, "hello")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let driver_script = r#"
 local pid = os.spawn("sh", {})
 os.write_stdin(pid, "ls /")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
 
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-ls-vm", 50).await;
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-ls-vm", 50).await;
 
         let shell_stdout = vm
             .os
@@ -3349,19 +3327,17 @@ os.write_stdin(pid, "ls /")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let driver_script = r#"
 local pid = os.spawn("sh", {})
 os.write_stdin(pid, "echo a b c")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
 
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-echo-args-vm", 50).await;
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-echo-args-vm", 50).await;
 
         let shell_stdout = vm
             .os
@@ -3408,19 +3384,17 @@ os.write_stdin(pid, "echo a b c")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let driver_script = r#"
 local pid = os.spawn("sh", {})
 os.write_stdin(pid, "touch /tmp/shell_touch_test")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
 
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-touch-vm", 50).await;
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-touch-vm", 50).await;
 
         let file = fs_service
             .read_file(vm_id, "/tmp/shell_touch_test")
@@ -3474,19 +3448,17 @@ os.write_stdin(pid, "touch /tmp/shell_touch_test")
             .await
             .unwrap();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let driver_script = r#"
 local pid = os.spawn("sh", {})
 os.write_stdin(pid, "cat /tmp/shell_cat_test")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
 
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-cat-vm", 50).await;
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-cat-vm", 50).await;
 
         let shell_stdout = vm
             .os
@@ -3533,10 +3505,8 @@ os.write_stdin(pid, "cat /tmp/shell_cat_test")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         // Driver sends "touch" first, then yields for many ticks so touch can finish and shell clears child_pid, then sends "rm".
@@ -3546,9 +3516,9 @@ os.write_stdin(pid, "touch /tmp/shell_rm_test")
 for i = 1, 60 do end
 os.write_stdin(pid, "rm /tmp/shell_rm_test")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
 
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-rm-vm", 100).await;
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-rm-vm", 100).await;
 
         let file = fs_service
             .read_file(vm_id, "/tmp/shell_rm_test")
@@ -3590,18 +3560,16 @@ os.write_stdin(pid, "rm /tmp/shell_rm_test")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let driver_script = r#"
 local pid = os.spawn("sh", {})
 os.write_stdin(pid, "ls")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-ls-cwd-vm", 50).await;
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-ls-cwd-vm", 50).await;
 
         let shell_stdout = vm
             .os
@@ -3648,10 +3616,8 @@ os.write_stdin(pid, "ls")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let driver_script = r#"
@@ -3662,8 +3628,8 @@ os.write_stdin(pid, "cd /tmp")
 for i = 1, 15 do end
 os.write_stdin(pid, "pwd")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-pwd-vm", 50).await;
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-pwd-vm", 50).await;
 
         let shell_stdout = vm
             .os
@@ -3715,10 +3681,8 @@ os.write_stdin(pid, "pwd")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let driver_script = r#"
@@ -3729,8 +3693,8 @@ os.write_stdin(pid, "cd ..")
 for i = 1, 20 do end
 os.write_stdin(pid, "touch x.txt")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-cd-dotdot-vm", 60).await;
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-cd-dotdot-vm", 60).await;
 
         let file = fs_service
             .read_file(vm_id, "/var/x.txt")
@@ -3772,18 +3736,16 @@ os.write_stdin(pid, "touch x.txt")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let driver_script = r#"
 local pid = os.spawn("sh", {})
 os.write_stdin(pid, "touch /tmp/absolute_test.txt")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-touch-abs-vm", 50).await;
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-touch-abs-vm", 50).await;
 
         let file = fs_service
             .read_file(vm_id, "/tmp/absolute_test.txt")
@@ -3825,10 +3787,8 @@ os.write_stdin(pid, "touch /tmp/absolute_test.txt")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let driver_script = r#"
@@ -3837,8 +3797,8 @@ os.write_stdin(pid, "cd /tmp")
 for i = 1, 20 do end
 os.write_stdin(pid, "touch cwd_file.txt")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-cd-touch-vm", 60).await;
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-cd-touch-vm", 60).await;
 
         let file = fs_service
             .read_file(vm_id, "/tmp/cwd_file.txt")
@@ -3880,10 +3840,8 @@ os.write_stdin(pid, "touch cwd_file.txt")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let driver_script = r#"
@@ -3892,8 +3850,8 @@ os.write_stdin(pid, "cd /nonexistent_folder_12345")
 for i = 1, 20 do end
 os.write_stdin(pid, "pwd")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-cd-nonexistent-vm", 60).await;
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-cd-nonexistent-vm", 60).await;
 
         let shell_stdout = vm
             .os
@@ -3945,18 +3903,16 @@ os.write_stdin(pid, "pwd")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-        let mut vm = VirtualMachine::with_id(&lua, vm_id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
         let driver_script = r#"
 local pid = os.spawn("sh", {})
 os.write_stdin(pid, "nonexistentcommand")
 "#;
-        vm.os.spawn_process(driver_script, vec![], 0, "root");
-        run_n_ticks_with_spawn(&lua, &mut vm, &manager, vm_id, "shell-notfound-vm", 50).await;
+        vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-notfound-vm", 50).await;
 
         let shell_stdout = vm
             .os
@@ -4017,13 +3973,11 @@ os.write_stdin(pid, "nonexistentcommand")
         };
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm_a = VirtualMachine::with_id(&lua, _rec_a.id);
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
-        let mut vm_b = VirtualMachine::with_id(&lua, _rec_b.id);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
         vm_b.attach_nic(nic_b);
 
         // A: listen on a port, then loop recv and write
@@ -4038,7 +3992,7 @@ end
 "#,
             PORT
         );
-        vm_a.os.spawn_process(&recv_script, vec![], 0, "root");
+        vm_a.os.spawn_process(&vm_a.lua,&recv_script, vec![], 0, "root");
 
         // B: use connection API to send to A (no net.listen(0))
         let send_script = format!(
@@ -4049,10 +4003,10 @@ conn:send("hello")
             ip_a,
             PORT
         );
-        vm_b.os.spawn_process(&send_script, vec![], 0, "root");
+        vm_b.os.spawn_process(&vm_b.lua,&send_script, vec![], 0, "root");
 
         let mut vms = vec![vm_a, vm_b];
-        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, 80).await;
+        run_n_ticks_vms_network(&mut manager, &mut vms, 80).await;
 
         let vm_a_stdout = vms[0]
             .os
@@ -4113,22 +4067,20 @@ conn:send("hello")
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip;
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm_a = VirtualMachine::with_id(&lua, _rec_a.id);
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
-        let mut vm_b = VirtualMachine::with_id(&lua, _rec_b.id);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
         vm_b.attach_nic(nic_b);
 
         // B only listens on 22 (no process that runs forever; we just need listening_ports set)
         vm_b
             .os
-            .spawn_process("net.listen(22)", vec![], 0, "root");
+            .spawn_process(&vm_b.lua, "net.listen(22)", vec![], 0, "root");
 
         let mut vms = vec![vm_a, vm_b];
-        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, 2).await;
+        run_n_ticks_vms_network(&mut manager, &mut vms, 2).await;
 
         // B should have run and called net.listen(22), so B's NIC is listening on 22
         assert!(
@@ -4199,19 +4151,17 @@ conn:send("hello")
         };
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm_a = VirtualMachine::with_id(&lua, _rec_a.id);
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
-        let mut vm_b = VirtualMachine::with_id(&lua, _rec_b.id);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
         vm_b.attach_nic(nic_b);
 
         // VM A: process 1 listens on 8080 and exits
-        vm_a.os.spawn_process("net.listen(8080)", vec![], 0, "root");
+        vm_a.os.spawn_process(&vm_a.lua,"net.listen(8080)", vec![], 0, "root");
         // VM A: process 2 tries to listen on 8080 (must fail), writes "ok" or "fail", then loops so we can read stdout
-        vm_a.os.spawn_process(
+        vm_a.os.spawn_process(&vm_a.lua,
             r#"
 local ok, err = pcall(function() net.listen(8080) end)
 io.write(ok and "ok" or "fail")
@@ -4223,7 +4173,7 @@ while true do end
         );
 
         let mut vms = vec![vm_a, vm_b];
-        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, 100).await;
+        run_n_ticks_vms_network(&mut manager, &mut vms, 100).await;
 
         let second_stdout = vms[0]
             .os
@@ -4283,17 +4233,15 @@ while true do end
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm_a = VirtualMachine::with_id(&lua, _rec_a.id);
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
-        let mut vm_b = VirtualMachine::with_id(&lua, _rec_b.id);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
         vm_b.attach_nic(nic_b);
 
         const PORT: u16 = 7777;
-        vm_b.os.spawn_process(
+        vm_b.os.spawn_process(&vm_b.lua,
             &format!(
                 r#"
 net.listen({})
@@ -4308,7 +4256,7 @@ end
             0,
             "root",
         );
-        vm_a.os.spawn_process(
+        vm_a.os.spawn_process(&vm_a.lua,
             &format!(
                 r#"
 local conn = net.connect("{}", {})
@@ -4328,7 +4276,7 @@ while true do end
         );
 
         let mut vms = vec![vm_a, vm_b];
-        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, 500).await;
+        run_n_ticks_vms_network(&mut manager, &mut vms, 500).await;
 
         let a_stdout = vms[0]
             .os
@@ -4392,17 +4340,15 @@ while true do end
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm_a = VirtualMachine::with_id(&lua, _rec_a.id);
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
-        let mut vm_b = VirtualMachine::with_id(&lua, _rec_b.id);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
         vm_b.attach_nic(nic_b);
 
         // B: ssh-server listens on 22, spawns shell per client, relays stdin/stdout.
-        vm_b.os.spawn_process(bin_programs::SSH_SERVER, vec![], 0, "root");
+        vm_b.os.spawn_process(&vm_b.lua,bin_programs::SSH_SERVER, vec![], 0, "root");
 
         // A: driver spawns ssh client, injects "echo hello" into its stdin, then loops so we can read client stdout.
         let driver_script = format!(
@@ -4413,10 +4359,10 @@ while true do end
 "#,
             ip_b
         );
-        vm_a.os.spawn_process(&driver_script, vec![], 0, "root");
+        vm_a.os.spawn_process(&vm_a.lua,&driver_script, vec![], 0, "root");
 
         let mut vms = vec![vm_a, vm_b];
-        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+        run_n_ticks_vms_network(&mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
 
         let ssh_stdout = vms[0]
             .os
@@ -4478,17 +4424,15 @@ while true do end
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm_a = VirtualMachine::with_id(&lua, _rec_a.id);
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
-        let mut vm_b = VirtualMachine::with_id(&lua, _rec_b.id);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
         vm_b.attach_nic(nic_b);
 
         // B: ssh-server listens on 22, one shell per connection (key = src_ip:src_port).
-        vm_b.os.spawn_process(bin_programs::SSH_SERVER, vec![], 0, "root");
+        vm_b.os.spawn_process(&vm_b.lua,bin_programs::SSH_SERVER, vec![], 0, "root");
 
         // A: driver spawns two SSH clients, injects distinct commands, then loops so we can read both stdouts.
         let driver_script = format!(
@@ -4502,10 +4446,10 @@ while true do end
             ip_b,
             ip_b
         );
-        vm_a.os.spawn_process(&driver_script, vec![], 0, "root");
+        vm_a.os.spawn_process(&vm_a.lua,&driver_script, vec![], 0, "root");
 
         let mut vms = vec![vm_a, vm_b];
-        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+        run_n_ticks_vms_network(&mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
 
         let ssh_processes: Vec<_> = vms[0]
             .os
@@ -4585,13 +4529,11 @@ while true do end
         let (_record_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm_a = VirtualMachine::with_id(&lua, _record_a.id);
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _record_a.id);
         vm_a.attach_nic(nic_a);
-        let mut vm_b = VirtualMachine::with_id(&lua, _record_b.id);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _record_b.id);
         vm_b.attach_nic(nic_b);
 
         // B: listen on port; loop forever until first request, then respond with "x" and break
@@ -4609,7 +4551,7 @@ end
 "#,
             LISTEN_PORT
         );
-        vm_b.os.spawn_process(&b_script, vec![], 0, "root");
+        vm_b.os.spawn_process(&vm_b.lua,&b_script, vec![], 0, "root");
 
         // A: use connection API to send request to B, then loop recv on connection (no net.listen(0))
         let a_script = format!(
@@ -4626,10 +4568,10 @@ end
             ip_b,
             LISTEN_PORT
         );
-        vm_a.os.spawn_process(&a_script, vec![], 0, "root");
+        vm_a.os.spawn_process(&vm_a.lua,&a_script, vec![], 0, "root");
 
         let mut vms = vec![vm_a, vm_b];
-        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+        run_n_ticks_vms_network(&mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
 
         let a_stdout = vms[0]
             .os
@@ -4705,13 +4647,11 @@ end
         let (_record_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm_a = VirtualMachine::with_id(&lua, _record_a.id);
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _record_a.id);
         vm_a.attach_nic(nic_a);
-        let mut vm_b = VirtualMachine::with_id(&lua, _record_b.id);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _record_b.id);
         vm_b.attach_nic(nic_b);
 
         const LISTEN_PORT: u16 = 9998;
@@ -4737,7 +4677,7 @@ end
 "#,
             LISTEN_PORT
         );
-        vm_b.os.spawn_process(&b_script, vec![], 0, "root");
+        vm_b.os.spawn_process(&vm_b.lua,&b_script, vec![], 0, "root");
 
         // A: connection API; send req1, recv until 4 then send req2, recv 1 more; write all to stdout.
         let a_script = format!(
@@ -4759,10 +4699,10 @@ end
             ip_b,
             LISTEN_PORT
         );
-        vm_a.os.spawn_process(&a_script, vec![], 0, "root");
+        vm_a.os.spawn_process(&vm_a.lua,&a_script, vec![], 0, "root");
 
         let mut vms = vec![vm_a, vm_b];
-        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+        run_n_ticks_vms_network(&mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
 
         let a_stdout = vms[0]
             .os
@@ -4836,13 +4776,11 @@ end
         let (_record_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm_a = VirtualMachine::with_id(&lua, _record_a.id);
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _record_a.id);
         vm_a.attach_nic(nic_a);
-        let mut vm_b = VirtualMachine::with_id(&lua, _record_b.id);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _record_b.id);
         vm_b.attach_nic(nic_b);
 
         // B: listen on 80 and 9999; echo back r.data for each received packet
@@ -4856,7 +4794,7 @@ while true do
   end
 end
 "#;
-        vm_b.os.spawn_process(b_script, vec![], 0, "root");
+        vm_b.os.spawn_process(&vm_b.lua,b_script, vec![], 0, "root");
 
         // A: two connections to B (port 80 and 9999), send distinct payloads, then loop recv on both (no net.listen(0))
         let a_script = format!(
@@ -4875,10 +4813,10 @@ end
             ip_b,
             ip_b
         );
-        vm_a.os.spawn_process(&a_script, vec![], 0, "root");
+        vm_a.os.spawn_process(&vm_a.lua,&a_script, vec![], 0, "root");
 
         let mut vms = vec![vm_a, vm_b];
-        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+        run_n_ticks_vms_network(&mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
 
         let a_stdout = vms[0]
             .os
@@ -4933,15 +4871,14 @@ end
         let ip_b = nic_b.ip.to_string();
         let ip_c = nic_c.ip.to_string();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm_a = VirtualMachine::with_id(&lua, _record_a.id);
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _record_a.id);
         vm_a.attach_nic(nic_a);
-        let mut vm_b = VirtualMachine::with_id(&lua, _record_b.id);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _record_b.id);
         vm_b.attach_nic(nic_b);
-        let mut vm_c = VirtualMachine::with_id(&lua, _record_c.id);
+        let mut vm_c = VirtualMachine::with_id(lua_c, _record_c.id);
         vm_c.attach_nic(nic_c);
 
         const PORT_B: u16 = 9000;
@@ -4959,7 +4896,7 @@ end
 "#,
             PORT_B
         );
-        vm_b.os.spawn_process(&b_script, vec![], 0, "root");
+        vm_b.os.spawn_process(&vm_b.lua,&b_script, vec![], 0, "root");
 
         let c_script = format!(
             r#"
@@ -4973,7 +4910,7 @@ end
 "#,
             PORT_C
         );
-        vm_c.os.spawn_process(&c_script, vec![], 0, "root");
+        vm_c.os.spawn_process(&vm_c.lua,&c_script, vec![], 0, "root");
 
         let a_script = format!(
             r#"
@@ -4993,10 +4930,10 @@ end
             ip_c,
             PORT_C
         );
-        vm_a.os.spawn_process(&a_script, vec![], 0, "root");
+        vm_a.os.spawn_process(&vm_a.lua,&a_script, vec![], 0, "root");
 
         let mut vms = vec![vm_a, vm_b, vm_c];
-        run_n_ticks_vms_network(&lua, &mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+        run_n_ticks_vms_network(&mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
 
         let a_stdout = vms[0]
             .os
@@ -5057,11 +4994,8 @@ end
 
         let (record, nic) = manager.create_vm(config).await.unwrap();
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm = VirtualMachine::with_id(&lua, record.id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, record.id);
         vm.attach_nic(nic);
         let mut vms = vec![vm];
 
@@ -5078,7 +5012,7 @@ end
         let mut ticks_done = 0;
         let mut ready = loop {
             manager
-                .run_n_ticks_with_terminal_hub(&lua, &mut vms, terminal_hub.clone(), 50)
+                .run_n_ticks_with_terminal_hub(&mut vms, terminal_hub.clone(), 50)
                 .await;
             ticks_done += 50;
             match response_rx.try_recv() {
@@ -5100,7 +5034,7 @@ end
         let mut stdout_acc = String::new();
         while !stdout_acc.contains("hello") {
             manager
-                .run_n_ticks_with_terminal_hub(&lua, &mut vms, terminal_hub.clone(), 30)
+                .run_n_ticks_with_terminal_hub(&mut vms, terminal_hub.clone(), 30)
                 .await;
             ticks_done += 30;
             while let Ok(chunk) = ready.stdout_rx.try_recv() {
@@ -5161,11 +5095,8 @@ end
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = os::create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
-
-        let mut vm = VirtualMachine::with_id(&lua, record.id);
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, record.id);
         vm.attach_nic(nic);
         let mut vms = vec![vm];
 
@@ -5179,7 +5110,7 @@ end
         let mut ticks_done = 0;
         let ready = loop {
             manager
-                .run_n_ticks_with_terminal_hub(&lua, &mut vms, terminal_hub.clone(), 50)
+                .run_n_ticks_with_terminal_hub(&mut vms, terminal_hub.clone(), 50)
                 .await;
             ticks_done += 50;
             match response_rx.try_recv() {
@@ -5202,7 +5133,7 @@ end
             .expect("send stdin");
 
         manager
-            .run_n_ticks_with_terminal_hub(&lua, &mut vms, terminal_hub.clone(), 20)
+            .run_n_ticks_with_terminal_hub(&mut vms, terminal_hub.clone(), 20)
             .await;
 
         // Simulate terminal closed: push kill for the shell (game loop will cascade to children)
@@ -5212,7 +5143,7 @@ end
         }
 
         manager
-            .run_n_ticks_with_terminal_hub(&lua, &mut vms, terminal_hub.clone(), 10)
+            .run_n_ticks_with_terminal_hub(&mut vms, terminal_hub.clone(), 10)
             .await;
 
         // VM may have been removed from vms when all processes were killed (os.is_finished); either way, no shell/children left

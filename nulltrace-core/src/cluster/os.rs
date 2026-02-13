@@ -6,13 +6,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-pub struct OS<'a> {
+/// Lua heap limit per VM: 1 MB. 5,000 VMs × 1 MB = 5 GB total.
+pub const LUA_MEMORY_LIMIT_BYTES: usize = 1024 * 1024;
+
+pub struct OS {
     pub processes: Vec<Process>,
     next_process_id: AtomicU64,
     is_finished: bool,
     /// Round-robin index for tick_one_process.
     next_process_index: usize,
-    lua: &'a Lua,
 }
 
 pub fn create_lua_state() -> Lua {
@@ -39,14 +41,21 @@ pub fn create_lua_state() -> Lua {
     lua
 }
 
-impl<'a> OS<'a> {
-    pub fn new(lua: &'a Lua) -> Self {
+/// Creates a minimal Lua state for a VM (stress test): sandbox, print, interrupt, memory limit. No APIs.
+/// Use when fs/net/os are not needed (e.g. standalone stress binary).
+pub fn create_vm_lua_state_minimal() -> Result<Lua, mlua::Error> {
+    let lua = create_lua_state();
+    lua.set_memory_limit(LUA_MEMORY_LIMIT_BYTES)?;
+    Ok(lua)
+}
+
+impl OS {
+    pub fn new() -> Self {
         Self {
             processes: Vec::new(),
             next_process_id: AtomicU64::new(1),
             is_finished: false,
             next_process_index: 0,
-            lua,
         }
     }
 
@@ -65,6 +74,7 @@ impl<'a> OS<'a> {
     /// Returns Some(id) on success, None on failure.
     pub fn spawn_process_with_id(
         &mut self,
+        lua: &Lua,
         id: u64,
         parent_id: Option<u64>,
         lua_code: &str,
@@ -75,7 +85,7 @@ impl<'a> OS<'a> {
         display_name: Option<String>,
     ) -> Option<u64> {
         let mut process = Process::new(
-            &self.lua,
+            lua,
             id,
             parent_id,
             user_id,
@@ -93,9 +103,9 @@ impl<'a> OS<'a> {
     }
 
     /// Backward-compatible spawn: allocates next id and uses no parent.
-    pub fn spawn_process(&mut self, lua_code: &str, args: Vec<String>, user_id: i32, username: &str) {
+    pub fn spawn_process(&mut self, lua: &Lua, lua_code: &str, args: Vec<String>, user_id: i32, username: &str) {
         let id = self.next_process_id.fetch_add(1, Ordering::Relaxed);
-        let _ = self.spawn_process_with_id(id, None, lua_code, args, user_id, username, None, None);
+        let _ = self.spawn_process_with_id(lua, id, None, lua_code, args, user_id, username, None, None);
     }
 
     /// Kills the process with the given PID and all its descendants (children, grandchildren, etc.).
@@ -127,15 +137,17 @@ impl<'a> OS<'a> {
         self.is_finished = self.processes.iter().all(|proc| proc.is_finished());
     }
 
-    pub fn tick(&mut self) {
+    /// Returns Err(mlua::Error::MemoryError) when any process exceeds the VM's memory limit.
+    pub fn tick(&mut self) -> Result<(), mlua::Error> {
         for process in &mut self.processes {
             if !process.is_finished() {
-                process.tick();
+                process.tick()?;
             }
         }
 
         self.processes.retain(|p| !p.is_finished());
         self.is_finished = self.processes.iter().all(|proc| proc.is_finished());
+        Ok(())
     }
 
     /// Returns the index of the next process to run (round-robin), or None if none runnable.
@@ -155,21 +167,24 @@ impl<'a> OS<'a> {
     }
 
     /// Tick the process at the given index. Call after get_next_tick_index and setting VmContext.
-    pub fn tick_process_at(&mut self, idx: usize) {
+    /// Returns Err(mlua::Error::MemoryError) when the VM's memory limit is exceeded.
+    pub fn tick_process_at(&mut self, idx: usize) -> Result<(), mlua::Error> {
         if idx < self.processes.len() && !self.processes[idx].is_finished() {
-            self.processes[idx].tick();
+            self.processes[idx].tick()?;
         }
         self.next_process_index = (idx + 1) % self.processes.len().max(1);
+        Ok(())
     }
 
     /// Run exactly one process (round-robin). Returns true if a process was ticked.
     /// Used when caller does not need to set per-process context (e.g. tests).
-    pub fn tick_one_process(&mut self) -> bool {
+    /// Returns Err when memory limit exceeded.
+    pub fn tick_one_process(&mut self) -> Result<bool, mlua::Error> {
         if let Some(idx) = self.get_next_tick_index() {
-            self.tick_process_at(idx);
-            true
+            self.tick_process_at(idx)?;
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 
@@ -178,7 +193,7 @@ impl<'a> OS<'a> {
 
         let mut i = 1;
         while self.processes.iter().any(|proc| !proc.is_finished()) {
-            self.tick();
+            let _ = self.tick();
             i += 1;
             if i > 1000 {
                 break;
@@ -196,15 +211,15 @@ mod tests {
     #[test]
     fn test_next_process_id_initial() {
         let lua = create_lua_state();
-        let os = OS::new(&lua);
+        let os = OS::new();
         assert_eq!(os.next_process_id(), 1);
     }
 
     #[test]
     fn test_spawn_process_with_id_returns_pid_and_sets_parent() {
         let lua = create_lua_state();
-        let mut os = OS::new(&lua);
-        let result = os.spawn_process_with_id(10, Some(1), "return", vec![], 0, "root", None, None);
+        let mut os = OS::new();
+        let result = os.spawn_process_with_id(&lua, 10, Some(1), "return", vec![], 0, "root", None, None);
         assert_eq!(result, Some(10));
         assert_eq!(os.processes.len(), 1);
         assert_eq!(os.processes[0].id, 10);
@@ -215,8 +230,8 @@ mod tests {
     #[test]
     fn test_spawn_process_with_id_updates_next_process_id() {
         let lua = create_lua_state();
-        let mut os = OS::new(&lua);
-        let _ = os.spawn_process_with_id(5, None, "return", vec![], 0, "root", None, None);
+        let mut os = OS::new();
+        let _ = os.spawn_process_with_id(&lua, 5, None, "return", vec![], 0, "root", None, None);
         assert!(os.next_process_id() >= 6);
     }
 }

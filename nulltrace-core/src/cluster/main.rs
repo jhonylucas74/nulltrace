@@ -22,16 +22,28 @@ use db::user_service::UserService;
 use db::vm_service::VmService;
 use grpc::game::game_service_server::GameServiceServer;
 use grpc::ClusterGameService;
-use lua_api::context::VmContext;
 use terminal_hub::new_hub;
 use net::ip::{Ipv4Addr, Subnet};
-use os::create_lua_state;
+use lua_api::context::VmContext;
 use std::sync::Arc;
 use tonic::transport::Server;
 use tonic_web::GrpcWebLayer;
 use vm::VirtualMachine;
 use vm_manager::{ProcessSnapshot, VmManager};
 use db::vm_service::VmConfig;
+
+/// Creates a fully configured Lua state for a VM: sandbox, APIs, VmContext, memory limit.
+fn create_vm_lua_state(
+    pool: sqlx::PgPool,
+    fs_service: Arc<FsService>,
+    user_service: Arc<UserService>,
+) -> Result<mlua::Lua, mlua::Error> {
+    let lua = os::create_lua_state();
+    lua.set_app_data(VmContext::new(pool));
+    lua_api::register_all(&lua, fs_service, user_service)?;
+    lua.set_memory_limit(os::LUA_MEMORY_LIMIT_BYTES)?;
+    Ok(lua)
+}
 
 const DATABASE_URL: &str = "postgres://nulltrace:nulltrace@localhost:5432/nulltrace";
 const REDIS_URL: &str = "redis://127.0.0.1:6379";
@@ -66,11 +78,7 @@ async fn main() {
         .expect("Failed to seed default player");
     println!("[cluster] Default player ready (Haru)");
 
-    // ── Lua state ──
-    let lua = create_lua_state();
-    lua.set_app_data(VmContext::new(pool.clone()));
-    lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).expect("Failed to register Lua APIs");
-    println!("[cluster] Lua APIs registered (fs, net, os)");
+    println!("[cluster] Lua APIs registered per VM (fs, net, os)");
 
     // ── VM Manager ──
     let subnet = Subnet::new(Ipv4Addr::new(10, 0, 1, 0), 22);
@@ -90,15 +98,16 @@ async fn main() {
 
     // ── Criar ou carregar VMs dependendo do modo ──
     let mut vms = if stress_mode {
-        create_stress_vms(&lua)
+        create_stress_vms(pool.clone(), fs_service.clone(), user_service.clone())
     } else {
-        load_game_vms(&mut manager, &lua, &player_service, &vm_service).await
+        load_game_vms(&mut manager, pool.clone(), fs_service.clone(), user_service.clone(), &player_service, &vm_service).await
     };
 
     let terminal_hub = new_hub();
 
     let process_snapshot_store: Arc<DashMap<uuid::Uuid, Vec<ProcessSnapshot>>> =
         Arc::new(DashMap::new());
+    let vm_lua_memory_store: Arc<DashMap<uuid::Uuid, u64>> = Arc::new(DashMap::new());
 
     // ── gRPC server (runs in background task) ──
     let grpc_addr = GRPC_ADDR.parse().expect("Invalid gRPC address");
@@ -110,6 +119,7 @@ async fn main() {
         faction_service.clone(),
         terminal_hub.clone(),
         process_snapshot_store.clone(),
+        vm_lua_memory_store.clone(),
     );
     let game_server = GameServiceServer::new(game_svc);
     tokio::spawn(async move {
@@ -125,21 +135,28 @@ async fn main() {
 
     // ── Game loop (main task) ──
     manager
-        .run_loop(&lua, &mut vms, terminal_hub, process_snapshot_store, &pool, stress_mode)
+        .run_loop(&mut vms, terminal_hub, process_snapshot_store, vm_lua_memory_store, &pool, stress_mode)
         .await;
 }
 
 /// Criar 5k VMs in-memory para stress test
-fn create_stress_vms(lua: &mlua::Lua) -> Vec<VirtualMachine> {
+fn create_stress_vms(
+    pool: sqlx::PgPool,
+    fs_service: Arc<FsService>,
+    user_service: Arc<UserService>,
+) -> Vec<VirtualMachine> {
     println!("[cluster] STRESS TEST MODE: Creating 5,000 VMs (in-memory)...");
     let mut vms = Vec::new();
     let start_creation = std::time::Instant::now();
 
     for i in 0..5_000 {
+        let lua = create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone())
+            .expect("Failed to create VM Lua state");
         let mut vm = VirtualMachine::new(lua);
 
         // Spawn infinite loop process in each VM
         vm.os.spawn_process(
+            &vm.lua,
             r#"
 local count = 0
 while true do
@@ -172,12 +189,14 @@ end
 }
 
 /// Carregar VMs do banco de dados para modo jogo
-async fn load_game_vms<'a>(
+async fn load_game_vms(
     manager: &mut VmManager,
-    lua: &'a mlua::Lua,
+    pool: sqlx::PgPool,
+    fs_service: Arc<FsService>,
+    user_service: Arc<UserService>,
     player_service: &Arc<PlayerService>,
     vm_service: &Arc<VmService>,
-) -> Vec<VirtualMachine<'a>> {
+) -> Vec<VirtualMachine> {
     println!("[cluster] GAME MODE: Loading VMs from database...");
 
     let mut vms = Vec::new();
@@ -239,6 +258,8 @@ async fn load_game_vms<'a>(
             .get_active_vm(vm_id)
             .map(|a| a.cpu_cores)
             .unwrap_or(1);
+        let lua = create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone())
+            .expect("Failed to create VM Lua state");
         let mut vm = VirtualMachine::with_id_and_cpu(lua, vm_id, cpu_cores);
 
         // Attach NIC if the VM has an IP assigned

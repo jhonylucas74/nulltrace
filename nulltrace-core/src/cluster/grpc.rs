@@ -43,6 +43,7 @@ pub struct ClusterGameService {
     faction_service: Arc<FactionService>,
     terminal_hub: Arc<TerminalHub>,
     process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
+    vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
 }
 
 impl ClusterGameService {
@@ -54,6 +55,7 @@ impl ClusterGameService {
         faction_service: Arc<FactionService>,
         terminal_hub: Arc<TerminalHub>,
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
+        vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
     ) -> Self {
         Self {
             player_service,
@@ -63,6 +65,7 @@ impl ClusterGameService {
             faction_service,
             terminal_hub,
             process_snapshot_store,
+            vm_lua_memory_store,
         }
     }
 
@@ -280,21 +283,60 @@ impl GameService for ClusterGameService {
         });
 
         let mut stdout_rx = ready.stdout_rx;
+        let mut error_rx = ready.error_rx;
         tokio::spawn(async move {
-            while let Some(chunk) = stdout_rx.recv().await {
+            let mut send_closed = true;
+            loop {
+                tokio::select! {
+                    chunk = stdout_rx.recv() => {
+                        match chunk {
+                            Some(s) => {
+                                let _ = tx
+                                    .send(Ok(TerminalServerMessage {
+                                        msg: Some(TerminalServerMsg::Stdout(StdoutData {
+                                            data: s.into_bytes(),
+                                        })),
+                                    }))
+                                    .await;
+                            }
+                            None => {
+                                // stdout closed; error may have been sent before session drop - drain it
+                                if let Ok(msg) = error_rx.try_recv() {
+                                    let _ = tx
+                                        .send(Ok(TerminalServerMessage {
+                                            msg: Some(TerminalServerMsg::TerminalError(TerminalError {
+                                                message: msg,
+                                            })),
+                                        }))
+                                        .await;
+                                    send_closed = false;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    err = error_rx.recv() => {
+                        if let Some(msg) = err {
+                            let _ = tx
+                                .send(Ok(TerminalServerMessage {
+                                    msg: Some(TerminalServerMsg::TerminalError(TerminalError {
+                                        message: msg,
+                                    })),
+                                }))
+                                .await;
+                            send_closed = false;
+                        }
+                        break;
+                    }
+                }
+            }
+            if send_closed {
                 let _ = tx
                     .send(Ok(TerminalServerMessage {
-                        msg: Some(TerminalServerMsg::Stdout(StdoutData {
-                            data: chunk.into_bytes(),
-                        })),
+                        msg: Some(TerminalServerMsg::TerminalClosed(TerminalClosed {})),
                     }))
                     .await;
             }
-            let _ = tx
-                .send(Ok(TerminalServerMessage {
-                    msg: Some(TerminalServerMsg::TerminalClosed(TerminalClosed {})),
-                }))
-                .await;
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))
@@ -369,12 +411,18 @@ impl GameService for ClusterGameService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         let disk_total_bytes = (vm.disk_mb as i64) * 1024 * 1024;
+        let vm_lua_memory_bytes = self
+            .vm_lua_memory_store
+            .get(&vm.id)
+            .map(|g| *g)
+            .unwrap_or(0);
 
         Ok(Response::new(GetProcessListResponse {
             processes,
             disk_used_bytes,
             disk_total_bytes,
             error_message: String::new(),
+            vm_lua_memory_bytes,
         }))
     }
 
@@ -990,6 +1038,7 @@ mod tests {
             Arc::new(FactionService::new(pool.clone())),
             new_hub(),
             Arc::new(DashMap::new()),
+            Arc::new(DashMap::new()),
         )
     }
 
@@ -1005,6 +1054,7 @@ mod tests {
             Arc::new(FactionService::new(pool.clone())),
             new_hub(),
             process_snapshot_store,
+            Arc::new(DashMap::new()),
         )
     }
 

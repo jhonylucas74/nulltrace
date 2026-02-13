@@ -51,6 +51,66 @@ for i = 1, #args do
 end
 "#;
 
+/// Mem-stress: allocates memory gradually to test the 1 MB Lua limit.
+/// Args: [chunk_kb] (default 4). Each iteration allocates chunk_kb KB.
+/// Prints progress every 10 chunks. When limit is hit, VM resets (MemoryError).
+pub const MEM_STRESS: &str = r#"
+local args = os.get_args()
+local chunk_kb = 4
+if #args >= 1 then
+  chunk_kb = tonumber(args[1]) or 4
+end
+if chunk_kb < 1 then chunk_kb = 1 end
+if chunk_kb > 64 then chunk_kb = 64 end
+
+local chunk_size = chunk_kb * 1024
+local t = {}
+local iter = 0
+
+io.write("mem_stress: chunk=" .. chunk_kb .. " KB, limit=1 MB. Allocating...\n")
+
+while true do
+  iter = iter + 1
+  t[iter] = string.rep("x", chunk_size)
+  if iter % 10 == 0 then
+    local kb = iter * chunk_kb
+    io.write("mem_stress: " .. iter .. " chunks (~" .. kb .. " KB)\n")
+  end
+end
+"#;
+
+/// Coin flip game: loop, store results in table, print probability.
+/// Args: [max_history] (default 1000). Bounded history keeps memory under 1 MB.
+pub const COIN: &str = r#"
+local args = os.get_args()
+local max_history = 1000
+if #args >= 1 then
+  max_history = tonumber(args[1]) or 1000
+end
+if max_history < 1 then max_history = 1 end
+if max_history > 10000 then max_history = 10000 end
+
+local heads, tails = 0, 0
+local history = {}
+
+io.write("coin: flipping (max_history=" .. max_history .. "). Press Ctrl+C to stop.\n")
+
+while true do
+  local flip = (math.random(1, 2) == 1) and "heads" or "tails"
+  if flip == "heads" then heads = heads + 1 else tails = tails + 1 end
+
+  history[#history + 1] = flip
+  if #history > max_history then
+    table.remove(history, 1)
+  end
+
+  local total = heads + tails
+  local p_heads = (heads / total) * 100
+  local p_tails = (tails / total) * 100
+  io.write("Flip " .. total .. ": " .. flip .. ". P(heads)=" .. string.format("%.1f", p_heads) .. "% P(tails)=" .. string.format("%.1f", p_tails) .. "%\n")
+end
+"#;
+
 /// Shell: reads stdin, parses as bin command (no spawn_path). Maintains cwd; cd and pwd are builtins.
 /// Commands ls, touch, cat, rm get path args resolved against cwd. Unknown commands print "<red>Command not found</red>".
 pub const SH: &str = r#"
@@ -217,9 +277,11 @@ end
 /// Programs to include when bootstrapping a new VM. User can delete them later.
 pub const DEFAULT_BIN_PROGRAMS: &[(&str, &str)] = &[
     ("cat", CAT),
+    ("coin", COIN),
     ("echo", ECHO),
     ("echo_stdin", ECHO_STDIN),
     ("ls", LS),
+    ("mem_stress", MEM_STRESS),
     ("rm", RM),
     ("sh", SH),
     ("ssh", SSH),

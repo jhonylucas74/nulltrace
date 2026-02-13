@@ -163,6 +163,7 @@ pub struct GetProcessListResponse {
     pub disk_used_bytes: i64,
     pub disk_total_bytes: i64,
     pub error_message: String,
+    pub vm_lua_memory_bytes: u64,
 }
 
 /// Tauri command: Get process list and disk usage for the player's VM (single round-trip for System Monitor).
@@ -210,6 +211,7 @@ pub async fn grpc_get_process_list(
         disk_used_bytes: response.disk_used_bytes,
         disk_total_bytes: response.disk_total_bytes,
         error_message: response.error_message,
+        vm_lua_memory_bytes: response.vm_lua_memory_bytes,
     })
 }
 

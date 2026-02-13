@@ -19,6 +19,9 @@ import styles from "./SystemMonitorApp.module.css";
 
 const PROCESS_LIST_POLL_MS = 3000;
 
+/** VM Lua heap limit (1 MB per VM). */
+const LUA_MEMORY_LIMIT_BYTES = 1024 * 1024;
+
 /** One process from gRPC GetProcessList (VM processes when authenticated). */
 interface GrpcProcessEntry {
   pid: number;
@@ -140,6 +143,7 @@ export default function SystemMonitorApp() {
     processes: GrpcProcessEntry[];
     disk_used_bytes: number;
     disk_total_bytes: number;
+    vm_lua_memory_bytes?: number;
   } | null>(null);
   const [sysinfoMemoryMb, setSysinfoMemoryMb] = useState<number | null>(null);
   const [grpcError, setGrpcError] = useState<string | null>(null);
@@ -178,6 +182,7 @@ export default function SystemMonitorApp() {
         processes: GrpcProcessEntry[];
         disk_used_bytes: number;
         disk_total_bytes: number;
+        vm_lua_memory_bytes?: number;
         error_message: string;
       }>("grpc_get_process_list", { playerId, token });
       if (res.error_message === "UNAUTHENTICATED") {
@@ -192,6 +197,7 @@ export default function SystemMonitorApp() {
         processes: Array.isArray(res.processes) ? res.processes : [],
         disk_used_bytes: res.disk_used_bytes ?? 0,
         disk_total_bytes: res.disk_total_bytes ?? 0,
+        vm_lua_memory_bytes: res.vm_lua_memory_bytes,
       });
     } catch (e) {
       setGrpcError(e instanceof Error ? e.message : String(e));
@@ -364,6 +370,32 @@ export default function SystemMonitorApp() {
                     aria-valuemax={100}
                   />
                 </div>
+              </div>
+              <div className={styles.resourceBlock}>
+                <div className={styles.resourceRow}>
+                  <span className={styles.resourceLabel}>VM Lua Memory</span>
+                  <span className={styles.resourceValue}>
+                    {grpcData?.vm_lua_memory_bytes != null
+                      ? `${(grpcData.vm_lua_memory_bytes / (1024 * 1024)).toFixed(2)} MB / ${(LUA_MEMORY_LIMIT_BYTES / (1024 * 1024)).toFixed(2)} MB`
+                      : "—"}
+                  </span>
+                </div>
+                {grpcData?.vm_lua_memory_bytes != null && (
+                  <div className={styles.progressTrack}>
+                    <div
+                      className={styles.progressFill}
+                      style={{
+                        width: `${Math.min(100, (grpcData.vm_lua_memory_bytes / LUA_MEMORY_LIMIT_BYTES) * 100)}%`,
+                      }}
+                      role="progressbar"
+                      aria-valuenow={Math.round(
+                        (grpcData.vm_lua_memory_bytes / LUA_MEMORY_LIMIT_BYTES) * 100
+                      )}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </>

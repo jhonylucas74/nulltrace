@@ -17,7 +17,7 @@ use std::{
 
 const TOTAL_VMS: usize = 1_000;
 const PROCESSOS_POR_VM: usize = 1;
-const TEST_DURATION_SECS: u64 = 20;
+const TEST_DURATION_SECS: u64 = 300; // 5 minutes
 const FPS: u32 = 60;
 const FRAME_TIME: Duration = Duration::from_millis(1000 / FPS as u64);
 
@@ -43,23 +43,24 @@ async fn main() {
 
     let mut vms = Vec::with_capacity(TOTAL_VMS);
 
-    let lua = os::create_lua_state();
     for _ in 0..TOTAL_VMS {
-        let mut vm = vm::VirtualMachine::new(&lua);
+        let lua = os::create_vm_lua_state_minimal().expect("Failed to create VM Lua state");
+        let mut vm = vm::VirtualMachine::new(lua);
         metrics.vm_count.fetch_add(1, Ordering::Relaxed);
 
         for _ in 0..PROCESSOS_POR_VM {
             vm.os.spawn_process(
-               r#"
+                &vm.lua,
+                r#"
 local count = 0
 while true do
     count = count + 1
     print("VM tick: " .. count)
 end
             "#,
-            vec![],
-            0,
-            "root",
+                vec![],
+                0,
+                "root",
             );
             metrics.process_count.fetch_add(1, Ordering::Relaxed);
         }
@@ -77,7 +78,12 @@ end
 
         // Tick em cada VM, remove as que terminaram
         vms.retain_mut(|vm| {
-            vm.os.tick();
+            if let Err(e) = vm.os.tick() {
+                if matches!(e, mlua::Error::MemoryError(_)) {
+                    println!("[stress] VM {} exceeded memory limit (1 MB), resetting state", vm.id);
+                    let _ = vm.reset_lua_state(|| os::create_vm_lua_state_minimal());
+                }
+            }
             // Count process ticks (1 tick per process per game tick)
             metrics.process_ticks.fetch_add(vm.os.processes.len(), Ordering::Relaxed);
             !vm.os.is_finished()
@@ -114,9 +120,20 @@ end
 
     println!("\n=== STRESS TEST RESULTS ===\n");
     println!("Configuration:");
-    println!("  VMs: {}", TOTAL_VMS);
+    println!("  VMs: {}", vms.len());
     println!("  Processes per VM: {}", PROCESSOS_POR_VM);
     println!("  Total Processes: {}\n", metrics.process_count.load(Ordering::Relaxed));
+
+    // Lua state memory (per-VM heap)
+    let total_lua_bytes: usize = vms.iter().map(|vm| vm.lua.used_memory()).sum();
+    let avg_lua_bytes = if vms.is_empty() {
+        0
+    } else {
+        total_lua_bytes / vms.len()
+    };
+    println!("Lua Memory (Per-VM State):");
+    println!("  Total: {} bytes ({:.2} MB)", total_lua_bytes, total_lua_bytes as f64 / 1_048_576.0);
+    println!("  Average per VM: {} bytes ({:.2} KB)\n", avg_lua_bytes, avg_lua_bytes as f64 / 1024.0);
 
     println!("Performance:");
     println!("  Duration: {:.2}s", duration.as_secs_f64());

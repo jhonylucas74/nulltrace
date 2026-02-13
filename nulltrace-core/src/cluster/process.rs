@@ -85,22 +85,26 @@ impl Process {
         })
     }
 
-    pub fn tick(&mut self) {
+    /// Returns Err(mlua::Error::MemoryError) when the VM's memory limit is exceeded.
+    pub fn tick(&mut self) -> mlua::Result<()> {
         match self.thread.status() {
             ThreadStatus::Resumable => {
-                let _ = self.thread.resume::<()>(());
+                if let Err(e) = self.thread.resume::<()>(()) {
+                    self.finished = true;
+                    return Err(e);
+                }
             }
             ThreadStatus::Running => {
-                // println!("Process still running!");
+                // Process still running (yielded)
             }
             ThreadStatus::Error => {
                 self.finished = true;
             }
             ThreadStatus::Finished => {
                 self.finished = true;
-                // println!("Process finished total time: {}", self.duration.elapsed().as_millis())
             }
         }
+        Ok(())
     }
 
     pub fn is_finished(&self) -> bool {

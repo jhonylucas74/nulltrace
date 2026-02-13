@@ -169,6 +169,7 @@ impl GameService for MyGameService {
             disk_used_bytes: 0,
             disk_total_bytes: 0,
             error_message: "Use the unified cluster binary for process list".to_string(),
+            vm_lua_memory_bytes: 0,
         }))
     }
 

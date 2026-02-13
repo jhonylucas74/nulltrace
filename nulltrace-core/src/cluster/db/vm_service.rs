@@ -45,6 +45,11 @@ impl VmService {
         Self { pool }
     }
 
+    /// Returns a reference to the database pool (e.g. for creating VM Lua states).
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     pub async fn create_vm(&self, id: Uuid, config: VmConfig) -> Result<VmRecord, sqlx::Error> {
         let rec = sqlx::query_as::<_, VmRecord>(
             r#"

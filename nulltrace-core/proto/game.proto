@@ -121,6 +121,7 @@ message GetProcessListResponse {
   int64 disk_used_bytes = 2;
   int64 disk_total_bytes = 3;
   string error_message = 4;
+  uint64 vm_lua_memory_bytes = 5;  // Real Lua heap usage (bytes)
 }
 
 message GetSysinfoRequest {}
