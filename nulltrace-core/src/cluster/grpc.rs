@@ -272,7 +272,11 @@ impl GameService for ClusterGameService {
             }
             drop(stdin_tx);
             let mut hub = hub_remove.lock().unwrap();
+            let kill_info = hub.sessions.get(&sid).map(|s| (s.vm_id, s.pid));
             hub.sessions.remove(&sid);
+            if let Some((vm_id, pid)) = kill_info {
+                hub.pending_kills.push((vm_id, pid));
+            }
         });
 
         let mut stdout_rx = ready.stdout_rx;

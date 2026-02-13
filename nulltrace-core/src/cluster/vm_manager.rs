@@ -528,6 +528,8 @@ impl VmManager {
                     };
                     let ready = SessionReady {
                         session_id,
+                        vm_id,
+                        pid,
                         stdout_rx,
                         stdin_tx,
                     };
@@ -536,6 +538,19 @@ impl VmManager {
                         hub.sessions.insert(session_id, session);
                     }
                     let _ = response_tx.send(Ok(ready));
+                }
+            }
+
+            // Process terminal pending kills: when a session was closed (e.g. UI closed), kill shell and descendants
+            {
+                let pending_kills: Vec<(Uuid, u64)> = {
+                    let mut hub = terminal_hub.lock().unwrap();
+                    std::mem::take(&mut hub.pending_kills)
+                };
+                for (vm_id, pid) in pending_kills {
+                    if let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) {
+                        vm.os.kill_process_and_descendants(pid);
+                    }
                 }
             }
 
@@ -731,6 +746,12 @@ impl VmManager {
                         }
                     }
                     for id in to_remove {
+                        if let Some(s) = hub.sessions.get(&id) {
+                            let (vmid, pid) = (s.vm_id, s.pid);
+                            if vmid == vm.id {
+                                vm.os.kill_process_and_descendants(pid);
+                            }
+                        }
                         hub.sessions.remove(&id);
                     }
                 }
@@ -801,8 +822,7 @@ impl VmManager {
                 }
             }
 
-            // Remove finished VMs
-            vms.retain_mut(|vm| !vm.os.is_finished());
+            // Do not remove VMs when they have no processes; they may get new terminals or processes later
 
             // Frame pacing
             let elapsed = tick_start.elapsed();
@@ -921,6 +941,8 @@ impl VmManager {
                     };
                     let ready = SessionReady {
                         session_id,
+                        vm_id,
+                        pid,
                         stdout_rx,
                         stdin_tx,
                     };
@@ -929,6 +951,19 @@ impl VmManager {
                         hub.sessions.insert(session_id, session);
                     }
                     let _ = response_tx.send(Ok(ready));
+                }
+            }
+
+            // Process terminal pending kills (same as run_loop)
+            {
+                let pending_kills: Vec<(Uuid, u64)> = {
+                    let mut hub = terminal_hub.lock().unwrap();
+                    std::mem::take(&mut hub.pending_kills)
+                };
+                for (vm_id, pid) in pending_kills {
+                    if let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) {
+                        vm.os.kill_process_and_descendants(pid);
+                    }
                 }
             }
 
@@ -1115,6 +1150,12 @@ impl VmManager {
                         }
                     }
                     for id in to_remove {
+                        if let Some(s) = hub.sessions.get(&id) {
+                            let (vmid, pid) = (s.vm_id, s.pid);
+                            if vmid == vm.id {
+                                vm.os.kill_process_and_descendants(pid);
+                            }
+                        }
                         hub.sessions.remove(&id);
                     }
                 }
@@ -1145,7 +1186,6 @@ impl VmManager {
             }
 
             self.network_tick(vms);
-            vms.retain_mut(|vm| !vm.os.is_finished());
 
             let _ = tick_start;
         }
@@ -4910,5 +4950,114 @@ end
             "shell stdout should contain 'hello', got: {:?}",
             stdout_acc
         );
+    }
+
+    /// Terminal close: when we push (vm_id, shell_pid) to pending_kills (simulating UI closing the terminal),
+    /// the game loop kills the shell and all descendants. Validates cascade kill.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_terminal_close_kills_shell_and_descendants() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 88, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+
+        let owner_name = format!("termplayer_{}", Uuid::new_v4());
+        let player = player_service
+            .create_player(&owner_name, "termpass")
+            .await
+            .unwrap();
+
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "term-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: Some(player.id),
+        };
+
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+
+        let lua = os::create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        lua_api::register_all(&lua, fs_service.clone(), user_service.clone()).unwrap();
+
+        let mut vm = VirtualMachine::with_id(&lua, record.id);
+        vm.attach_nic(nic);
+        let mut vms = vec![vm];
+
+        let terminal_hub = terminal_hub::new_hub();
+        let (response_tx, mut response_rx) = oneshot::channel();
+        {
+            let mut hub = terminal_hub.lock().unwrap();
+            hub.pending_opens.push((player.id, response_tx));
+        }
+
+        let mut ticks_done = 0;
+        let ready = loop {
+            manager
+                .run_n_ticks_with_terminal_hub(&lua, &mut vms, terminal_hub.clone(), 50)
+                .await;
+            ticks_done += 50;
+            match response_rx.try_recv() {
+                Ok(Ok(session)) => break session,
+                Ok(Err(e)) => panic!("terminal open failed: {}", e),
+                Err(_) => {}
+            }
+            if ticks_done >= 500 {
+                panic!("timeout: SessionReady not received");
+            }
+        };
+
+        let (shell_vm_id, shell_pid) = (ready.vm_id, ready.pid);
+
+        // Spawn a child (echo) so we have shell + child; then simulate terminal close and assert both are killed
+        ready
+            .stdin_tx
+            .send("echo done\n".to_string())
+            .await
+            .expect("send stdin");
+
+        manager
+            .run_n_ticks_with_terminal_hub(&lua, &mut vms, terminal_hub.clone(), 20)
+            .await;
+
+        // Simulate terminal closed: push kill for the shell (game loop will cascade to children)
+        {
+            let mut hub = terminal_hub.lock().unwrap();
+            hub.pending_kills.push((shell_vm_id, shell_pid));
+        }
+
+        manager
+            .run_n_ticks_with_terminal_hub(&lua, &mut vms, terminal_hub.clone(), 10)
+            .await;
+
+        // VM may have been removed from vms when all processes were killed (os.is_finished); either way, no shell/children left
+        if let Some(vm) = vms.iter().find(|v| v.id == vm_id) {
+            assert!(
+                vm.os.processes.is_empty(),
+                "closing terminal should kill shell and all descendants; processes left: {:?}",
+                vm.os
+                    .processes
+                    .iter()
+                    .map(|p| (p.id, p.display_name.as_deref().unwrap_or("?")))
+                    .collect::<Vec<_>>()
+            );
+        }
+        // Else: VM was removed by retain_mut because it had no processes (all killed), which is correct
     }
 }

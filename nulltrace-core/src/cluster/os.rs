@@ -95,6 +95,35 @@ impl<'a> OS<'a> {
         let _ = self.spawn_process_with_id(id, None, lua_code, args, user_id, username, None, None);
     }
 
+    /// Kills the process with the given PID and all its descendants (children, grandchildren, etc.).
+    /// Marks them as finished and immediately drops them (and their Luau threads) so that no Lua
+    /// code can keep running.
+    pub fn kill_process_and_descendants(&mut self, root_pid: u64) {
+        let mut to_kill: std::collections::HashSet<u64> = std::collections::HashSet::new();
+        to_kill.insert(root_pid);
+        loop {
+            let mut added = false;
+            for p in &self.processes {
+                if let Some(pid) = p.parent_id {
+                    if to_kill.contains(&pid) && !to_kill.contains(&p.id) {
+                        to_kill.insert(p.id);
+                        added = true;
+                    }
+                }
+            }
+            if !added {
+                break;
+            }
+        }
+        for p in &mut self.processes {
+            if to_kill.contains(&p.id) {
+                p.kill();
+            }
+        }
+        self.processes.retain(|p| !p.is_finished());
+        self.is_finished = self.processes.iter().all(|proc| proc.is_finished());
+    }
+
     pub fn tick(&mut self) {
         for process in &mut self.processes {
             if !process.is_finished() {

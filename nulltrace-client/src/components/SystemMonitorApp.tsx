@@ -396,11 +396,6 @@ export default function SystemMonitorApp() {
                 </li>
               ))}
             </ul>
-            {grpcData != null && grpcData.processes.length === 0 && (
-              <p className={styles.mainSubtitle} style={{ marginTop: "0.75rem" }}>
-                No VM processes. Open Terminal or run a script to see them here.
-              </p>
-            )}
           </>
         )}
       </main>

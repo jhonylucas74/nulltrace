@@ -84,6 +84,13 @@ impl Process {
     pub fn is_finished(&self) -> bool {
         self.finished
     }
+
+    /// Marks the process as finished. The caller must remove this process from the OS list
+    /// immediately (e.g. via `retain`) so that the Luau `Thread` is dropped and the Lua thread
+    /// is terminated and cannot keep running.
+    pub fn kill(&mut self) {
+        self.finished = true;
+    }
 }
 
 #[cfg(test)]

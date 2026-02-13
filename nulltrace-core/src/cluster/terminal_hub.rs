@@ -9,6 +9,10 @@ use uuid::Uuid;
 /// Sent from the game loop to the gRPC handler when a terminal session is ready.
 pub struct SessionReady {
     pub session_id: Uuid,
+    /// VM that owns the shell process (for pending_kills when session ends).
+    pub vm_id: Uuid,
+    /// Shell process PID (for pending_kills when session ends).
+    pub pid: u64,
     /// gRPC task receives shell stdout from this.
     pub stdout_rx: mpsc::Receiver<String>,
     /// gRPC task sends UI stdin to the game loop via this.
@@ -27,10 +31,12 @@ pub struct TerminalSession {
     pub last_stdout_len: usize,
 }
 
-/// Shared hub: pending open requests and active sessions.
+/// Shared hub: pending open requests, active sessions, and pending kills (vm_id, pid) when a terminal session ends.
 pub struct TerminalHubInner {
     pub pending_opens: Vec<(Uuid, oneshot::Sender<Result<SessionReady, String>>)>,
     pub sessions: HashMap<Uuid, TerminalSession>,
+    /// (vm_id, pid) to kill when the game loop runs; drained each tick and applied via kill_process_and_descendants.
+    pub pending_kills: Vec<(Uuid, u64)>,
 }
 
 pub type TerminalHub = Mutex<TerminalHubInner>;
@@ -40,6 +46,7 @@ impl TerminalHubInner {
         Self {
             pending_opens: Vec::new(),
             sessions: HashMap::new(),
+            pending_kills: Vec::new(),
         }
     }
 }
