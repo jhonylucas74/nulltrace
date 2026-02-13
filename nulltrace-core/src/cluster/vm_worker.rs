@@ -47,20 +47,24 @@ pub struct VmWorker<'a> {
 }
 
 impl<'a> VmWorker<'a> {
-    /// Process a chunk of VMs (ticking their processes)
+    /// Process a chunk of VMs (one process per VM per tick, round-robin).
+    /// Only processes VMs at executable_indices.
     ///
     /// SAFETY: This function is called with a mutable slice of VMs that is guaranteed
     /// to be non-overlapping with other workers' slices.
     pub fn process_chunk(
         &self,
         vms: &mut [VirtualMachine],
+        executable_indices: &[usize],
         active_vms: &[(Uuid, String, Option<super::net::ip::Ipv4Addr>)], // (id, hostname, ip)
     ) -> WorkerResult {
         let mut result = WorkerResult::default();
         result.start_idx = 0;
         result.end_idx = vms.len();
 
-        for vm in vms.iter_mut() {
+        for &vm_idx in executable_indices {
+            let vm = &mut vms[vm_idx];
+
             // Find VM metadata
             let (hostname, ip) = active_vms
                 .iter()
@@ -102,35 +106,40 @@ impl<'a> VmWorker<'a> {
                 }
             }
 
-            // Tick all processes
-            for process in &mut vm.os.processes {
-                let prev_uid = process.user_id;
+            // Tick one process (round-robin)
+            let process_idx = vm.os.get_next_tick_index();
+            if let Some(idx) = process_idx {
+                let (pid, stdin, stdout, args, forward_stdout_to, username) = {
+                    let p = &vm.os.processes[idx];
+                    (
+                        p.id,
+                        p.stdin.clone(),
+                        p.stdout.clone(),
+                        p.args.clone(),
+                        p.forward_stdout_to.clone(),
+                        p.username.clone(),
+                    )
+                };
                 {
                     let mut ctx = self.lua.app_data_mut::<VmContext>().unwrap();
-                    ctx.current_pid = process.id;
-                    ctx.current_uid = process.user_id;
-                    ctx.current_username = process.username.clone();
-                    ctx.set_current_process(
-                        process.stdin.clone(),
-                        process.stdout.clone(),
-                        process.args.clone(),
-                        process.forward_stdout_to.clone(),
-                    );
+                    ctx.current_pid = pid;
+                    ctx.current_uid = vm.os.processes[idx].user_id;
+                    ctx.current_username = username.clone();
+                    ctx.set_current_process(stdin, stdout, args, forward_stdout_to);
                 }
+                vm.os.tick_process_at(idx);
 
-                if !process.is_finished() {
-                    process.tick();
-                    result.process_ticks += 1;
-                }
-
-                // Check for uid changes
-                if prev_uid != process.user_id {
+                // Check for uid changes (process may have called os.setuid in Lua)
+                {
                     let ctx = self.lua.app_data_ref::<VmContext>().unwrap();
-                    if ctx.current_uid != process.user_id {
-                        process.user_id = ctx.current_uid;
-                        process.username = ctx.current_username.clone();
+                    if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == pid) {
+                        if ctx.current_uid != p.user_id {
+                            p.user_id = ctx.current_uid;
+                            p.username = ctx.current_username.clone();
+                        }
                     }
                 }
+                result.process_ticks += 1;
             }
 
             // Capture finished process stdout

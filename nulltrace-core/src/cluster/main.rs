@@ -166,7 +166,7 @@ end
         creation_time.as_secs_f64(),
         vms.len() as f64 / creation_time.as_secs_f64()
     );
-    println!("[cluster] Starting 20-second stress test...\n");
+    println!("[cluster] Starting 1-minute stress test...\n");
 
     vms
 }
@@ -235,7 +235,11 @@ async fn load_game_vms<'a>(
 
     // 3. Create VirtualMachine instance for each restored VM
     for vm_id in active_vm_ids {
-        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        let cpu_cores = manager
+            .get_active_vm(vm_id)
+            .map(|a| a.cpu_cores)
+            .unwrap_or(1);
+        let mut vm = VirtualMachine::with_id_and_cpu(lua, vm_id, cpu_cores);
 
         // Attach NIC if the VM has an IP assigned
         if let Some(active_vm) = manager.get_active_vm(vm_id) {

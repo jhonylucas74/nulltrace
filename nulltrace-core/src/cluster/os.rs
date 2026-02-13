@@ -10,6 +10,8 @@ pub struct OS<'a> {
     pub processes: Vec<Process>,
     next_process_id: AtomicU64,
     is_finished: bool,
+    /// Round-robin index for tick_one_process.
+    next_process_index: usize,
     lua: &'a Lua,
 }
 
@@ -43,6 +45,7 @@ impl<'a> OS<'a> {
             processes: Vec::new(),
             next_process_id: AtomicU64::new(1),
             is_finished: false,
+            next_process_index: 0,
             lua,
         }
     }
@@ -133,6 +136,41 @@ impl<'a> OS<'a> {
 
         self.processes.retain(|p| !p.is_finished());
         self.is_finished = self.processes.iter().all(|proc| proc.is_finished());
+    }
+
+    /// Returns the index of the next process to run (round-robin), or None if none runnable.
+    /// Caller must set VmContext and then call tick_process_at.
+    pub fn get_next_tick_index(&mut self) -> Option<usize> {
+        self.processes.retain(|p| !p.is_finished());
+        self.is_finished = self.processes.iter().all(|proc| proc.is_finished());
+        if self.processes.is_empty() {
+            return None;
+        }
+        self.next_process_index %= self.processes.len();
+        let idx = self.next_process_index;
+        if self.processes[idx].is_finished() {
+            return None;
+        }
+        Some(idx)
+    }
+
+    /// Tick the process at the given index. Call after get_next_tick_index and setting VmContext.
+    pub fn tick_process_at(&mut self, idx: usize) {
+        if idx < self.processes.len() && !self.processes[idx].is_finished() {
+            self.processes[idx].tick();
+        }
+        self.next_process_index = (idx + 1) % self.processes.len().max(1);
+    }
+
+    /// Run exactly one process (round-robin). Returns true if a process was ticked.
+    /// Used when caller does not need to set per-process context (e.g. tests).
+    pub fn tick_one_process(&mut self) -> bool {
+        if let Some(idx) = self.get_next_tick_index() {
+            self.tick_process_at(idx);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn run(&mut self) -> u128 {

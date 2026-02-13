@@ -2,6 +2,7 @@
 
 use super::bin_programs;
 use super::db::fs_service::FsService;
+use super::process::push_stdin_line;
 use super::db::player_service::PlayerService;
 use super::db::user_service::{UserService, VmUser};
 use super::db::vm_service::{VmConfig, VmRecord, VmService};
@@ -39,7 +40,7 @@ const SNAPSHOT_INTERVAL_TICKS: u64 = 60;
 
 const TPS: u32 = 60;
 const TICK_TIME: Duration = Duration::from_millis(1000 / TPS as u64);
-const TEST_DURATION_SECS: u64 = 20; // Stress test duration
+const TEST_DURATION_SECS: u64 = 60; // Stress test duration (1 minute)
 
 pub struct VmManager {
     pub vm_service: Arc<VmService>,
@@ -64,6 +65,8 @@ pub struct ActiveVm {
     pub hostname: String,
     pub dns_name: Option<String>,
     pub ip: Option<Ipv4Addr>,
+    /// CPU cores for tick budget (ticks_per_second = f(cpu_cores)).
+    pub cpu_cores: i16,
 }
 
 impl VmManager {
@@ -243,6 +246,7 @@ impl VmManager {
             hostname: record.hostname.clone(),
             dns_name: record.dns_name.clone(),
             ip: Some(nic.ip),
+            cpu_cores: record.cpu_cores,
         });
 
         if record.owner_id.is_some() {
@@ -321,6 +325,7 @@ impl VmManager {
                 hostname: record.hostname.clone(),
                 dns_name: record.dns_name.clone(),
                 ip,
+                cpu_cores: record.cpu_cores,
             });
 
             if record.owner_id.is_some() {
@@ -404,12 +409,7 @@ impl VmManager {
     }
 
     /// Process VMs using worker abstraction.
-    /// Currently processes sequentially due to Rust thread safety constraints with mlua.
-    ///
-    /// TODO: Implement true parallelization using one of these approaches:
-    /// 1. mlua "send" feature (if available in newer versions)
-    /// 2. Thread pool with thread-local Lua states
-    /// 3. Message passing architecture with dedicated Lua threads
+    /// Only processes VMs in executable_indices; each VM runs one process per tick (round-robin).
     ///
     /// Returns total process ticks executed across all workers.
     /// Uses the same Lua state that created the VMs' processes so io.read/io.write see correct stdin/stdout.
@@ -417,6 +417,7 @@ impl VmManager {
         &self,
         lua: &Lua,
         vms: &mut [VirtualMachine],
+        executable_indices: &[usize],
         _pool: &PgPool,
         fs_service: &Arc<FsService>,
         user_service: &Arc<UserService>,
@@ -433,7 +434,7 @@ impl VmManager {
             worker_id: 0,
             lua,
         };
-        let result = worker.process_chunk(vms, &active_vm_metadata);
+        let result = worker.process_chunk(vms, executable_indices, &active_vm_metadata);
         let total_ticks = result.process_ticks;
 
         (total_ticks, vec![result])
@@ -451,12 +452,12 @@ impl VmManager {
     ) {
         if stress_mode {
             println!(
-                "[cluster] STRESS TEST: Game loop started (NO LIMITER, {} active VMs)",
+                "[cluster] STRESS TEST: Game loop started ({} active VMs)",
                 vms.len()
             );
         } else {
             println!(
-                "[cluster] GAME MODE: Game loop started (NO LIMITER, {} active VMs)",
+                "[cluster] GAME MODE: Game loop started ({} active VMs)",
                 vms.len()
             );
         }
@@ -464,8 +465,11 @@ impl VmManager {
         let mut tick_count: u64 = 0;
         let start = Instant::now();
 
-        // Stress test metrics (pre-allocate for 20s @ ~250 TPS = ~5000 ticks)
-        let mut tick_durations: Vec<Duration> = Vec::with_capacity(5000);
+        // Executable VM indices (those with budget remaining). Rebuilt every second; shrinks as VMs exhaust budget.
+        let mut executable_vm_indices: Vec<usize> = Vec::new();
+
+        // Stress test metrics (pre-allocate for 60s @ 60 TPS = 3600 ticks)
+        let mut tick_durations: Vec<Duration> = Vec::with_capacity(3600);
         let mut min_duration = Duration::MAX;
         let mut max_duration = Duration::ZERO;
         let mut slow_ticks: u64 = 0;
@@ -632,11 +636,39 @@ impl VmManager {
                 }
             }
 
+            // ═══ TICK BUDGET: executable VM list ═══
+            // Every second: reset budgets; only VMs with remaining_ticks > 0 are executable.
+            // Same logic for both game and stress mode (stress performs better with smaller loop).
+            if tick_count % (TPS as u64) == 0 {
+                for vm in vms.iter_mut() {
+                    if vm.has_running_processes() {
+                        vm.remaining_ticks = vm.ticks_per_second;
+                    }
+                }
+                executable_vm_indices = (0..vms.len())
+                    .filter(|&i| vms[i].has_running_processes() && vms[i].remaining_ticks > 0)
+                    .collect();
+            }
+
             // ═══ PARALLEL VM PROCESSING ═══
-            // Process all VMs using the same Lua that created them (so process stdin/stdout work)
-            let (process_ticks, worker_results) =
-                self.process_vms_parallel(lua, vms, pool, &self.fs_service, &self.user_service);
+            // Process executable VMs only (one process per VM per tick, round-robin).
+            let (process_ticks, worker_results) = self.process_vms_parallel(
+                lua,
+                vms,
+                &executable_vm_indices,
+                pool,
+                &self.fs_service,
+                &self.user_service,
+            );
             total_process_ticks += process_ticks;
+
+            // Decrement budget and remove exhausted VMs from executable list.
+            for &idx in executable_vm_indices.iter() {
+                if vms[idx].remaining_ticks > 0 {
+                    vms[idx].remaining_ticks -= 1;
+                }
+            }
+            executable_vm_indices.retain(|&idx| vms[idx].remaining_ticks > 0);
 
             // ═══ SEQUENTIAL POST-PROCESSING ═══
             // Apply network operations and process spawn/stdin queues from workers
@@ -724,7 +756,7 @@ impl VmManager {
                         }
                         if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == *pid) {
                             if let Ok(mut guard) = p.stdin.lock() {
-                                guard.push_back(line.clone());
+                                push_stdin_line(&mut guard, line.clone());
                             }
                         }
                     }
@@ -745,17 +777,19 @@ impl VmManager {
                     while let Ok(line) = session.stdin_rx.try_recv() {
                         if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == session.pid) {
                             if let Ok(mut guard) = p.stdin.lock() {
-                                guard.push_back(line);
+                                push_stdin_line(&mut guard, line);
                             }
                         }
                     }
                     // Read new stdout suffix and send on stdout_tx
+                    // Clear process stdout after sending to avoid unbounded memory growth.
                     if let Some(p) = vm.os.processes.iter().find(|pr| pr.id == session.pid) {
-                        if let Ok(guard) = p.stdout.lock() {
+                        if let Ok(mut guard) = p.stdout.lock() {
                             let len = guard.len();
                             if len > session.last_stdout_len {
                                 let suffix = guard[session.last_stdout_len..].to_string();
-                                session.last_stdout_len = len;
+                                guard.clear();
+                                session.last_stdout_len = 0;
                                 drop(guard);
                                 if session.stdout_tx.try_send(suffix).is_err() {
                                     to_remove.push(*session_id);
@@ -823,9 +857,11 @@ impl VmManager {
 
             // Do not remove VMs when they have no processes; they may get new terminals or processes later
 
-            // Track tick duration (no sleep for stress test)
+            // Track tick duration (only collect in stress mode for final stats; game mode runs forever)
             let tick_duration = tick_start.elapsed();
-            tick_durations.push(tick_duration);
+            if stress_mode {
+                tick_durations.push(tick_duration);
+            }
             min_duration = min_duration.min(tick_duration);
             max_duration = max_duration.max(tick_duration);
 
@@ -1156,7 +1192,7 @@ impl VmManager {
                     for (pid, line) in stdin_inject {
                         if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == pid) {
                             if let Ok(mut guard) = p.stdin.lock() {
-                                guard.push_back(line);
+                                push_stdin_line(&mut guard, line);
                             }
                         }
                     }
@@ -1199,16 +1235,17 @@ impl VmManager {
                     while let Ok(line) = session.stdin_rx.try_recv() {
                         if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == session.pid) {
                             if let Ok(mut guard) = p.stdin.lock() {
-                                guard.push_back(line);
+                                push_stdin_line(&mut guard, line);
                             }
                         }
                     }
                     if let Some(p) = vm.os.processes.iter().find(|pr| pr.id == session.pid) {
-                        if let Ok(guard) = p.stdout.lock() {
+                        if let Ok(mut guard) = p.stdout.lock() {
                             let len = guard.len();
                             if len > session.last_stdout_len {
                                 let suffix = guard[session.last_stdout_len..].to_string();
-                                session.last_stdout_len = len;
+                                guard.clear();
+                                session.last_stdout_len = 0;
                                 drop(guard);
                                 if session.stdout_tx.try_send(suffix).is_err() {
                                     to_remove.push(*session_id);
@@ -1396,7 +1433,10 @@ end
         vm.os.spawn_process(read_script, vec![], 0, "root");
 
         let process = vm.os.processes.first_mut().unwrap();
-        process.stdin.lock().unwrap().push_back("25".to_string());
+        {
+            let mut guard = process.stdin.lock().unwrap();
+            push_stdin_line(&mut guard, "25".to_string());
+        }
 
         let mut stdout_result = String::new();
         let max_ticks = 100;
@@ -1607,7 +1647,7 @@ end
         for (pid, line) in stdin_inject {
             if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == pid) {
                 if let Ok(mut guard) = p.stdin.lock() {
-                    guard.push_back(line);
+                    push_stdin_line(&mut guard, line);
                 }
             }
         }
@@ -1798,7 +1838,7 @@ end
                 for (pid, line) in stdin_inject {
                     if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == pid) {
                         if let Ok(mut guard) = p.stdin.lock() {
-                            guard.push_back(line);
+                            push_stdin_line(&mut guard, line);
                         }
                     }
                 }
@@ -1971,7 +2011,7 @@ end
         for (pid, line) in stdin_inject {
             if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == pid) {
                 if let Ok(mut guard) = p.stdin.lock() {
-                    guard.push_back(line);
+                    push_stdin_line(&mut guard, line);
                 }
             }
         }

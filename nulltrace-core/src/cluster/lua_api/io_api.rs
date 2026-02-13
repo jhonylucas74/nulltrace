@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use super::context::VmContext;
+use crate::process::truncate_stdout_if_needed;
 use mlua::{Lua, Result, Value};
 
 /// Register the `io` table and override `print` to write to process stdout.
@@ -43,9 +44,11 @@ pub fn register(lua: &Lua) -> Result<()> {
             drop(ctx);
             let mut out = stdout.lock().map_err(|e| mlua::Error::runtime(e.to_string()))?;
             out.push_str(&s);
+            truncate_stdout_if_needed(&mut out);
             if let Some(ref f) = forward {
                 let mut guard = f.lock().map_err(|e| mlua::Error::runtime(e.to_string()))?;
                 guard.push_str(&s);
+                truncate_stdout_if_needed(&mut guard);
             }
             Ok(())
         })?,
@@ -78,9 +81,11 @@ pub fn register(lua: &Lua) -> Result<()> {
         let line = parts.join("\t") + "\n";
         let mut out = stdout.lock().map_err(|e| mlua::Error::runtime(e.to_string()))?;
         out.push_str(&line);
+        truncate_stdout_if_needed(&mut out);
         if let Some(ref f) = forward {
             let mut guard = f.lock().map_err(|e| mlua::Error::runtime(e.to_string()))?;
             guard.push_str(&line);
+            truncate_stdout_if_needed(&mut guard);
         }
         Ok(())
     })?;

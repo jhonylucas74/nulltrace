@@ -11,6 +11,28 @@ pub const BASE_MEMORY_PER_PROCESS_BYTES: u64 = 64 * 1024; // 64 KiB
 /// Extra bytes per character of loaded Lua code (estimated memory).
 pub const BYTES_PER_CODE_CHAR: u64 = 2;
 
+/// Max lines in process stdin. Oldest dropped when exceeded.
+pub const MAX_STDIN_LINES: usize = 256;
+
+/// Max bytes in process stdout. Oldest truncated when exceeded.
+pub const MAX_STDOUT_BYTES: usize = 64 * 1024; // 64 KiB
+
+/// Push a line to stdin, dropping oldest if over MAX_STDIN_LINES.
+pub fn push_stdin_line(guard: &mut VecDeque<String>, line: String) {
+    while guard.len() >= MAX_STDIN_LINES {
+        guard.pop_front();
+    }
+    guard.push_back(line);
+}
+
+/// Truncate stdout from the start if over MAX_STDOUT_BYTES.
+pub fn truncate_stdout_if_needed(s: &mut String) {
+    if s.len() > MAX_STDOUT_BYTES {
+        let drop = s.len() - MAX_STDOUT_BYTES;
+        s.drain(..drop);
+    }
+}
+
 pub struct Process {
     pub id: u64,
     /// Parent process ID, if this process was spawned as a child.
