@@ -1,10 +1,13 @@
 use game::game_service_server::{GameService, GameServiceServer};
 use game::{
-    CopyPathRequest, CopyPathResponse, GetDiskUsageRequest, GetDiskUsageResponse,
-    GetHomePathRequest, GetHomePathResponse, HelloRequest, HelloResponse, ListFsRequest,
-    ListFsResponse, LoginRequest, LoginResponse, MovePathRequest, MovePathResponse, PingRequest,
-    PingResponse, RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest, RenamePathResponse,
-    RestoreDiskRequest, RestoreDiskResponse, TerminalClientMessage, TerminalServerMessage,
+    CopyPathRequest, CopyPathResponse, CreateFactionRequest, CreateFactionResponse,
+    GetDiskUsageRequest, GetDiskUsageResponse, GetHomePathRequest, GetHomePathResponse,
+    GetPlayerProfileRequest, GetPlayerProfileResponse, GetProcessListRequest, GetProcessListResponse,
+    GetRankingRequest, GetRankingResponse, HelloRequest, HelloResponse, LeaveFactionRequest,
+    LeaveFactionResponse, ListFsRequest, ListFsResponse, LoginRequest, LoginResponse,
+    MovePathRequest, MovePathResponse, PingRequest, PingResponse, RefreshTokenRequest,
+    RefreshTokenResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest,
+    RestoreDiskResponse, TerminalClientMessage, TerminalServerMessage,
 };
 use tonic::{Request, Response, Status, transport::Server};
 use tokio_stream::wrappers::ReceiverStream;
@@ -154,6 +157,74 @@ impl GameService for MyGameService {
         Ok(Response::new(RenamePathResponse {
             success: false,
             error_message: "Use the unified cluster binary for file operations".to_string(),
+        }))
+    }
+
+    async fn get_process_list(
+        &self,
+        _request: Request<GetProcessListRequest>,
+    ) -> Result<Response<GetProcessListResponse>, Status> {
+        Ok(Response::new(GetProcessListResponse {
+            processes: vec![],
+            disk_used_bytes: 0,
+            disk_total_bytes: 0,
+            error_message: "Use the unified cluster binary for process list".to_string(),
+        }))
+    }
+
+    async fn get_sysinfo(
+        &self,
+        _request: Request<game::GetSysinfoRequest>,
+    ) -> Result<Response<game::GetSysinfoResponse>, Status> {
+        Ok(Response::new(game::GetSysinfoResponse {
+            cpu_cores: 0,
+            memory_mb: 0,
+            disk_mb: 0,
+            error_message: "Use the unified cluster binary for sysinfo".to_string(),
+        }))
+    }
+
+    async fn get_ranking(
+        &self,
+        _request: Request<GetRankingRequest>,
+    ) -> Result<Response<GetRankingResponse>, Status> {
+        Ok(Response::new(GetRankingResponse {
+            entries: vec![],
+            error_message: "Use the unified cluster binary for ranking".to_string(),
+        }))
+    }
+
+    async fn get_player_profile(
+        &self,
+        _request: Request<GetPlayerProfileRequest>,
+    ) -> Result<Response<GetPlayerProfileResponse>, Status> {
+        Ok(Response::new(GetPlayerProfileResponse {
+            rank: 0,
+            points: 0,
+            faction_id: String::new(),
+            faction_name: String::new(),
+            error_message: "Use the unified cluster binary for profile".to_string(),
+        }))
+    }
+
+    async fn create_faction(
+        &self,
+        _request: Request<CreateFactionRequest>,
+    ) -> Result<Response<CreateFactionResponse>, Status> {
+        Ok(Response::new(CreateFactionResponse {
+            faction_id: String::new(),
+            name: String::new(),
+            error_message: "Use the unified cluster binary for factions".to_string(),
+        }))
+    }
+
+    async fn leave_faction(
+        &self,
+        _request: Request<LeaveFactionRequest>,
+    ) -> Result<Response<LeaveFactionResponse>, Status> {
+        Ok(Response::new(LeaveFactionResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for factions".to_string(),
         }))
     }
 }

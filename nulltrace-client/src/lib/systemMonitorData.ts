@@ -3,6 +3,15 @@
  * Browser has no access to real system stats; all values are fictional.
  */
 
+/** Fictional OS baseline memory (GiB) attributed to kernel + desktop UI. Used for Resources "used" and fake process rows. */
+export const OS_BASELINE_GIB = 2;
+
+/** Fake OS process: kernel memory (GiB). Shown in process list to "explain" part of OS_BASELINE_GIB. */
+export const OS_KERNEL_GIB = 1;
+
+/** Fake OS process: desktop-ui memory (GiB). The rest of OS_BASELINE_GIB. */
+export const OS_DESKTOP_UI_GIB = 1;
+
 /** Mock CPU usage (0–100%). */
 export function getMockCpuPercent(): number {
   return 24;

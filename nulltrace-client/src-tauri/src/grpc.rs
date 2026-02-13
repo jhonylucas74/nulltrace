@@ -9,9 +9,9 @@ use game::terminal_client_message::Msg as TerminalClientMsg;
 use game::terminal_server_message::Msg as TerminalServerMsg;
 use game::{
     CopyPathRequest, CreateFactionRequest, GetDiskUsageRequest, GetHomePathRequest,
-    GetPlayerProfileRequest, GetRankingRequest, GetSysinfoRequest, LeaveFactionRequest, ListFsRequest,
-    LoginRequest, MovePathRequest, OpenTerminal, PingRequest, RenamePathRequest, RestoreDiskRequest,
-    StdinData, TerminalClientMessage, TerminalOpened,
+    GetPlayerProfileRequest, GetProcessListRequest, GetRankingRequest, GetSysinfoRequest,
+    LeaveFactionRequest, ListFsRequest, LoginRequest, MovePathRequest, OpenTerminal, PingRequest,
+    RenamePathRequest, RestoreDiskRequest, StdinData, TerminalClientMessage, TerminalOpened,
 };
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -142,6 +142,73 @@ pub async fn grpc_disk_usage(
     Ok(DiskUsageResponse {
         used_bytes: response.used_bytes,
         total_bytes: response.total_bytes,
+        error_message: response.error_message,
+    })
+}
+
+/// One process entry for grpc_get_process_list response.
+#[derive(serde::Serialize)]
+pub struct ProcessListEntry {
+    pub pid: u64,
+    pub name: String,
+    pub username: String,
+    pub status: String,
+    pub memory_bytes: u64,
+}
+
+/// Response for grpc_get_process_list command (processes + disk in one call).
+#[derive(serde::Serialize)]
+pub struct GetProcessListResponse {
+    pub processes: Vec<ProcessListEntry>,
+    pub disk_used_bytes: i64,
+    pub disk_total_bytes: i64,
+    pub error_message: String,
+}
+
+/// Tauri command: Get process list and disk usage for the player's VM (single round-trip for System Monitor).
+#[tauri::command]
+pub async fn grpc_get_process_list(
+    _player_id: String,
+    token: String,
+) -> Result<GetProcessListResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(GetProcessListRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .get_process_list(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+
+    let processes = response
+        .processes
+        .into_iter()
+        .map(|p| ProcessListEntry {
+            pid: p.pid,
+            name: p.name,
+            username: p.username,
+            status: p.status,
+            memory_bytes: p.memory_bytes,
+        })
+        .collect();
+
+    Ok(GetProcessListResponse {
+        processes,
+        disk_used_bytes: response.disk_used_bytes,
+        disk_total_bytes: response.disk_total_bytes,
         error_message: response.error_message,
     })
 }

@@ -74,6 +74,7 @@ pub fn run() {
             grpc::grpc_login,
             grpc::grpc_refresh_token,
             grpc::grpc_disk_usage,
+            grpc::grpc_get_process_list,
             grpc::grpc_sysinfo,
             grpc::grpc_restore_disk,
             grpc::grpc_get_ranking,

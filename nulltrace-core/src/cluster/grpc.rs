@@ -8,6 +8,8 @@ use super::db::player_service::PlayerService;
 use super::db::user_service::{UserService, VmUser};
 use super::db::vm_service::VmService;
 use super::terminal_hub::{SessionReady, TerminalHub};
+use super::vm_manager::ProcessSnapshot;
+use dashmap::DashMap;
 use game::terminal_server_message::Msg as TerminalServerMsg;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
@@ -23,13 +25,14 @@ use game::game_service_server::GameService;
 use game::{
     CopyPathRequest, CopyPathResponse, CreateFactionRequest, CreateFactionResponse, FsEntry,
     GetDiskUsageRequest, GetDiskUsageResponse, GetHomePathRequest, GetHomePathResponse,
-    GetPlayerProfileRequest, GetPlayerProfileResponse, GetRankingRequest, GetRankingResponse,
-    GetSysinfoRequest, GetSysinfoResponse, HelloRequest, HelloResponse, LeaveFactionRequest,
-    LeaveFactionResponse, ListFsRequest, ListFsResponse, LoginRequest, LoginResponse,
-    MovePathRequest, MovePathResponse, OpenTerminal, PingRequest, PingResponse, RankingEntry,
-    RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest, RenamePathResponse,
-    RestoreDiskRequest, RestoreDiskResponse, StdinData, StdoutData, TerminalClientMessage,
-    TerminalClosed, TerminalError, TerminalOpened, TerminalServerMessage,
+    GetPlayerProfileRequest, GetPlayerProfileResponse, GetProcessListRequest, GetProcessListResponse,
+    GetRankingRequest, GetRankingResponse, GetSysinfoRequest, GetSysinfoResponse, HelloRequest,
+    HelloResponse, LeaveFactionRequest, LeaveFactionResponse, ListFsRequest, ListFsResponse,
+    LoginRequest, LoginResponse, MovePathRequest, MovePathResponse, OpenTerminal, PingRequest,
+    PingResponse, ProcessEntry, RankingEntry, RefreshTokenRequest, RefreshTokenResponse,
+    RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, StdinData,
+    StdoutData, TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened,
+    TerminalServerMessage,
 };
 
 pub struct ClusterGameService {
@@ -39,6 +42,7 @@ pub struct ClusterGameService {
     user_service: Arc<UserService>,
     faction_service: Arc<FactionService>,
     terminal_hub: Arc<TerminalHub>,
+    process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
 }
 
 impl ClusterGameService {
@@ -49,6 +53,7 @@ impl ClusterGameService {
         user_service: Arc<UserService>,
         faction_service: Arc<FactionService>,
         terminal_hub: Arc<TerminalHub>,
+        process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
     ) -> Self {
         Self {
             player_service,
@@ -57,6 +62,7 @@ impl ClusterGameService {
             user_service,
             faction_service,
             terminal_hub,
+            process_snapshot_store,
         }
     }
 
@@ -317,6 +323,53 @@ impl GameService for ClusterGameService {
         Ok(Response::new(GetDiskUsageResponse {
             used_bytes,
             total_bytes,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn get_process_list(
+        &self,
+        request: Request<GetProcessListRequest>,
+    ) -> Result<Response<GetProcessListResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let vm = self
+            .vm_service
+            .get_vm_by_owner_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("No VM found for this player"))?;
+
+        let processes: Vec<ProcessEntry> = self
+            .process_snapshot_store
+            .get(&vm.id)
+            .map(|guard| {
+                guard
+                    .iter()
+                    .map(|s| ProcessEntry {
+                        pid: s.pid,
+                        name: s.name.clone(),
+                        username: s.username.clone(),
+                        status: s.status.clone(),
+                        memory_bytes: s.memory_bytes,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let disk_used_bytes = self
+            .fs_service
+            .disk_usage_bytes(vm.id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        let disk_total_bytes = (vm.disk_mb as i64) * 1024 * 1024;
+
+        Ok(Response::new(GetProcessListResponse {
+            processes,
+            disk_used_bytes,
+            disk_total_bytes,
             error_message: String::new(),
         }))
     }
@@ -914,10 +967,13 @@ async fn vm_and_owner(
 mod tests {
     use super::super::db::{
         self, faction_service::FactionService, fs_service::FsService,
-        player_service::PlayerService, user_service::UserService, vm_service::VmService,
+        player_service::PlayerService, user_service::UserService, vm_service::{VmConfig, VmService},
     };
     use super::super::terminal_hub::new_hub;
+    use super::super::vm_manager::ProcessSnapshot;
     use super::*;
+    use crate::auth;
+    use dashmap::DashMap;
     use std::sync::Arc;
     use tonic::Request;
 
@@ -929,6 +985,22 @@ mod tests {
             Arc::new(UserService::new(pool.clone())),
             Arc::new(FactionService::new(pool.clone())),
             new_hub(),
+            Arc::new(DashMap::new()),
+        )
+    }
+
+    fn test_cluster_game_service_with_store(
+        pool: &sqlx::PgPool,
+        process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
+    ) -> ClusterGameService {
+        ClusterGameService::new(
+            Arc::new(PlayerService::new(pool.clone())),
+            Arc::new(VmService::new(pool.clone())),
+            Arc::new(FsService::new(pool.clone())),
+            Arc::new(UserService::new(pool.clone())),
+            Arc::new(FactionService::new(pool.clone())),
+            new_hub(),
+            process_snapshot_store,
         )
     }
 
@@ -999,5 +1071,97 @@ mod tests {
         let res = svc.ping(Request::new(PingRequest {})).await.unwrap();
         let out = res.into_inner();
         assert!(out.server_time_ms > 0);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_get_process_list_unauthenticated() {
+        let pool = db::test_pool().await;
+        let svc = test_cluster_game_service(&pool);
+
+        let request = Request::new(GetProcessListRequest {});
+        // No authorization metadata
+        let res = svc.get_process_list(request).await;
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::Unauthenticated);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_get_process_list_success() {
+        let pool = db::test_pool().await;
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let name = format!("procuser_{}", Uuid::new_v4());
+        let player = player_service.create_player(&name, "secret").await.unwrap();
+        let player_id = player.id;
+
+        let vm_id = Uuid::new_v4();
+        let vm = vm_service
+            .create_vm(
+                vm_id,
+                VmConfig {
+                    hostname: "test-monitor-vm".to_string(),
+                    dns_name: None,
+                    cpu_cores: 2,
+                    memory_mb: 1024,
+                    disk_mb: 20480,
+                    ip: None,
+                    subnet: None,
+                    gateway: None,
+                    mac: None,
+                    owner_id: Some(player_id),
+                },
+            )
+            .await
+            .unwrap();
+
+        let snapshot = vec![
+            ProcessSnapshot {
+                pid: 1,
+                name: "lua".to_string(),
+                username: "user".to_string(),
+                status: "running".to_string(),
+                memory_bytes: 65_536,
+            },
+            ProcessSnapshot {
+                pid: 2,
+                name: "init".to_string(),
+                username: "root".to_string(),
+                status: "finished".to_string(),
+                memory_bytes: 32_768,
+            },
+        ];
+        let process_snapshot_store = Arc::new(DashMap::new());
+        process_snapshot_store.insert(vm_id, snapshot.clone());
+
+        let svc = test_cluster_game_service_with_store(&pool, process_snapshot_store);
+
+        let token = auth::generate_token(player_id, &name, &auth::get_jwt_secret())
+            .expect("generate token");
+        let mut request = Request::new(GetProcessListRequest {});
+        request.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
+
+        let res = svc.get_process_list(request).await.unwrap();
+        let out = res.into_inner();
+
+        assert_eq!(out.processes.len(), 2);
+        assert_eq!(out.processes[0].pid, 1);
+        assert_eq!(out.processes[0].name, "lua");
+        assert_eq!(out.processes[0].username, "user");
+        assert_eq!(out.processes[0].status, "running");
+        assert_eq!(out.processes[0].memory_bytes, 65_536);
+        assert_eq!(out.processes[1].pid, 2);
+        assert_eq!(out.processes[1].name, "init");
+        assert_eq!(out.processes[1].status, "finished");
+        assert_eq!(out.processes[1].memory_bytes, 32_768);
+
+        assert_eq!(out.disk_used_bytes, 0, "new VM has no files");
+        assert_eq!(out.disk_total_bytes, (vm.disk_mb as i64) * 1024 * 1024);
+        assert!(out.error_message.is_empty());
+
+        vm_service.delete_vm(vm_id).await.unwrap();
     }
 }

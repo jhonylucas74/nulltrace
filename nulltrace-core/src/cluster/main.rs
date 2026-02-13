@@ -13,6 +13,7 @@ mod lua_api;
 mod terminal_hub;
 mod vm_manager;
 
+use dashmap::DashMap;
 use db::faction_service::FactionService;
 use db::fs_service::FsService;
 use db::player_service::PlayerService;
@@ -28,7 +29,7 @@ use std::sync::Arc;
 use tonic::transport::Server;
 use tonic_web::GrpcWebLayer;
 use vm::VirtualMachine;
-use vm_manager::VmManager;
+use vm_manager::{ProcessSnapshot, VmManager};
 
 const DATABASE_URL: &str = "postgres://nulltrace:nulltrace@localhost:5432/nulltrace";
 const REDIS_URL: &str = "redis://127.0.0.1:6379";
@@ -169,6 +170,8 @@ async fn main() {
 
         vms.push(vm);
 
+        manager.register_player_owned_vm_id(haru_vm_record.id);
+
         println!(
             "[cluster]   Restored: {} ({}) - owner: {}",
             haru_vm_record.hostname,
@@ -181,6 +184,9 @@ async fn main() {
 
     let terminal_hub = new_hub();
 
+    let process_snapshot_store: Arc<DashMap<uuid::Uuid, Vec<ProcessSnapshot>>> =
+        Arc::new(DashMap::new());
+
     // ── gRPC server (runs in background task) ──
     let grpc_addr = GRPC_ADDR.parse().expect("Invalid gRPC address");
     let game_svc = ClusterGameService::new(
@@ -190,6 +196,7 @@ async fn main() {
         user_service.clone(),
         faction_service.clone(),
         terminal_hub.clone(),
+        process_snapshot_store.clone(),
     );
     let game_server = GameServiceServer::new(game_svc);
     tokio::spawn(async move {
@@ -204,5 +211,7 @@ async fn main() {
     println!("[cluster] gRPC server listening on {}", GRPC_ADDR);
 
     // ── Game loop (main task) ──
-    manager.run_loop(&lua, &mut vms, terminal_hub).await;
+    manager
+        .run_loop(&lua, &mut vms, terminal_hub, process_snapshot_store)
+        .await;
 }

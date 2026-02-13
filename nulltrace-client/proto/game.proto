@@ -8,6 +8,7 @@ service GameService {
   rpc RefreshToken (RefreshTokenRequest) returns (RefreshTokenResponse);
   rpc TerminalStream (stream TerminalClientMessage) returns (stream TerminalServerMessage);
   rpc GetDiskUsage (GetDiskUsageRequest) returns (GetDiskUsageResponse);
+  rpc GetProcessList (GetProcessListRequest) returns (GetProcessListResponse);
   rpc GetSysinfo (GetSysinfoRequest) returns (GetSysinfoResponse);
   rpc RestoreDisk (RestoreDiskRequest) returns (RestoreDiskResponse);
   rpc GetHomePath (GetHomePathRequest) returns (GetHomePathResponse);
@@ -103,6 +104,23 @@ message GetDiskUsageResponse {
   int64 used_bytes = 1;
   int64 total_bytes = 2;
   string error_message = 3;
+}
+
+message GetProcessListRequest {}
+
+message ProcessEntry {
+  uint64 pid = 1;
+  string name = 2;
+  string username = 3;
+  string status = 4;
+  uint64 memory_bytes = 5;
+}
+
+message GetProcessListResponse {
+  repeated ProcessEntry processes = 1;
+  int64 disk_used_bytes = 2;
+  int64 disk_total_bytes = 3;
+  string error_message = 4;
 }
 
 message GetSysinfoRequest {}

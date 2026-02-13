@@ -13,12 +13,27 @@ use super::net::nic::NIC;
 use super::net::router::{RouteResult, Router};
 use super::terminal_hub::{SessionReady, TerminalHub, TerminalSession};
 use super::vm::VirtualMachine;
+use dashmap::DashMap;
 use mlua::Lua;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep, sleep_until, Instant as TokioInstant};
 use uuid::Uuid;
+
+/// Snapshot of one process for gRPC (System Monitor). Written every 60 ticks for player-owned VMs only.
+#[derive(Debug, Clone)]
+pub struct ProcessSnapshot {
+    pub pid: u64,
+    pub name: String,
+    pub username: String,
+    pub status: String,
+    pub memory_bytes: u64,
+}
+
+/// Interval in ticks between process snapshot updates (once per second at 60 TPS).
+const SNAPSHOT_INTERVAL_TICKS: u64 = 60;
 
 const TPS: u32 = 60;
 const TICK_TIME: Duration = Duration::from_millis(1000 / TPS as u64);
@@ -35,6 +50,9 @@ pub struct VmManager {
 
     /// In-memory records of active VMs (hostname, ip, etc.)
     active_vms: Vec<ActiveVm>,
+
+    /// VM ids that are owned by a player (need process snapshot for gRPC). NPC VMs are not in this set.
+    player_owned_vm_ids: HashSet<Uuid>,
 }
 
 /// Lightweight in-memory record for each active VM.
@@ -66,7 +84,13 @@ impl VmManager {
             subnet,
             router,
             active_vms: Vec::new(),
+            player_owned_vm_ids: HashSet::new(),
         }
+    }
+
+    /// Register a VM as player-owned (so its process list is snapshotted for gRPC). Call when restoring a player VM in main.
+    pub fn register_player_owned_vm_id(&mut self, vm_id: Uuid) {
+        self.player_owned_vm_ids.insert(vm_id);
     }
 
     /// Create a new VM: DB insert + FS bootstrap + NIC allocation + DNS registration.
@@ -212,6 +236,10 @@ impl VmManager {
             ip: Some(nic.ip),
         });
 
+        if record.owner_id.is_some() {
+            self.player_owned_vm_ids.insert(record.id);
+        }
+
         Ok((record, nic))
     }
 
@@ -232,6 +260,7 @@ impl VmManager {
                 self.net_manager.unregister_vm(&ip);
             }
         }
+        self.player_owned_vm_ids.remove(&vm_id);
 
         Ok(())
     }
@@ -248,6 +277,7 @@ impl VmManager {
                 self.net_manager.unregister_vm(&ip);
             }
         }
+        self.player_owned_vm_ids.remove(&vm_id);
 
         self.vm_service
             .delete_vm(vm_id)
@@ -283,6 +313,10 @@ impl VmManager {
                 dns_name: record.dns_name.clone(),
                 ip,
             });
+
+            if record.owner_id.is_some() {
+                self.player_owned_vm_ids.insert(record.id);
+            }
 
             // Mark as running
             let _ = self.vm_service.set_status(record.id, "running").await;
@@ -361,6 +395,7 @@ impl VmManager {
         lua: &Lua,
         vms: &mut Vec<VirtualMachine<'_>>,
         terminal_hub: Arc<TerminalHub>,
+        process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
     ) {
         println!(
             "[cluster] Game loop started ({} TPS, {} active VMs)",
@@ -374,6 +409,40 @@ impl VmManager {
 
         loop {
             let tick_start = Instant::now();
+
+            // Snapshot process list on first tick so GetProcessList has data immediately (and every 60 ticks below)
+            if tick_count == 0 {
+                for vm in vms.iter() {
+                    if !self.player_owned_vm_ids.contains(&vm.id) {
+                        continue;
+                    }
+                    let snapshots: Vec<ProcessSnapshot> = vm
+                        .os
+                        .processes
+                        .iter()
+                        .map(|p| {
+                            let name = p
+                                .display_name
+                                .clone()
+                                .or_else(|| p.args.first().cloned())
+                                .unwrap_or_else(|| format!("pid_{}", p.id));
+                            let status = if p.is_finished() {
+                                "finished"
+                            } else {
+                                "running"
+                            };
+                            ProcessSnapshot {
+                                pid: p.id,
+                                name,
+                                username: p.username.clone(),
+                                status: status.to_string(),
+                                memory_bytes: p.estimated_memory_bytes,
+                            }
+                        })
+                        .collect();
+                    process_snapshot_store.insert(vm.id, snapshots);
+                }
+            }
 
             // Process terminal pending opens: spawn shell in player's VM and create session
             {
@@ -445,6 +514,7 @@ impl VmManager {
                         shell_uid,
                         &shell_username,
                         None,
+                        Some("sh".to_string()),
                     );
                     let (stdout_tx, stdout_rx) = mpsc::channel(32);
                     let (stdin_tx, stdin_rx) = mpsc::channel(32);
@@ -587,6 +657,10 @@ impl VmManager {
                         });
                         if let Ok(Some((data, _))) = result {
                             if let Ok(lua_code) = String::from_utf8(data) {
+                                let argv0 = match &spec {
+                                    SpawnSpec::Bin(n) => n.clone(),
+                                    SpawnSpec::Path(p) => p.rsplit('/').next().unwrap_or(p.as_str()).to_string(),
+                                };
                                 let parent = if parent_id == 0 { None } else { Some(parent_id) };
                                 vm.os.spawn_process_with_id(
                                     pid,
@@ -596,6 +670,7 @@ impl VmManager {
                                     uid,
                                     &username,
                                     forward_stdout_to,
+                                    Some(argv0),
                                 );
                             }
                         }
@@ -691,6 +766,40 @@ impl VmManager {
             self.network_tick(vms);
 
             tick_count += 1;
+
+            // Snapshot process list for player-owned VMs every SNAPSHOT_INTERVAL_TICKS (e.g. once per second)
+            if tick_count % SNAPSHOT_INTERVAL_TICKS == 0 {
+                for vm in vms.iter() {
+                    if !self.player_owned_vm_ids.contains(&vm.id) {
+                        continue;
+                    }
+                    let snapshots: Vec<ProcessSnapshot> = vm
+                        .os
+                        .processes
+                        .iter()
+                        .map(|p| {
+                            let name = p
+                                .display_name
+                                .clone()
+                                .or_else(|| p.args.first().cloned())
+                                .unwrap_or_else(|| format!("pid_{}", p.id));
+                            let status = if p.is_finished() {
+                                "finished"
+                            } else {
+                                "running"
+                            };
+                            ProcessSnapshot {
+                                pid: p.id,
+                                name,
+                                username: p.username.clone(),
+                                status: status.to_string(),
+                                memory_bytes: p.estimated_memory_bytes,
+                            }
+                        })
+                        .collect();
+                    process_snapshot_store.insert(vm.id, snapshots);
+                }
+            }
 
             // Remove finished VMs
             vms.retain_mut(|vm| !vm.os.is_finished());
@@ -798,6 +907,7 @@ impl VmManager {
                         shell_uid,
                         &shell_username,
                         None,
+                        Some("sh".to_string()),
                     );
                     let (stdout_tx, stdout_rx) = mpsc::channel(32);
                     let (stdin_tx, stdin_rx) = mpsc::channel(32);
@@ -933,6 +1043,10 @@ impl VmManager {
                         });
                         if let Ok(Some((data, _))) = result {
                             if let Ok(lua_code) = String::from_utf8(data) {
+                                let argv0 = match &spec {
+                                    SpawnSpec::Bin(n) => n.clone(),
+                                    SpawnSpec::Path(p) => p.rsplit('/').next().unwrap_or(p.as_str()).to_string(),
+                                };
                                 let parent = if parent_id == 0 { None } else { Some(parent_id) };
                                 vm.os.spawn_process_with_id(
                                     pid,
@@ -942,6 +1056,7 @@ impl VmManager {
                                     uid,
                                     &username,
                                     forward_stdout_to,
+                                    Some(argv0),
                                 );
                             }
                         }
@@ -1376,6 +1491,10 @@ end
             let result = manager.fs_service.read_file(vm_id, &path).await;
             if let Ok(Some((data, _))) = result {
                 if let Ok(lua_code) = String::from_utf8(data) {
+                    let argv0 = match &spec {
+                        SpawnSpec::Bin(n) => n.clone(),
+                        SpawnSpec::Path(p) => p.rsplit('/').next().unwrap_or(p.as_str()).to_string(),
+                    };
                     let parent = if parent_id == 0 { None } else { Some(parent_id) };
                     vm.os.spawn_process_with_id(
                         pid,
@@ -1385,6 +1504,7 @@ end
                         uid,
                         &username,
                         forward_stdout_to,
+                        Some(argv0),
                     );
                 }
             }
@@ -1562,6 +1682,10 @@ end
                     let result = manager.fs_service.read_file(vm_id, &path).await;
                     if let Ok(Some((data, _))) = result {
                         if let Ok(lua_code) = String::from_utf8(data) {
+                            let argv0 = match &spec {
+                                SpawnSpec::Bin(n) => n.clone(),
+                                SpawnSpec::Path(p) => p.rsplit('/').next().unwrap_or(p.as_str()).to_string(),
+                            };
                             let parent = if parent_id == 0 { None } else { Some(parent_id) };
                             vm.os.spawn_process_with_id(
                                 pid,
@@ -1571,6 +1695,7 @@ end
                                 uid,
                                 &username,
                                 forward_stdout_to,
+                                Some(argv0),
                             );
                         }
                     }
@@ -1730,6 +1855,10 @@ end
             let result = manager.fs_service.read_file(vm_id, &path).await;
             if let Ok(Some((data, _))) = result {
                 if let Ok(lua_code) = String::from_utf8(data) {
+                    let argv0 = match &spec {
+                        SpawnSpec::Bin(n) => n.clone(),
+                        SpawnSpec::Path(p) => p.rsplit('/').next().unwrap_or(p.as_str()).to_string(),
+                    };
                     let parent = if parent_id == 0 { None } else { Some(parent_id) };
                     vm.os.spawn_process_with_id(
                         pid,
@@ -1739,6 +1868,7 @@ end
                         uid,
                         &username,
                         forward_stdout_to,
+                        Some(argv0),
                     );
                 }
             }

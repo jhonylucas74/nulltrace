@@ -126,21 +126,31 @@ export default function Terminal({ username, windowId }: TerminalProps) {
   const sessionIdRef = useRef<string | null>(null);
   sessionIdRef.current = sessionId;
 
+  // Effect "generation": only the latest mount's deferred connect runs (avoids double shell in React Strict Mode).
+  const connectGenerationRef = useRef(0);
+
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
   }, [lines, input]);
 
   const prompt = `${username}@nulltrace:~$ `;
 
-  // Connect to VM shell when we have playerId (Tauri only)
+  // Connect to VM shell when we have playerId (Tauri only).
+  // Deferred so that in React Strict Mode only the final mount opens one terminal (not two).
   useEffect(() => {
     if (!playerId || !token) return;
 
+    const generation = ++connectGenerationRef.current;
     let unlisten: (() => void) | undefined;
 
-    (async () => {
+    const runConnect = async () => {
+      if (generation !== connectGenerationRef.current) return;
       try {
         const sid = await invoke<string>("terminal_connect", { playerId, token });
+        if (generation !== connectGenerationRef.current) {
+          invoke("terminal_disconnect", { sessionId: sid }).catch(() => {});
+          return;
+        }
         sessionIdRef.current = sid;
         setSessionId(sid);
         setSessionEnded(false);
@@ -168,6 +178,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
           }
         });
       } catch (e) {
+        if (generation !== connectGenerationRef.current) return;
         const errorMsg = e instanceof Error ? e.message : String(e);
         if (errorMsg === "UNAUTHENTICATED") {
           logout();
@@ -176,7 +187,9 @@ export default function Terminal({ username, windowId }: TerminalProps) {
         }
         setConnectErrorModalOpen(true);
       }
-    })();
+    };
+
+    queueMicrotask(runConnect);
 
     return () => {
       unlisten?.();
