@@ -11,7 +11,6 @@ use super::net::ip::{Ipv4Addr, Subnet};
 use super::net::net_manager::NetManager;
 use super::net::nic::NIC;
 use super::net::router::{RouteResult, Router};
-use super::os::create_lua_state;
 use super::terminal_hub::{SessionReady, TerminalHub, TerminalSession};
 use super::vm::VirtualMachine;
 use super::vm_worker::{VmWorker, WorkerResult};
@@ -413,10 +412,12 @@ impl VmManager {
     /// 3. Message passing architecture with dedicated Lua threads
     ///
     /// Returns total process ticks executed across all workers.
+    /// Uses the same Lua state that created the VMs' processes so io.read/io.write see correct stdin/stdout.
     fn process_vms_parallel(
         &self,
+        lua: &Lua,
         vms: &mut [VirtualMachine],
-        pool: &PgPool,
+        _pool: &PgPool,
         fs_service: &Arc<FsService>,
         user_service: &Arc<UserService>,
     ) -> (u64, Vec<WorkerResult>) {
@@ -427,13 +428,7 @@ impl VmManager {
             .map(|a| (a.id, a.hostname.clone(), a.ip))
             .collect();
 
-        // Create single Lua state (sequential processing)
-        let lua = create_lua_state();
-        lua.set_app_data(VmContext::new(pool.clone()));
-        super::lua_api::register_all(&lua, fs_service.clone(), user_service.clone())
-            .expect("Failed to register Lua APIs");
-
-        // Process all VMs with single worker
+        // Use the same Lua that created the VMs (and their process threads) so VmContext is correct
         let worker = VmWorker {
             worker_id: 0,
             lua,
@@ -447,7 +442,7 @@ impl VmManager {
     /// Run the main game loop.
     pub async fn run_loop(
         &mut self,
-        _lua: &Lua,
+        lua: &Lua,
         vms: &mut Vec<VirtualMachine<'_>>,
         terminal_hub: Arc<TerminalHub>,
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
@@ -638,8 +633,9 @@ impl VmManager {
             }
 
             // ═══ PARALLEL VM PROCESSING ═══
-            // Process all VMs in parallel using worker threads
-            let (process_ticks, worker_results) = self.process_vms_parallel(vms, pool, &self.fs_service, &self.user_service);
+            // Process all VMs using the same Lua that created them (so process stdin/stdout work)
+            let (process_ticks, worker_results) =
+                self.process_vms_parallel(lua, vms, pool, &self.fs_service, &self.user_service);
             total_process_ticks += process_ticks;
 
             // ═══ SEQUENTIAL POST-PROCESSING ═══
@@ -733,54 +729,55 @@ impl VmManager {
                         }
                     }
                 }
+            }
 
-                // Terminal sessions: inject stdin from gRPC into shell process, drain stdout to gRPC
-                {
-                    let mut hub = terminal_hub.lock().unwrap();
-                    let vm_id = vm.id;
-                    let mut to_remove = Vec::new();
-                    for (session_id, session) in hub.sessions.iter_mut() {
-                        if session.vm_id != vm_id {
-                            continue;
-                        }
-                        // Drain stdin_rx and push into process stdin (non-blocking try_recv loop)
-                        while let Ok(line) = session.stdin_rx.try_recv() {
-                            if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == session.pid) {
-                                if let Ok(mut guard) = p.stdin.lock() {
-                                    guard.push_back(line);
-                                }
+            // Terminal sessions: inject stdin from gRPC into shell process, drain stdout to gRPC
+            // Single lock per tick; iterate over sessions only (O(sessions) vs O(VMs))
+            {
+                let mut hub = terminal_hub.lock().unwrap();
+                let mut to_remove = Vec::new();
+                for (session_id, session) in hub.sessions.iter_mut() {
+                    let Some(vm) = vms.iter_mut().find(|v| v.id == session.vm_id) else {
+                        to_remove.push(*session_id);
+                        continue;
+                    };
+                    // Drain stdin_rx and push into process stdin (non-blocking try_recv loop)
+                    while let Ok(line) = session.stdin_rx.try_recv() {
+                        if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == session.pid) {
+                            if let Ok(mut guard) = p.stdin.lock() {
+                                guard.push_back(line);
                             }
-                        }
-                        // Read new stdout suffix and send on stdout_tx
-                        if let Some(p) = vm.os.processes.iter().find(|pr| pr.id == session.pid) {
-                            if let Ok(guard) = p.stdout.lock() {
-                                let len = guard.len();
-                                if len > session.last_stdout_len {
-                                    let suffix = guard[session.last_stdout_len..].to_string();
-                                    session.last_stdout_len = len;
-                                    drop(guard);
-                                    if session.stdout_tx.try_send(suffix).is_err() {
-                                        // gRPC side dropped; remove session
-                                        to_remove.push(*session_id);
-                                    }
-                                }
-                            }
-                            if p.is_finished() {
-                                to_remove.push(*session_id);
-                            }
-                        } else {
-                            // Process gone
-                            to_remove.push(*session_id);
                         }
                     }
-                    for id in to_remove {
-                        if let Some(s) = hub.sessions.get(&id) {
-                            let (vmid, pid) = (s.vm_id, s.pid);
-                            if vmid == vm.id {
-                                vm.os.kill_process_and_descendants(pid);
+                    // Read new stdout suffix and send on stdout_tx
+                    if let Some(p) = vm.os.processes.iter().find(|pr| pr.id == session.pid) {
+                        if let Ok(guard) = p.stdout.lock() {
+                            let len = guard.len();
+                            if len > session.last_stdout_len {
+                                let suffix = guard[session.last_stdout_len..].to_string();
+                                session.last_stdout_len = len;
+                                drop(guard);
+                                if session.stdout_tx.try_send(suffix).is_err() {
+                                    to_remove.push(*session_id);
+                                }
                             }
                         }
-                        hub.sessions.remove(&id);
+                        if p.is_finished() {
+                            to_remove.push(*session_id);
+                        }
+                    } else {
+                        to_remove.push(*session_id);
+                    }
+                }
+                for id in to_remove {
+                    let (vm_id, pid) = hub
+                        .sessions
+                        .get(&id)
+                        .map(|s| (s.vm_id, s.pid))
+                        .unwrap_or((Uuid::nil(), 0));
+                    hub.sessions.remove(&id);
+                    if let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) {
+                        vm.os.kill_process_and_descendants(pid);
                     }
                 }
             }
@@ -1165,54 +1162,6 @@ impl VmManager {
                     }
                 }
 
-                // Terminal sessions
-                {
-                    let mut hub = terminal_hub.lock().unwrap();
-                    let vm_id = vm.id;
-                    let mut to_remove = Vec::new();
-                    for (session_id, session) in hub.sessions.iter_mut() {
-                        if session.vm_id != vm_id {
-                            continue;
-                        }
-                        while let Ok(line) = session.stdin_rx.try_recv() {
-                            if let Some(p) =
-                                vm.os.processes.iter_mut().find(|pr| pr.id == session.pid)
-                            {
-                                if let Ok(mut guard) = p.stdin.lock() {
-                                    guard.push_back(line);
-                                }
-                            }
-                        }
-                        if let Some(p) = vm.os.processes.iter().find(|pr| pr.id == session.pid) {
-                            if let Ok(guard) = p.stdout.lock() {
-                                let len = guard.len();
-                                if len > session.last_stdout_len {
-                                    let suffix = guard[session.last_stdout_len..].to_string();
-                                    session.last_stdout_len = len;
-                                    drop(guard);
-                                    if session.stdout_tx.try_send(suffix).is_err() {
-                                        to_remove.push(*session_id);
-                                    }
-                                }
-                            }
-                            if p.is_finished() {
-                                to_remove.push(*session_id);
-                            }
-                        } else {
-                            to_remove.push(*session_id);
-                        }
-                    }
-                    for id in to_remove {
-                        if let Some(s) = hub.sessions.get(&id) {
-                            let (vmid, pid) = (s.vm_id, s.pid);
-                            if vmid == vm.id {
-                                vm.os.kill_process_and_descendants(pid);
-                            }
-                        }
-                        hub.sessions.remove(&id);
-                    }
-                }
-
                 // Apply outbound packets
                 {
                     let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
@@ -1235,6 +1184,54 @@ impl VmManager {
                     }
                     std::mem::swap(&mut ctx.connections, &mut vm.connections);
                     std::mem::swap(&mut ctx.next_connection_id, &mut vm.next_connection_id);
+                }
+            }
+
+            // Terminal sessions: single lock per tick; iterate over sessions only
+            {
+                let mut hub = terminal_hub.lock().unwrap();
+                let mut to_remove = Vec::new();
+                for (session_id, session) in hub.sessions.iter_mut() {
+                    let Some(vm) = vms.iter_mut().find(|v| v.id == session.vm_id) else {
+                        to_remove.push(*session_id);
+                        continue;
+                    };
+                    while let Ok(line) = session.stdin_rx.try_recv() {
+                        if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == session.pid) {
+                            if let Ok(mut guard) = p.stdin.lock() {
+                                guard.push_back(line);
+                            }
+                        }
+                    }
+                    if let Some(p) = vm.os.processes.iter().find(|pr| pr.id == session.pid) {
+                        if let Ok(guard) = p.stdout.lock() {
+                            let len = guard.len();
+                            if len > session.last_stdout_len {
+                                let suffix = guard[session.last_stdout_len..].to_string();
+                                session.last_stdout_len = len;
+                                drop(guard);
+                                if session.stdout_tx.try_send(suffix).is_err() {
+                                    to_remove.push(*session_id);
+                                }
+                            }
+                        }
+                        if p.is_finished() {
+                            to_remove.push(*session_id);
+                        }
+                    } else {
+                        to_remove.push(*session_id);
+                    }
+                }
+                for id in to_remove {
+                    let (vm_id, pid) = hub
+                        .sessions
+                        .get(&id)
+                        .map(|s| (s.vm_id, s.pid))
+                        .unwrap_or((Uuid::nil(), 0));
+                    hub.sessions.remove(&id);
+                    if let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) {
+                        vm.os.kill_process_and_descendants(pid);
+                    }
                 }
             }
 

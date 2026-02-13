@@ -39,13 +39,14 @@ pub struct WorkerResult {
 
 // VmWorkerHandle removed - not needed for current implementation
 
-/// Worker that processes VMs in a separate thread with its own Lua state
-pub struct VmWorker {
+/// Worker that processes VMs. Uses the same Lua state that created the VMs' processes,
+/// so process threads (io.read, io.write) see the correct VmContext (stdin/stdout).
+pub struct VmWorker<'a> {
     pub worker_id: usize,
-    pub lua: Lua,
+    pub lua: &'a Lua,
 }
 
-impl VmWorker {
+impl<'a> VmWorker<'a> {
     /// Process a chunk of VMs (ticking their processes)
     ///
     /// SAFETY: This function is called with a mutable slice of VMs that is guaranteed
