@@ -15,8 +15,15 @@ pub struct Claims {
 /// Get JWT secret from environment variable or use development default
 pub fn get_jwt_secret() -> String {
     std::env::var("JWT_SECRET").unwrap_or_else(|_| {
-        eprintln!("[WARNING] JWT_SECRET not set, using development default");
-        eprintln!("[WARNING] For production, set JWT_SECRET environment variable");
+        // Only warn once and only in production mode
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static WARNED: AtomicBool = AtomicBool::new(false);
+        if !WARNED.swap(true, Ordering::Relaxed) {
+            if std::env::var("PRODUCTION").is_ok() || std::env::var("PROD").is_ok() {
+                eprintln!("[WARNING] JWT_SECRET not set, using development default");
+                eprintln!("[WARNING] For production, set JWT_SECRET environment variable");
+            }
+        }
         "dev_secret_change_in_production_use_openssl_rand_base64_32".to_string()
     })
 }

@@ -101,6 +101,25 @@ impl VmService {
         Ok(recs)
     }
 
+    /// Restore only player-owned VMs (owner_id IS NOT NULL) with status 'running' or 'crashed'.
+    /// Used in game mode to avoid loading test VMs.
+    pub async fn restore_player_vms(&self) -> Result<Vec<VmRecord>, sqlx::Error> {
+        let recs = sqlx::query_as::<_, VmRecord>(
+            r#"
+            SELECT id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
+                   ip, subnet, gateway, mac, owner_id, created_at, updated_at
+            FROM vms
+            WHERE status IN ('running', 'crashed')
+              AND owner_id IS NOT NULL
+            ORDER BY created_at
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(recs)
+    }
+
     pub async fn set_status(&self, vm_id: Uuid, status: &str) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE vms SET status = $1, updated_at = now() WHERE id = $2")
             .bind(status)

@@ -11,15 +11,18 @@ use super::net::ip::{Ipv4Addr, Subnet};
 use super::net::net_manager::NetManager;
 use super::net::nic::NIC;
 use super::net::router::{RouteResult, Router};
+use super::os::create_lua_state;
 use super::terminal_hub::{SessionReady, TerminalHub, TerminalSession};
 use super::vm::VirtualMachine;
+use super::vm_worker::{VmWorker, WorkerResult};
 use dashmap::DashMap;
 use mlua::Lua;
+use sqlx::PgPool;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{sleep, sleep_until, Instant as TokioInstant};
+use tokio::time::sleep;
 use uuid::Uuid;
 
 /// Snapshot of one process for gRPC (System Monitor). Written every 60 ticks for player-owned VMs only.
@@ -37,6 +40,7 @@ const SNAPSHOT_INTERVAL_TICKS: u64 = 60;
 
 const TPS: u32 = 60;
 const TICK_TIME: Duration = Duration::from_millis(1000 / TPS as u64);
+const TEST_DURATION_SECS: u64 = 20; // Stress test duration
 
 pub struct VmManager {
     pub vm_service: Arc<VmService>,
@@ -91,6 +95,12 @@ impl VmManager {
     /// Register a VM as player-owned (so its process list is snapshotted for gRPC). Call when restoring a player VM in main.
     pub fn register_player_owned_vm_id(&mut self, vm_id: Uuid) {
         self.player_owned_vm_ids.insert(vm_id);
+    }
+
+    /// Clear active VMs list (used to avoid duplication when creating then restoring VMs).
+    pub fn clear_active_vms(&mut self) {
+        self.active_vms.clear();
+        self.player_owned_vm_ids.clear();
     }
 
     /// Create a new VM: DB insert + FS bootstrap + NIC allocation + DNS registration.
@@ -287,11 +297,11 @@ impl VmManager {
         Ok(())
     }
 
-    /// Restore VMs from DB that were running/crashed. Returns records to rebuild structs.
+    /// Restore player-owned VMs from DB that were running/crashed. Returns records to rebuild structs.
     pub async fn restore_vms(&mut self) -> Result<Vec<VmRecord>, String> {
         let records = self
             .vm_service
-            .restore_running_vms()
+            .restore_player_vms()
             .await
             .map_err(|e| format!("DB error restoring VMs: {}", e))?;
 
@@ -328,6 +338,11 @@ impl VmManager {
     /// Get the in-memory record for a VM by ID.
     pub fn get_active_vm(&self, vm_id: Uuid) -> Option<&ActiveVm> {
         self.active_vms.iter().find(|v| v.id == vm_id)
+    }
+
+    /// Get all active VMs.
+    pub fn get_active_vms(&self) -> &[ActiveVm] {
+        &self.active_vms
     }
 
     /// Process one network tick: route packets between VMs via the router.
@@ -389,25 +404,83 @@ impl VmManager {
         }
     }
 
+    /// Process VMs using worker abstraction.
+    /// Currently processes sequentially due to Rust thread safety constraints with mlua.
+    ///
+    /// TODO: Implement true parallelization using one of these approaches:
+    /// 1. mlua "send" feature (if available in newer versions)
+    /// 2. Thread pool with thread-local Lua states
+    /// 3. Message passing architecture with dedicated Lua threads
+    ///
+    /// Returns total process ticks executed across all workers.
+    fn process_vms_parallel(
+        &self,
+        vms: &mut [VirtualMachine],
+        pool: &PgPool,
+        fs_service: &Arc<FsService>,
+        user_service: &Arc<UserService>,
+    ) -> (u64, Vec<WorkerResult>) {
+        // Prepare active VM metadata
+        let active_vm_metadata: Vec<(Uuid, String, Option<Ipv4Addr>)> = self
+            .active_vms
+            .iter()
+            .map(|a| (a.id, a.hostname.clone(), a.ip))
+            .collect();
+
+        // Create single Lua state (sequential processing)
+        let lua = create_lua_state();
+        lua.set_app_data(VmContext::new(pool.clone()));
+        super::lua_api::register_all(&lua, fs_service.clone(), user_service.clone())
+            .expect("Failed to register Lua APIs");
+
+        // Process all VMs with single worker
+        let worker = VmWorker {
+            worker_id: 0,
+            lua,
+        };
+        let result = worker.process_chunk(vms, &active_vm_metadata);
+        let total_ticks = result.process_ticks;
+
+        (total_ticks, vec![result])
+    }
+
     /// Run the main game loop.
     pub async fn run_loop(
         &mut self,
-        lua: &Lua,
+        _lua: &Lua,
         vms: &mut Vec<VirtualMachine<'_>>,
         terminal_hub: Arc<TerminalHub>,
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
+        pool: &PgPool,
+        stress_mode: bool,
     ) {
-        println!(
-            "[cluster] Game loop started ({} TPS, {} active VMs)",
-            TPS,
-            vms.len()
-        );
+        if stress_mode {
+            println!(
+                "[cluster] STRESS TEST: Game loop started (NO LIMITER, {} active VMs)",
+                vms.len()
+            );
+        } else {
+            println!(
+                "[cluster] GAME MODE: Game loop started (NO LIMITER, {} active VMs)",
+                vms.len()
+            );
+        }
 
-        let mut next_tick = TokioInstant::now();
         let mut tick_count: u64 = 0;
         let start = Instant::now();
 
+        // Stress test metrics (pre-allocate for 20s @ ~250 TPS = ~5000 ticks)
+        let mut tick_durations: Vec<Duration> = Vec::with_capacity(5000);
+        let mut min_duration = Duration::MAX;
+        let mut max_duration = Duration::ZERO;
+        let mut slow_ticks: u64 = 0;
+        let mut total_process_ticks: u64 = 0;
+
         loop {
+            // Check timeout APENAS em stress mode
+            if stress_mode && start.elapsed() >= Duration::from_secs(TEST_DURATION_SECS) {
+                break;
+            }
             let tick_start = Instant::now();
 
             // Snapshot process list on first tick so GetProcessList has data immediately (and every 60 ticks below)
@@ -474,12 +547,22 @@ impl VmManager {
                         Ok(Some((data, _))) => match String::from_utf8(data) {
                             Ok(s) => s,
                             Err(_) => {
-                                let _ = response_tx.send(Err("/bin/sh not valid UTF-8".to_string()));
+                                let msg = format!("/bin/sh not valid UTF-8 for VM {}", vm_id);
+                                println!("[cluster] ERROR: {}", msg);
+                                let _ = response_tx.send(Err(msg));
                                 continue;
                             }
                         },
-                        _ => {
-                            let _ = response_tx.send(Err("Cannot read /bin/sh".to_string()));
+                        Ok(None) => {
+                            let msg = format!("/bin/sh not found in VM {} filesystem - may need bootstrap", vm_id);
+                            println!("[cluster] ERROR: {}", msg);
+                            let _ = response_tx.send(Err(msg));
+                            continue;
+                        }
+                        Err(e) => {
+                            let msg = format!("Failed to read /bin/sh from VM {}: {}", vm_id, e);
+                            println!("[cluster] ERROR: {}", msg);
+                            let _ = response_tx.send(Err(msg));
                             continue;
                         }
                     };
@@ -554,135 +637,80 @@ impl VmManager {
                 }
             }
 
-            // Set context and tick each VM
-            for vm in vms.iter_mut() {
-                // Prepare Lua context for this VM
-                {
-                    let active = self.active_vms.iter().find(|a| a.id == vm.id);
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-                    let hostname = active.map(|a| a.hostname.as_str()).unwrap_or("unknown");
-                    let ip = active.and_then(|a| a.ip);
-                    ctx.set_vm(vm.id, hostname, ip);
-                    if let Some(nic) = &vm.nic {
-                        ctx.set_port_owners(nic.get_port_owners());
-                    }
-                    ctx.next_pid = vm.os.next_process_id();
-                    // Snapshot process status and stdout for Lua os.process_status / os.read_stdout
-                    for p in &vm.os.processes {
-                        let status = if p.is_finished() { "finished" } else { "running" };
-                        ctx.process_status_map.insert(p.id, status.to_string());
-                        if let Ok(guard) = p.stdout.lock() {
-                            ctx.process_stdout.insert(p.id, guard.clone());
-                        }
-                    }
-                    ctx.merge_last_stdout_of_finished();
-                    // Load inbound packets into context
-                    if let Some(nic) = &mut vm.nic {
-                        while let Some(pkt) = nic.recv() {
-                            ctx.net_inbound.push_back(pkt);
-                        }
-                    }
-                    // Swap in this VM's connection state so sync drains into this VM's connections
-                    std::mem::swap(&mut ctx.connections, &mut vm.connections);
-                    std::mem::swap(&mut ctx.next_connection_id, &mut vm.next_connection_id);
-                    if let Some(nic) = &mut vm.nic {
-                        ctx.sync_connection_inbounds_from_nic(nic);
-                    }
-                }
+            // ═══ PARALLEL VM PROCESSING ═══
+            // Process all VMs in parallel using worker threads
+            let (process_ticks, worker_results) = self.process_vms_parallel(vms, pool, &self.fs_service, &self.user_service);
+            total_process_ticks += process_ticks;
 
-                // Tick all processes
-                for process in &mut vm.os.processes {
-                    {
-                        let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-                        ctx.current_pid = process.id;
-                        ctx.current_uid = process.user_id;
-                        ctx.current_username = process.username.clone();
-                        ctx.set_current_process(
-                            process.stdin.clone(),
-                            process.stdout.clone(),
-                            process.args.clone(),
-                            process.forward_stdout_to.clone(),
-                        );
-                    }
-                    if !process.is_finished() {
-                        process.tick();
-                    }
-                    // Detect if os.su() changed the user identity
-                    {
-                        let ctx = lua.app_data_ref::<VmContext>().unwrap();
-                        if ctx.current_uid != process.user_id {
-                            process.user_id = ctx.current_uid;
-                            process.username = ctx.current_username.clone();
+            // ═══ SEQUENTIAL POST-PROCESSING ═══
+            // Apply network operations and process spawn/stdin queues from workers
+            for vm in vms.iter_mut() {
+                // Apply network packets to NICs (collected from workers)
+                if let Some(nic) = &mut vm.nic {
+                    for result in &worker_results {
+                        // Apply packets for this VM
+                        for (vm_id, pkt) in &result.net_outbound {
+                            if *vm_id == vm.id {
+                                nic.send(pkt.clone());
+                            }
                         }
-                    }
-                }
-                {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-                    for p in &vm.os.processes {
-                        if p.is_finished() {
-                            if let Ok(guard) = p.stdout.lock() {
-                                ctx.last_stdout_of_finished.insert(p.id, guard.clone());
+                        // Apply listen requests
+                        for (vm_id, port, pid) in &result.pending_listen {
+                            if *vm_id == vm.id {
+                                let _ = nic.try_listen(*port, *pid);
+                            }
+                        }
+                        // Apply ephemeral registrations
+                        for (vm_id, port) in &result.pending_ephemeral_register {
+                            if *vm_id == vm.id {
+                                nic.register_ephemeral(*port);
+                            }
+                        }
+                        for (vm_id, port) in &result.pending_ephemeral_unregister {
+                            if *vm_id == vm.id {
+                                nic.unregister_ephemeral(*port);
                             }
                         }
                     }
                 }
-                let finished_pids: Vec<u64> = vm
-                    .os
-                    .processes
-                    .iter()
-                    .filter(|p| p.is_finished())
-                    .map(|p| p.id)
-                    .collect();
-                for pid in &finished_pids {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-                    ctx.close_connections_for_pid(*pid);
-                }
-                vm.os.processes.retain(|p| !p.is_finished());
-                if let Some(nic) = &mut vm.nic {
-                    for pid in &finished_pids {
-                        nic.unlisten_pid(*pid);
-                    }
-                }
 
-                // Process spawn_queue (from os.spawn / os.spawn_path / os.exec)
-                {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-                    let spawn_queue = std::mem::take(&mut ctx.spawn_queue);
-                    let vm_id = ctx.vm_id;
-                    drop(ctx);
-
-                    for (pid, parent_id, spec, args, uid, username, forward_stdout) in spawn_queue {
+                // Process spawn_queue (collected from workers, needs async fs access)
+                for result in &worker_results {
+                    for (vm_id, (pid, parent_id, spec, args, uid, username, forward_stdout)) in &result.spawn_queue {
+                        if *vm_id != vm.id {
+                            continue;
+                        }
                         let path = match &spec {
                             SpawnSpec::Bin(name) => format!("/bin/{}", name),
                             SpawnSpec::Path(p) => p.clone(),
                         };
-                        let forward_stdout_to = if forward_stdout && parent_id != 0 {
+                        let forward_stdout_to = if *forward_stdout && *parent_id != 0 {
                             vm.os
                                 .processes
                                 .iter()
-                                .find(|p| p.id == parent_id)
+                                .find(|p| p.id == *parent_id)
                                 .map(|p| p.stdout.clone())
                         } else {
                             None
                         };
-                        let result = tokio::task::block_in_place(|| {
+                        let fs_result = tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(async {
-                                self.fs_service.read_file(vm_id, &path).await
+                                self.fs_service.read_file(*vm_id, &path).await
                             })
                         });
-                        if let Ok(Some((data, _))) = result {
+                        if let Ok(Some((data, _))) = fs_result {
                             if let Ok(lua_code) = String::from_utf8(data) {
                                 let argv0 = match &spec {
                                     SpawnSpec::Bin(n) => n.clone(),
                                     SpawnSpec::Path(p) => p.rsplit('/').next().unwrap_or(p.as_str()).to_string(),
                                 };
-                                let parent = if parent_id == 0 { None } else { Some(parent_id) };
+                                let parent = if *parent_id == 0 { None } else { Some(*parent_id) };
                                 vm.os.spawn_process_with_id(
-                                    pid,
+                                    *pid,
                                     parent,
                                     &lua_code,
-                                    args,
-                                    uid,
+                                    args.clone(),
+                                    *uid,
                                     &username,
                                     forward_stdout_to,
                                     Some(argv0),
@@ -692,15 +720,15 @@ impl VmManager {
                     }
                 }
 
-                // Apply stdin inject queue (from os.write_stdin)
-                {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-                    let stdin_inject = std::mem::take(&mut ctx.stdin_inject_queue);
-                    drop(ctx);
-                    for (pid, line) in stdin_inject {
-                        if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == pid) {
+                // Apply stdin inject queue (collected from workers)
+                for result in &worker_results {
+                    for (vm_id, pid, line) in &result.stdin_inject_queue {
+                        if *vm_id != vm.id {
+                            continue;
+                        }
+                        if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == *pid) {
                             if let Ok(mut guard) = p.stdin.lock() {
-                                guard.push_back(line);
+                                guard.push_back(line.clone());
                             }
                         }
                     }
@@ -755,32 +783,6 @@ impl VmManager {
                         hub.sessions.remove(&id);
                     }
                 }
-
-                // Apply outbound packets from context to NIC
-                {
-                    let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
-                    if let Some(nic) = &mut vm.nic {
-                        for pkt in ctx.net_outbound.drain(..) {
-                            nic.send(pkt);
-                        }
-                        for (port, pid) in ctx.pending_listen.drain(..) {
-                            let _ = nic.try_listen(port, pid);
-                        }
-                        for port in ctx.pending_ephemeral_register.drain(..) {
-                            nic.register_ephemeral(port);
-                        }
-                        for port in ctx.pending_ephemeral_unregister.drain(..) {
-                            nic.unregister_ephemeral(port);
-                        }
-                        // Return unconsumed inbound packets to NIC so they are available next tick (process may yield mid-loop)
-                        for pkt in ctx.net_inbound.drain(..) {
-                            nic.deliver(pkt);
-                        }
-                    }
-                    // Swap back this VM's connection state for next tick
-                    std::mem::swap(&mut ctx.connections, &mut vm.connections);
-                    std::mem::swap(&mut ctx.next_connection_id, &mut vm.next_connection_id);
-                }
             }
 
             // Network tick — route packets between VMs
@@ -824,25 +826,66 @@ impl VmManager {
 
             // Do not remove VMs when they have no processes; they may get new terminals or processes later
 
-            // Frame pacing
-            let elapsed = tick_start.elapsed();
-            if elapsed < TICK_TIME {
-                next_tick += TICK_TIME;
-                sleep_until(next_tick).await;
-            } else {
-                next_tick = TokioInstant::now();
+            // Track tick duration (no sleep for stress test)
+            let tick_duration = tick_start.elapsed();
+            tick_durations.push(tick_duration);
+            min_duration = min_duration.min(tick_duration);
+            max_duration = max_duration.max(tick_duration);
+
+            if tick_duration > TICK_TIME {
+                slow_ticks += 1;
             }
 
             // Log every 5 seconds
             if tick_count % (TPS as u64 * 5) == 0 {
                 let uptime = start.elapsed().as_secs();
                 println!(
-                    "[cluster] Tick {} | {} VMs active | uptime {}s",
+                    "[cluster] Tick {} | {} VMs active | uptime {}s | {:.1} TPS",
                     tick_count,
                     vms.len(),
                     uptime,
+                    tick_count as f64 / uptime as f64,
                 );
             }
+        }
+
+        // Display stress test results (apenas em stress mode)
+        if stress_mode {
+            let duration = start.elapsed();
+
+            // Calculate percentiles
+            tick_durations.sort();
+            let p50 = tick_durations[tick_durations.len() / 2];
+            let p95 = tick_durations[tick_durations.len() * 95 / 100];
+            let p99 = tick_durations[tick_durations.len() * 99 / 100];
+            let mean: Duration = tick_durations.iter().sum::<Duration>() / tick_durations.len() as u32;
+
+            println!("\n=== STRESS TEST RESULTS ===\n");
+            println!("Configuration:");
+            println!("  VMs: {}", vms.len());
+            println!("  Total Processes: {}\n", vms.iter().map(|vm| vm.os.processes.len()).sum::<usize>());
+
+            println!("Performance:");
+            println!("  Duration: {:.2}s (test runtime)\n", duration.as_secs_f64());
+
+            println!("Game Loop (Main Server Loop):");
+            println!("  Total Iterations: {} ticks", tick_count);
+            println!("  Ticks/Second: {:.1} TPS (sem limitador de 60 FPS)", tick_count as f64 / duration.as_secs_f64());
+            println!("  Comparação: {:.1}x mais rápido que 60 TPS\n", (tick_count as f64 / duration.as_secs_f64()) / 60.0);
+
+            println!("Process Ticks (Execuções Lua):");
+            println!("  Total: {} process.tick() chamadas", total_process_ticks);
+            println!("  Por segundo: {:.0} execuções Lua/seg", total_process_ticks as f64 / duration.as_secs_f64());
+            println!("  Explicação: {} VMs × {} game ticks = {} process ticks\n", vms.len(), tick_count, total_process_ticks);
+
+            println!("Tick Duration Statistics:");
+            println!("  Min: {:?}", min_duration);
+            println!("  Max: {:?}", max_duration);
+            println!("  Mean: {:?}", mean);
+            println!("  Median (p50): {:?}", p50);
+            println!("  p95: {:?}", p95);
+            println!("  p99: {:?}", p99);
+            println!("  Slow ticks (>16ms): {} ({:.1}%)", slow_ticks, (slow_ticks as f64 / tick_count as f64) * 100.0);
         }
     }
 
@@ -887,12 +930,22 @@ impl VmManager {
                         Ok(Some((data, _))) => match String::from_utf8(data) {
                             Ok(s) => s,
                             Err(_) => {
-                                let _ = response_tx.send(Err("/bin/sh not valid UTF-8".to_string()));
+                                let msg = format!("/bin/sh not valid UTF-8 for VM {}", vm_id);
+                                println!("[cluster] ERROR: {}", msg);
+                                let _ = response_tx.send(Err(msg));
                                 continue;
                             }
                         },
-                        _ => {
-                            let _ = response_tx.send(Err("Cannot read /bin/sh".to_string()));
+                        Ok(None) => {
+                            let msg = format!("/bin/sh not found in VM {} filesystem - may need bootstrap", vm_id);
+                            println!("[cluster] ERROR: {}", msg);
+                            let _ = response_tx.send(Err(msg));
+                            continue;
+                        }
+                        Err(e) => {
+                            let msg = format!("Failed to read /bin/sh from VM {}: {}", vm_id, e);
+                            println!("[cluster] ERROR: {}", msg);
+                            let _ = response_tx.send(Err(msg));
                             continue;
                         }
                     };
