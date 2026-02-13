@@ -4,6 +4,9 @@ use super::ip::{Ipv4Addr, Subnet};
 use super::packet::Packet;
 use std::collections::{HashMap, VecDeque};
 
+/// Maximum packets per ephemeral port queue at NIC level
+const MAX_EPHEMERAL_QUEUE_SIZE: usize = 128;
+
 /// A simulated Network Interface Card (NIC).
 ///
 /// Each VM gets one NIC. It holds the VM's IP address, subnet configuration,
@@ -151,6 +154,9 @@ impl NIC {
     /// Deliver a packet to an ephemeral port's queue. Call when dst_port is ephemeral (not listening).
     pub fn deliver_to_ephemeral(&mut self, port: u16, packet: Packet) {
         if let Some(q) = self.ephemeral_inbound.get_mut(&port) {
+            if q.len() >= MAX_EPHEMERAL_QUEUE_SIZE {
+                q.pop_front();
+            }
             q.push_back(packet);
         }
     }

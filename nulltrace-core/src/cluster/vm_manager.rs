@@ -279,7 +279,12 @@ impl VmManager {
     }
 
     /// Destroy a VM: delete from DB (cascades FS), unregister from DNS/NetManager.
-    pub async fn destroy_vm(&mut self, vm_id: Uuid) -> Result<(), String> {
+    pub async fn destroy_vm(
+        &mut self,
+        vm_id: Uuid,
+        terminal_hub: Arc<TerminalHub>,
+        process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
+    ) -> Result<(), String> {
         // Remove from active first
         if let Some(pos) = self.active_vms.iter().position(|v| v.id == vm_id) {
             let vm = self.active_vms.remove(pos);
@@ -292,12 +297,70 @@ impl VmManager {
         }
         self.player_owned_vm_ids.remove(&vm_id);
 
+        // Clean up terminal sessions for this VM
+        {
+            let mut hub = terminal_hub.lock().unwrap();
+            let session_ids_to_remove: Vec<Uuid> = hub
+                .sessions
+                .iter()
+                .filter(|(_, session)| session.vm_id == vm_id)
+                .map(|(id, _)| *id)
+                .collect();
+
+            for session_id in session_ids_to_remove {
+                hub.sessions.remove(&session_id);
+                // Note: channels will be dropped automatically, closing gRPC streams
+            }
+        }
+
+        // Clean up process snapshots for this VM
+        process_snapshot_store.remove(&vm_id);
+
         self.vm_service
             .delete_vm(vm_id)
             .await
             .map_err(|e| format!("DB error: {}", e))?;
 
         Ok(())
+    }
+
+    /// Remove destroyed VMs from the vms Vec (VMs that are in vms but not in active_vms).
+    /// Also cleans up associated terminal sessions and process snapshots.
+    pub fn remove_destroyed_vms(
+        &mut self,
+        vms: &mut Vec<VirtualMachine>,
+        terminal_hub: Arc<TerminalHub>,
+        process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
+    ) {
+        // Identify VMs that are in the Vec but not in active_vms
+        let active_ids: HashSet<Uuid> = self.active_vms.iter().map(|v| v.id).collect();
+        let destroyed_vm_ids: Vec<Uuid> = vms
+            .iter()
+            .filter(|vm| !active_ids.contains(&vm.id))
+            .map(|vm| vm.id)
+            .collect();
+
+        for vm_id in destroyed_vm_ids {
+            // Remove from vms Vec
+            if let Some(pos) = vms.iter().position(|v| v.id == vm_id) {
+                vms.remove(pos);
+            }
+
+            // Clean up sessions
+            let mut hub = terminal_hub.lock().unwrap();
+            let session_ids: Vec<Uuid> = hub
+                .sessions
+                .iter()
+                .filter(|(_, s)| s.vm_id == vm_id)
+                .map(|(id, _)| *id)
+                .collect();
+            for sid in session_ids {
+                hub.sessions.remove(&sid);
+            }
+
+            // Clean up snapshots
+            process_snapshot_store.remove(&vm_id);
+        }
     }
 
     /// Restore player-owned VMs from DB that were running/crashed. Returns records to rebuild structs.
@@ -419,8 +482,8 @@ impl VmManager {
         vms: &mut [VirtualMachine],
         executable_indices: &[usize],
         _pool: &PgPool,
-        fs_service: &Arc<FsService>,
-        user_service: &Arc<UserService>,
+        _fs_service: &Arc<FsService>,
+        _user_service: &Arc<UserService>,
     ) -> (u64, Vec<WorkerResult>) {
         // Prepare active VM metadata
         let active_vm_metadata: Vec<(Uuid, String, Option<Ipv4Addr>)> = self
@@ -869,16 +932,32 @@ impl VmManager {
                 slow_ticks += 1;
             }
 
-            // Log every 5 seconds
+            // Log every 5 seconds with enhanced memory monitoring
             if tick_count % (TPS as u64 * 5) == 0 {
                 let uptime = start.elapsed().as_secs();
+                let total_connections: usize = vms.iter().map(|vm| vm.connections.len()).sum();
+                let total_sessions = {
+                    let hub = terminal_hub.lock().unwrap();
+                    hub.sessions.len()
+                };
+                let total_snapshots = process_snapshot_store.len();
+
                 println!(
-                    "[cluster] Tick {} | {} VMs active | uptime {}s | {:.1} TPS",
+                    "[cluster] Tick {} | {} VMs | {} conns | {} sessions | {} snapshots | {}s up | {:.1} TPS",
                     tick_count,
                     vms.len(),
+                    total_connections,
+                    total_sessions,
+                    total_snapshots,
                     uptime,
                     tick_count as f64 / uptime as f64,
                 );
+
+                // Periodic cleanup: remove destroyed VMs and their associated resources (game mode only)
+                // In stress mode, VMs are not tracked in active_vms, so this would incorrectly remove all VMs
+                if !stress_mode {
+                    self.remove_destroyed_vms(vms, terminal_hub.clone(), process_snapshot_store.clone());
+                }
             }
         }
 

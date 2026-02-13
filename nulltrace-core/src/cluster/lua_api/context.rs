@@ -13,6 +13,9 @@ use uuid::Uuid;
 const EPHEMERAL_PORT_MIN: u16 = 49152;
 const EPHEMERAL_PORT_MAX: u16 = 65535;
 
+/// Maximum packets queued in VM's net_inbound (for listening sockets)
+const MAX_VM_INBOUND_PACKETS: usize = 256;
+
 /// Spawn target: from /bin by name or from a file path.
 #[derive(Clone, Debug)]
 pub enum SpawnSpec {
@@ -156,7 +159,13 @@ impl VmContext {
     /// Drain NIC ephemeral queues into each connection's inbound. Call at VM tick start (after loading net_inbound).
     pub fn sync_connection_inbounds_from_nic(&mut self, nic: &mut NIC) {
         for conn in self.connections.values_mut() {
-            nic.drain_ephemeral_into(conn.local_port, &mut conn.inbound);
+            let mut temp = VecDeque::new();
+            nic.drain_ephemeral_into(conn.local_port, &mut temp);
+
+            // Apply limit when draining from NIC to connection
+            for pkt in temp {
+                conn.push_inbound(pkt);
+            }
         }
     }
 
@@ -193,5 +202,13 @@ impl VmContext {
         self.current_stdout = Some(stdout);
         self.current_stdout_forward = forward_stdout_to;
         self.process_args = args;
+    }
+
+    /// Push packet to net_inbound with limit enforcement
+    pub fn push_inbound(&mut self, packet: Packet) {
+        if self.net_inbound.len() >= MAX_VM_INBOUND_PACKETS {
+            self.net_inbound.pop_front();
+        }
+        self.net_inbound.push_back(packet);
     }
 }
