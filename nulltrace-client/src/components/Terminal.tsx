@@ -360,6 +360,18 @@ export default function Terminal({ username, windowId }: TerminalProps) {
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
+      // Handle Ctrl+C - send interrupt (kill foreground process), echo ^C
+      if (e.ctrlKey && e.key === "c") {
+        e.preventDefault();
+        if (sessionId && !sessionEnded) {
+          setLines((prev) => trimToLast([...prev, { type: "output", content: "^C" }]));
+          invoke("terminal_send_interrupt", { sessionId }).catch((err) => {
+            setLines((prev) => trimToLast([...prev, { type: "error", content: String(err) }]));
+          });
+        }
+        return;
+      }
+
       // Handle Alt + ArrowLeft - jump to previous word
       if (e.key === "ArrowLeft" && e.altKey) {
         e.preventDefault();

@@ -80,6 +80,9 @@ pub struct VmContext {
 
     /// Stdout of processes that finished in the previous tick (so os.read_stdout(pid) works once after exit).
     pub last_stdout_of_finished: HashMap<u64, String>,
+
+    /// (vm_id, shell_pid) -> foreground child pid. Used by terminal Ctrl+C to kill only the foreground process.
+    pub shell_foreground_pid: HashMap<(Uuid, u64), u64>,
 }
 
 impl VmContext {
@@ -111,6 +114,7 @@ impl VmContext {
             stdin_inject_queue: Vec::new(),
             process_stdout: HashMap::new(),
             last_stdout_of_finished: HashMap::new(),
+            shell_foreground_pid: HashMap::new(),
         }
     }
 

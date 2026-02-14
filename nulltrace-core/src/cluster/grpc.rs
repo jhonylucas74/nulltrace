@@ -266,11 +266,20 @@ impl GameService for ClusterGameService {
         let sid = ready.session_id;
         tokio::spawn(async move {
             while let Ok(Some(msg)) = client_stream.message().await {
-                if let Some(game::terminal_client_message::Msg::Stdin(StdinData { data })) = msg.msg
-                {
-                    if let Ok(s) = String::from_utf8(data) {
-                        let _ = stdin_tx.send(s).await;
+                match msg.msg {
+                    Some(game::terminal_client_message::Msg::Stdin(StdinData { data })) => {
+                        if let Ok(s) = String::from_utf8(data) {
+                            let _ = stdin_tx.send(s).await;
+                        }
                     }
+                    Some(game::terminal_client_message::Msg::Interrupt(_)) => {
+                        let mut hub = hub_remove.lock().unwrap();
+                        if let Some(session) = hub.sessions.get(&sid) {
+                            let (vm_id, pid) = (session.vm_id, session.pid);
+                            hub.pending_interrupts.push((vm_id, pid));
+                        }
+                    }
+                    _ => {}
                 }
             }
             drop(stdin_tx);

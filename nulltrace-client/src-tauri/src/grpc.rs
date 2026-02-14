@@ -10,8 +10,9 @@ use game::terminal_server_message::Msg as TerminalServerMsg;
 use game::{
     CopyPathRequest, CreateFactionRequest, GetDiskUsageRequest, GetHomePathRequest,
     GetPlayerProfileRequest, GetProcessListRequest, GetRankingRequest, GetSysinfoRequest,
-    LeaveFactionRequest, ListFsRequest, LoginRequest, MovePathRequest, OpenTerminal, PingRequest,
-    RenamePathRequest, RestoreDiskRequest, StdinData, TerminalClientMessage, TerminalOpened,
+    Interrupt, LeaveFactionRequest, ListFsRequest, LoginRequest, MovePathRequest, OpenTerminal,
+    PingRequest, RenamePathRequest, RestoreDiskRequest, StdinData, TerminalClientMessage,
+    TerminalOpened,
 };
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -710,8 +711,15 @@ pub struct RenamePathCommandResponse {
     pub error_message: String,
 }
 
-/// Shared state: session_id -> sender for stdin (so terminal_send_stdin can push lines).
-pub type TerminalSessionsState = Arc<Mutex<std::collections::HashMap<String, mpsc::Sender<String>>>>;
+/// Input that can be sent to the terminal stream: stdin data or interrupt (Ctrl+C).
+pub enum TerminalInput {
+    Stdin(String),
+    Interrupt,
+}
+
+/// Shared state: session_id -> sender for terminal input (stdin or interrupt).
+pub type TerminalSessionsState =
+    Arc<Mutex<std::collections::HashMap<String, mpsc::Sender<TerminalInput>>>>;
 
 /// Create initial state for terminal sessions.
 pub fn new_terminal_sessions() -> TerminalSessionsState {
@@ -817,12 +825,19 @@ pub async fn terminal_connect(
                 }
                 stdin_msg = stdin_rx.recv() => {
                     match stdin_msg {
-                        Some(line) => {
+                        Some(TerminalInput::Stdin(line)) => {
                             let _ = client_tx
                                 .send(TerminalClientMessage {
                                     msg: Some(TerminalClientMsg::Stdin(StdinData {
                                         data: line.into_bytes(),
                                     })),
+                                })
+                                .await;
+                        }
+                        Some(TerminalInput::Interrupt) => {
+                            let _ = client_tx
+                                .send(TerminalClientMessage {
+                                    msg: Some(TerminalClientMsg::Interrupt(Interrupt {})),
                                 })
                                 .await;
                         }
@@ -849,7 +864,26 @@ pub async fn terminal_send_stdin(
         .get(&session_id)
         .cloned()
         .ok_or("session not found")?;
-    tx.send(data).await.map_err(|e| e.to_string())
+    tx.send(TerminalInput::Stdin(data))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Tauri command: Send interrupt (Ctrl+C) to the terminal session; kills the foreground process.
+#[tauri::command]
+pub async fn terminal_send_interrupt(
+    session_id: String,
+    sessions: tauri::State<'_, TerminalSessionsState>,
+) -> Result<(), String> {
+    let tx = sessions
+        .lock()
+        .unwrap()
+        .get(&session_id)
+        .cloned()
+        .ok_or("session not found")?;
+    tx.send(TerminalInput::Interrupt)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Tauri command: Disconnect terminal session (removes from map; stream task will exit when sender is dropped).

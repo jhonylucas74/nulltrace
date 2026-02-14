@@ -624,14 +624,36 @@ impl VmManager {
             }
 
             // Process terminal pending kills: when a session was closed (e.g. UI closed), kill shell and descendants
+            // Process terminal pending interrupts (Ctrl+C): kill only the shell's foreground child, not the shell
             {
-                let pending_kills: Vec<(Uuid, u64)> = {
+                let (pending_kills, pending_interrupts): (Vec<(Uuid, u64)>, Vec<(Uuid, u64)>) = {
                     let mut hub = terminal_hub.lock().unwrap();
-                    std::mem::take(&mut hub.pending_kills)
+                    (
+                        std::mem::take(&mut hub.pending_kills),
+                        std::mem::take(&mut hub.pending_interrupts),
+                    )
                 };
                 for (vm_id, pid) in pending_kills {
                     if let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) {
                         vm.os.kill_process_and_descendants(pid);
+                    }
+                }
+                for (vm_id, shell_pid) in pending_interrupts {
+                    if let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) {
+                        let foreground_pid = vm
+                            .lua
+                            .app_data_mut::<VmContext>()
+                            .and_then(|mut ctx| ctx.shell_foreground_pid.remove(&(vm_id, shell_pid)));
+                        let to_kill = foreground_pid.or_else(|| {
+                            vm.os
+                                .processes
+                                .iter()
+                                .find(|p| p.parent_id == Some(shell_pid))
+                                .map(|p| p.id)
+                        });
+                        if let Some(pid) = to_kill {
+                            vm.os.kill_process_and_descendants(pid);
+                        }
                     }
                 }
             }
@@ -1091,15 +1113,36 @@ impl VmManager {
                 }
             }
 
-            // Process terminal pending kills (same as run_loop)
+            // Process terminal pending kills and pending interrupts (same as run_loop)
             {
-                let pending_kills: Vec<(Uuid, u64)> = {
+                let (pending_kills, pending_interrupts): (Vec<(Uuid, u64)>, Vec<(Uuid, u64)>) = {
                     let mut hub = terminal_hub.lock().unwrap();
-                    std::mem::take(&mut hub.pending_kills)
+                    (
+                        std::mem::take(&mut hub.pending_kills),
+                        std::mem::take(&mut hub.pending_interrupts),
+                    )
                 };
                 for (vm_id, pid) in pending_kills {
                     if let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) {
                         vm.os.kill_process_and_descendants(pid);
+                    }
+                }
+                for (vm_id, shell_pid) in pending_interrupts {
+                    if let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) {
+                        let foreground_pid = vm
+                            .lua
+                            .app_data_mut::<VmContext>()
+                            .and_then(|mut ctx| ctx.shell_foreground_pid.remove(&(vm_id, shell_pid)));
+                        let to_kill = foreground_pid.or_else(|| {
+                            vm.os
+                                .processes
+                                .iter()
+                                .find(|p| p.parent_id == Some(shell_pid))
+                                .map(|p| p.id)
+                        });
+                        if let Some(pid) = to_kill {
+                            vm.os.kill_process_and_descendants(pid);
+                        }
                     }
                 }
             }

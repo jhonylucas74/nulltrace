@@ -62,8 +62,11 @@ message TerminalClientMessage {
   oneof msg {
     OpenTerminal open_terminal = 1;
     StdinData stdin = 2;
+    Interrupt interrupt = 3;
   }
 }
+
+message Interrupt {}
 
 message OpenTerminal {
   string player_id = 1;

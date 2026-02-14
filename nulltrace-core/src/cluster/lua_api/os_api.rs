@@ -249,6 +249,32 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>) -> Result<()> {
         })?,
     )?;
 
+    // os.set_foreground_pid(pid) -> set current process's foreground child (for Ctrl+C: kill only this child, not shell)
+    os.set(
+        "set_foreground_pid",
+        lua.create_function(|lua, pid: u64| {
+            let mut ctx = lua
+                .app_data_mut::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            let key = (ctx.vm_id, ctx.current_pid);
+            ctx.shell_foreground_pid.insert(key, pid);
+            Ok(())
+        })?,
+    )?;
+
+    // os.clear_foreground_pid() -> clear current process's foreground child (e.g. when child exits)
+    os.set(
+        "clear_foreground_pid",
+        lua.create_function(|lua, ()| {
+            let mut ctx = lua
+                .app_data_mut::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            let key = (ctx.vm_id, ctx.current_pid);
+            ctx.shell_foreground_pid.remove(&key);
+            Ok(())
+        })?,
+    )?;
+
     // os.read_stdout(pid) -> string or nil (includes stdout of just-finished processes from last_stdout_of_finished)
     os.set(
         "read_stdout",

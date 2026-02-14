@@ -153,18 +153,21 @@ while true do
     if st == "not_found" then
       -- Process was reaped after exit: do not print "Command not found".
       if child_ever_ran then
+        os.clear_foreground_pid()
         child_pid = nil
         last_not_found_pid = nil
         child_ever_ran = false
       -- Same tick as spawn the child is not created yet; wait one more tick.
       elseif last_not_found_pid == child_pid then
         io.write("<red>Command not found: " .. (last_program or "?") .. "</red>\n")
+        os.clear_foreground_pid()
         child_pid = nil
         last_not_found_pid = nil
       else
         last_not_found_pid = child_pid
       end
     elseif st == "finished" then
+      os.clear_foreground_pid()
       child_pid = nil
       last_not_found_pid = nil
       child_ever_ran = false
@@ -216,6 +219,7 @@ while true do
           last_not_found_pid = nil
           child_ever_ran = false
           child_pid = os.spawn(prog, spawn_args, { forward_stdout = true })
+          os.set_foreground_pid(child_pid)
         end
       end
     end

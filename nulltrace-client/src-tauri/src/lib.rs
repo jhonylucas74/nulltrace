@@ -88,6 +88,7 @@ pub fn run() {
             grpc::grpc_rename_path,
             grpc::terminal_connect,
             grpc::terminal_send_stdin,
+            grpc::terminal_send_interrupt,
             grpc::terminal_disconnect,
         ])
         .setup(|app| {
