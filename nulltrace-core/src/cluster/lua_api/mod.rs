@@ -11,9 +11,9 @@ use std::sync::Arc;
 
 /// Register all Lua APIs (fs, net, os, io) on the shared Lua state.
 pub fn register_all(lua: &Lua, fs_service: Arc<FsService>, user_service: Arc<UserService>) -> Result<()> {
-    fs_api::register(lua, fs_service)?;
+    fs_api::register(lua, fs_service.clone())?;
     net_api::register(lua)?;
-    os_api::register(lua, user_service)?;
+    os_api::register(lua, user_service, fs_service)?;
     io_api::register(lua)?;
     Ok(())
 }

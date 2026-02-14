@@ -818,6 +818,15 @@ impl VmManager {
                         }
                     }
                 }
+                // Apply requested_kills (collected from workers; shell handle_special_stdin / request_kill)
+                for result in &worker_results {
+                    for (vm_id, pid) in &result.requested_kills {
+                        if *vm_id != vm.id {
+                            continue;
+                        }
+                        vm.os.kill_process_and_descendants(*pid);
+                    }
+                }
             }
 
             // Terminal sessions: inject stdin from gRPC into shell process, drain stdout to gRPC
@@ -1165,6 +1174,12 @@ impl VmManager {
                         if let Ok(guard) = p.stdout.lock() {
                             ctx.process_stdout.insert(p.id, guard.clone());
                         }
+                        let display_name = p
+                            .display_name
+                            .as_deref()
+                            .unwrap_or_else(|| p.args.first().map(|s| s.as_str()).unwrap_or(""));
+                        ctx.process_display_name
+                            .insert(p.id, display_name.to_string());
                     }
                     ctx.merge_last_stdout_of_finished();
                     if let Some(nic) = &mut vm.nic {
@@ -1325,6 +1340,16 @@ impl VmManager {
                                 push_stdin_line(&mut guard, line);
                             }
                         }
+                    }
+                }
+
+                // Apply requested_kills (from shell handle_special_stdin / request_kill)
+                {
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
+                    let kills = std::mem::take(&mut ctx.requested_kills);
+                    drop(ctx);
+                    for pid in kills {
+                        vm.os.kill_process_and_descendants(pid);
                     }
                 }
 
@@ -1674,6 +1699,12 @@ end
                 if let Ok(guard) = p.stdout.lock() {
                     ctx.process_stdout.insert(p.id, guard.clone());
                 }
+                let display_name = p
+                    .display_name
+                    .as_deref()
+                    .unwrap_or_else(|| p.args.first().map(|s| s.as_str()).unwrap_or(""));
+                ctx.process_display_name
+                    .insert(p.id, display_name.to_string());
             }
             ctx.merge_last_stdout_of_finished();
         }
@@ -1771,6 +1802,13 @@ end
                 }
             }
         }
+        let requested_kills = {
+            let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
+            std::mem::take(&mut ctx.requested_kills)
+        };
+        for pid in requested_kills {
+            vm.os.kill_process_and_descendants(pid);
+        }
         finished_stdout
     }
 
@@ -1841,6 +1879,12 @@ end
                         if let Ok(guard) = p.stdout.lock() {
                             ctx.process_stdout.insert(p.id, guard.clone());
                         }
+                        let display_name = p
+                            .display_name
+                            .as_deref()
+                            .unwrap_or_else(|| p.args.first().map(|s| s.as_str()).unwrap_or(""));
+                        ctx.process_display_name
+                            .insert(p.id, display_name.to_string());
                     }
                     ctx.merge_last_stdout_of_finished();
                     if let Some(nic) = &mut vm.nic {
@@ -1973,6 +2017,13 @@ end
                         }
                     }
                 }
+                let requested_kills = {
+                    let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
+                    std::mem::take(&mut ctx.requested_kills)
+                };
+                for pid in requested_kills {
+                    vm.os.kill_process_and_descendants(pid);
+                }
 
                 {
                     let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
@@ -2027,6 +2078,12 @@ end
                 if let Ok(guard) = p.stdout.lock() {
                     ctx.process_stdout.insert(p.id, guard.clone());
                 }
+                let display_name = p
+                    .display_name
+                    .as_deref()
+                    .unwrap_or_else(|| p.args.first().map(|s| s.as_str()).unwrap_or(""));
+                ctx.process_display_name
+                    .insert(p.id, display_name.to_string());
             }
             ctx.merge_last_stdout_of_finished();
             if let Some(nic) = &mut vm.nic {
@@ -2158,6 +2215,13 @@ end
                     push_stdin_line(&mut guard, line);
                 }
             }
+        }
+        let requested_kills = {
+            let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
+            std::mem::take(&mut ctx.requested_kills)
+        };
+        for pid in requested_kills {
+            vm.os.kill_process_and_descendants(pid);
         }
 
         {
@@ -3282,6 +3346,344 @@ os.write_stdin(pid, "hello")
             shell_stdout.contains("got:hello"),
             "shell should forward stdin to child and relay output, got: {:?}",
             shell_stdout
+        );
+    }
+
+    /// Ctrl+C (special sequence \x03) via stdin: shell has foreground child (echo_stdin), inject \x03; child is killed, shell remains.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_ctrl_c_kills_foreground_child() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 95, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "ctrl-c-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+
+        // Driver spawns shell, sends "echo_stdin" (spawns child), then Ctrl+C sequence \x03.
+        let driver_script = r#"
+local pid = os.spawn("sh", {})
+os.write_stdin(pid, "echo_stdin")
+os.write_stdin(pid, "\x03")
+"#;
+        vm.os.spawn_process(&vm.lua, driver_script, vec![], 0, "root");
+
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "ctrl-c-vm", 80).await;
+
+        // Shell (pid 2) and driver (pid 1) remain; echo_stdin child (pid 3) must be killed.
+        let has_echo_stdin = vm.os.processes.iter().any(|p| {
+            p.display_name
+                .as_deref()
+                .or(p.args.first().map(|s| s.as_str()))
+                == Some("echo_stdin")
+        });
+        assert!(
+            !has_echo_stdin,
+            "Ctrl+C should kill foreground child (echo_stdin); processes: {:?}",
+            vm.os
+                .processes
+                .iter()
+                .map(|p| (p.id, p.display_name.as_deref(), p.args.first().map(|s| s.as_str())))
+                .collect::<Vec<_>>()
+        );
+        let shell_count = vm
+            .os
+            .processes
+            .iter()
+            .filter(|p| p.display_name.as_deref() == Some("sh"))
+            .count();
+        assert!(
+            shell_count >= 1,
+            "Shell should still be running after Ctrl+C; processes: {}",
+            vm.os.processes.len()
+        );
+    }
+
+    /// Tab autocomplete (no child): shell receives "ec\x09", runs autocomplete, stdout contains \x01TABCOMPLETE\t + completion.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_tab_autocomplete_no_child() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 96, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "tab-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+
+        let driver_script = r#"
+local pid = os.spawn("sh", {})
+os.write_stdin(pid, "ec\x09")
+"#;
+        vm.os.spawn_process(&vm.lua, driver_script, vec![], 0, "root");
+
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "tab-vm", 80).await;
+
+        let shell_stdout = vm
+            .os
+            .processes
+            .iter()
+            .find(|p| p.display_name.as_deref() == Some("sh"))
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+        assert!(
+            shell_stdout.contains("\x01TABCOMPLETE\t"),
+            "Shell should output TABCOMPLETE protocol; got: {:?}",
+            shell_stdout
+        );
+        assert!(
+            shell_stdout.contains("echo"),
+            "Completion for 'ec' should include 'echo'; got: {:?}",
+            shell_stdout
+        );
+    }
+
+    /// Tab autocomplete in cwd: file "casa" in /tmp; shell cd /tmp then "cat ca" + Tab yields "cat casa".
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_tab_autocomplete_cwd_path() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 98, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "tab-cwd-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/casa", b"", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+
+        let driver_script = r#"
+local pid = os.spawn("sh", {})
+os.write_stdin(pid, "cd /tmp\n")
+os.write_stdin(pid, "cat ca\x09\n")
+"#;
+        vm.os.spawn_process(&vm.lua, driver_script, vec![], 0, "root");
+
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "tab-cwd-vm", 300).await;
+
+        let shell_stdout = vm
+            .os
+            .processes
+            .iter()
+            .find(|p| p.display_name.as_deref() == Some("sh"))
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+        assert!(
+            shell_stdout.contains("\x01TABCOMPLETE\t"),
+            "Shell should output TABCOMPLETE; got: {:?}",
+            shell_stdout
+        );
+        assert!(
+            shell_stdout.contains("cat casa"),
+            "Completion for 'cat ca' in cwd /tmp should yield 'cat casa'; got: {:?}",
+            shell_stdout
+        );
+    }
+
+    /// Tab when child is not ssh: shell discards the line (does not forward). Child (echo_stdin) never receives it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_tab_discard_when_child_not_ssh() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 97, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "tab-discard-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+
+        let driver_script = r#"
+local pid = os.spawn("sh", {})
+os.write_stdin(pid, "echo_stdin")
+os.write_stdin(pid, "x\x09")
+"#;
+        vm.os.spawn_process(&vm.lua, driver_script, vec![], 0, "root");
+
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "tab-discard-vm", 80).await;
+
+        let child_stdout = vm
+            .os
+            .processes
+            .iter()
+            .find(|p| p.display_name.as_deref() == Some("echo_stdin"))
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+        assert!(
+            !child_stdout.contains("got:"),
+            "Tab should be discarded (not forwarded to child); child stdout should be empty, got: {:?}",
+            child_stdout
+        );
+    }
+
+    /// Tab when child is ssh: shell forwards "ec\x09" to ssh; remote shell does autocomplete and sends TABCOMPLETE back.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_tab_forward_when_child_is_ssh() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 88, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config_a = super::super::db::vm_service::VmConfig {
+            hostname: "tab-ssh-a".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let config_b = super::super::db::vm_service::VmConfig {
+            hostname: "tab-ssh-b".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_a, nic_a) = manager.create_vm(config_a).await.unwrap();
+        let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
+        let ip_b = nic_b.ip.to_string();
+
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
+        vm_b.attach_nic(nic_b);
+
+        vm_b.os.spawn_process(&vm_b.lua, bin_programs::SSH_SERVER, vec![], 0, "root");
+
+        let driver_script = format!(
+            r#"
+local pid = os.spawn("sh", {{}})
+os.write_stdin(pid, "ssh {}")
+os.write_stdin(pid, "ec\x09")
+while true do end
+"#,
+            ip_b
+        );
+        vm_a.os.spawn_process(&vm_a.lua, &driver_script, vec![], 0, "root");
+
+        let mut vms = vec![vm_a, vm_b];
+        run_n_ticks_vms_network(&mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+
+        let ssh_stdout = vms[0]
+            .os
+            .processes
+            .iter()
+            .find(|p| p.display_name.as_deref() == Some("ssh"))
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+        assert!(
+            ssh_stdout.contains("\x01TABCOMPLETE\t"),
+            "Tab should be forwarded to ssh; remote shell should respond with TABCOMPLETE; got: {:?}",
+            ssh_stdout
         );
     }
 
@@ -4421,6 +4823,105 @@ while true do end
             ssh_stdout.contains("hello"),
             "SSH client on VM A should receive remote 'echo hello' output; got stdout: {:?}",
             ssh_stdout
+        );
+    }
+
+    /// Ctrl+C via SSH: A's shell has ssh as child; inject \x03; sequence is forwarded to remote shell,
+    /// which kills its foreground child (echo_stdin). Remote echo_stdin is gone; both shells and ssh remain.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_ctrl_c_via_ssh_forwarded() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 87, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config_a = super::super::db::vm_service::VmConfig {
+            hostname: "ssh-ctrl-a".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let config_b = super::super::db::vm_service::VmConfig {
+            hostname: "ssh-ctrl-b".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_a, nic_a) = manager.create_vm(config_a).await.unwrap();
+        let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
+        let ip_b = nic_b.ip.to_string();
+
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
+        vm_b.attach_nic(nic_b);
+
+        // B: ssh-server
+        vm_b.os.spawn_process(&vm_b.lua, bin_programs::SSH_SERVER, vec![], 0, "root");
+
+        // A: shell; inject "ssh ip_b" (child is ssh), then "echo_stdin" (remote spawns echo_stdin), then \x03 (remote kills echo_stdin).
+        let driver_script = format!(
+            r#"
+local pid = os.spawn("sh", {{}})
+os.write_stdin(pid, "ssh {}")
+os.write_stdin(pid, "echo_stdin")
+os.write_stdin(pid, "\x03")
+while true do end
+"#,
+            ip_b
+        );
+        vm_a.os.spawn_process(&vm_a.lua, &driver_script, vec![], 0, "root");
+
+        let mut vms = vec![vm_a, vm_b];
+        run_n_ticks_vms_network(&mut manager, &mut vms, MAX_TICKS_TWO_VM_NETWORK).await;
+
+        // On VM B: ssh-server and one shell (spawned for the client). The remote shell's child (echo_stdin) must be killed.
+        let vm_b = &vms[1];
+        let has_echo_stdin_on_b = vm_b.os.processes.iter().any(|p| {
+            p.display_name
+                .as_deref()
+                .or(p.args.first().map(|s| s.as_str()))
+                == Some("echo_stdin")
+        });
+        assert!(
+            !has_echo_stdin_on_b,
+            "Ctrl+C via SSH should kill remote foreground child (echo_stdin) on VM B; processes: {:?}",
+            vm_b.os
+                .processes
+                .iter()
+                .map(|p| (p.id, p.display_name.as_deref()))
+                .collect::<Vec<_>>()
+        );
+        // Both VMs should still have shell and ssh (A: driver, sh, ssh; B: ssh-server, sh).
+        assert!(
+            vms[0].os.processes.len() >= 2,
+            "VM A should have at least driver and shell (and ssh)"
+        );
+        assert!(
+            vms[1].os.processes.len() >= 2,
+            "VM B should have ssh-server and remote shell"
         );
     }
 

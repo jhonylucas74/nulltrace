@@ -36,6 +36,8 @@ pub struct WorkerResult {
     pub spawn_queue: Vec<(Uuid, SpawnQueueItem)>,
     /// Stdin inject queue: (vm_id, pid, line)
     pub stdin_inject_queue: Vec<(Uuid, u64, String)>,
+    /// Requested kills from shell (handle_special_stdin): (vm_id, pid). Main loop applies kill_process_and_descendants.
+    pub requested_kills: Vec<(Uuid, u64)>,
 }
 
 // VmWorkerHandle removed - not needed for current implementation
@@ -81,13 +83,19 @@ impl VmWorker {
                 }
                 ctx.next_pid = vm.os.next_process_id();
 
-                // Snapshot process status and stdout
+                // Snapshot process status, stdout, and display name
                 for p in &vm.os.processes {
                     let status = if p.is_finished() { "finished" } else { "running" };
                     ctx.process_status_map.insert(p.id, status.to_string());
                     if let Ok(guard) = p.stdout.lock() {
                         ctx.process_stdout.insert(p.id, guard.clone());
                     }
+                    let display_name = p
+                        .display_name
+                        .as_deref()
+                        .unwrap_or_else(|| p.args.first().map(|s| s.as_str()).unwrap_or(""));
+                    ctx.process_display_name
+                        .insert(p.id, display_name.to_string());
                 }
                 ctx.merge_last_stdout_of_finished();
 
@@ -216,6 +224,11 @@ impl VmWorker {
                     result.stdin_inject_queue.push((vm.id, pid, line));
                 }
 
+                // Collect requested kills (from shell handle_special_stdin / request_kill)
+                for pid in ctx.requested_kills.drain(..) {
+                    result.requested_kills.push((vm.id, pid));
+                }
+
                 // Return unconsumed inbound packets to NIC
                 if let Some(nic) = &mut vm.nic {
                     for pkt in ctx.net_inbound.drain(..) {
@@ -233,6 +246,7 @@ impl VmWorker {
                 let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
                 ctx.process_status_map.clear();
                 ctx.process_stdout.clear();
+                ctx.process_display_name.clear();
             }
         }
 

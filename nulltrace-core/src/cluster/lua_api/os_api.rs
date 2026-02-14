@@ -1,11 +1,14 @@
 #![allow(dead_code)]
 
 use super::context::{SpawnSpec, VmContext};
+use crate::db::fs_service::FsService;
 use crate::path_util;
 use crate::process_parser;
 use crate::db::user_service::UserService;
 use mlua::{Lua, Result, Value};
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// Converts a Lua table (1-indexed sequence) to Vec<String> for argv.
 fn table_to_argv(_lua: &Lua, t: Option<mlua::Table>) -> std::result::Result<Vec<String>, mlua::Error> {
@@ -33,8 +36,120 @@ fn table_to_argv(_lua: &Lua, t: Option<mlua::Table>) -> std::result::Result<Vec<
     Ok(v)
 }
 
+/// Returns the longest common prefix of non-empty strings. If any is empty or they differ from start, returns the given prefix.
+fn common_prefix(matches: &[String], prefix: &str) -> String {
+    if matches.is_empty() {
+        return prefix.to_string();
+    }
+    let mut common = matches[0].as_str();
+    for m in &matches[1..] {
+        let n = common.bytes().zip(m.bytes()).take_while(|(a, b)| a == b).count();
+        common = &common[..n];
+        if common.is_empty() {
+            return prefix.to_string();
+        }
+    }
+    common.to_string()
+}
+
+/// Autocomplete based on line and cwd: commands from /bin, paths from cwd. No ambiguity (single match or common prefix).
+/// Returns the replacement full line, or None if no completion.
+fn autocomplete_line(
+    fs_service: &FsService,
+    vm_id: Uuid,
+    line: &str,
+    cwd: &str,
+) -> std::result::Result<Option<String>, sqlx::Error> {
+    let rt = tokio::runtime::Handle::current();
+    let line_trimmed = line.trim_end_matches('\t').trim_end();
+    if line_trimmed.is_empty() {
+        return Ok(None);
+    }
+    let tokens: Vec<&str> = line_trimmed.split_whitespace().collect();
+    let last_token = match tokens.last() {
+        Some(t) => *t,
+        None => return Ok(None),
+    };
+    if last_token.is_empty() {
+        return Ok(None);
+    }
+
+    let last_token_start = line_trimmed
+        .len()
+        .saturating_sub(last_token.len());
+    let safe_start = last_token_start.min(line_trimmed.len());
+
+    let replace_with = |completed: &str| -> String {
+        format!("{}{}", &line_trimmed[..safe_start], completed)
+    };
+
+    // Path completion: last token contains /
+    if last_token.contains('/') {
+        let last_slash = last_token.rfind('/').unwrap();
+        let dir_part = &last_token[..=last_slash]; // include slash e.g. "./" or "/tmp/"
+        let prefix = &last_token[last_slash + 1..];
+        let resolved_dir = path_util::resolve_relative(cwd, &last_token[..last_slash]);
+        let entries = rt.block_on(fs_service.ls(vm_id, &resolved_dir))?;
+        let matches: Vec<String> = entries
+            .iter()
+            .filter(|e| e.name.starts_with(prefix))
+            .map(|e| e.name.clone())
+            .collect();
+        if matches.is_empty() {
+            return Ok(None);
+        }
+        if matches.len() == 1 {
+            return Ok(Some(replace_with(&format!("{}{}", dir_part, matches[0]))));
+        }
+        let common = common_prefix(&matches, prefix);
+        if common != prefix {
+            return Ok(Some(replace_with(&format!("{}{}", dir_part, common))));
+        }
+        return Ok(None);
+    }
+
+    // No slash: single token = command then file; multiple tokens = path in cwd
+    if tokens.len() == 1 {
+        // Try /bin (commands) first
+        let bin_entries = rt.block_on(fs_service.ls(vm_id, "/bin"))?;
+        let bin_matches: Vec<String> = bin_entries
+            .iter()
+            .filter(|e| e.name.starts_with(last_token))
+            .map(|e| e.name.clone())
+            .collect();
+        if bin_matches.len() == 1 {
+            return Ok(Some(replace_with(&bin_matches[0])));
+        }
+        if bin_matches.len() > 1 {
+            let common = common_prefix(&bin_matches, last_token);
+            if common != last_token {
+                return Ok(Some(replace_with(&common)));
+            }
+        }
+    }
+
+    // Path in cwd (multiple tokens, or single token with no /bin match)
+    let entries = rt.block_on(fs_service.ls(vm_id, cwd))?;
+    let matches: Vec<String> = entries
+        .iter()
+        .filter(|e| e.name.starts_with(last_token))
+        .map(|e| e.name.clone())
+        .collect();
+    if matches.is_empty() {
+        return Ok(None);
+    }
+    if matches.len() == 1 {
+        return Ok(Some(replace_with(&matches[0])));
+    }
+    let common = common_prefix(&matches, last_token);
+    if common != last_token {
+        return Ok(Some(replace_with(&common)));
+    }
+    Ok(None)
+}
+
 /// Register the `os` table on the Lua state.
-pub fn register(lua: &Lua, user_service: Arc<UserService>) -> Result<()> {
+pub fn register(lua: &Lua, user_service: Arc<UserService>, fs_service: Arc<FsService>) -> Result<()> {
     let os = lua.create_table()?;
 
     // os.hostname() -> string
@@ -274,6 +389,103 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>) -> Result<()> {
             Ok(())
         })?,
     )?;
+
+    // os.request_kill(pid) -> request kill of process and descendants; applied by game loop after tick
+    os.set(
+        "request_kill",
+        lua.create_function(|lua, pid: u64| {
+            let mut ctx = lua
+                .app_data_mut::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            ctx.requested_kills.push(pid);
+            Ok(())
+        })?,
+    )?;
+
+    // os.get_process_display_name(pid) -> display name (or args[0]) or nil
+    os.set(
+        "get_process_display_name",
+        lua.create_function(|lua, pid: u64| {
+            let ctx = lua
+                .app_data_ref::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            let name = ctx.process_display_name.get(&pid).cloned();
+            Ok(match name {
+                Some(s) => Value::String(lua.create_string(&s)?),
+                None => Value::Nil,
+            })
+        })?,
+    )?;
+
+    // Ctrl+C sequence: single byte 0x03 (ETX). Used by shell to decide kill_child vs forward (e.g. to ssh).
+    const STDIN_CTRL_C: u8 = 0x03;
+    // Tab sequence: line ends with 0x09 (TAB). Used for autocomplete: forward (ssh) or discard (non-ssh).
+    const STDIN_TAB: u8 = 0x09;
+
+    // os.handle_special_stdin(line, child_pid) -> "kill_child" | "forward" | "discard" | "pass"
+    os.set(
+        "handle_special_stdin",
+        lua.create_function(|lua, (line, child_pid): (String, Option<u64>)| {
+            let ctx = lua
+                .app_data_ref::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            let pid = match child_pid {
+                Some(p) if p != 0 => p,
+                _ => return Ok(Value::String(lua.create_string("pass")?)),
+            };
+            let bytes = line.as_bytes();
+            let is_ctrl_c = bytes == [STDIN_CTRL_C];
+            let is_tab = bytes.contains(&STDIN_TAB);
+
+            if is_ctrl_c {
+                if !ctx.process_status_map.contains_key(&pid) {
+                    return Ok(Value::String(lua.create_string("pass")?));
+                }
+                let name = ctx.process_display_name.get(&pid).map(|s| s.as_str()).unwrap_or("");
+                if name == "ssh" {
+                    return Ok(Value::String(lua.create_string("forward")?));
+                }
+                return Ok(Value::String(lua.create_string("kill_child")?));
+            }
+            if is_tab {
+                if !ctx.process_status_map.contains_key(&pid) {
+                    return Ok(Value::String(lua.create_string("pass")?));
+                }
+                let name = ctx.process_display_name.get(&pid).map(|s| s.as_str()).unwrap_or("");
+                if name == "ssh" {
+                    return Ok(Value::String(lua.create_string("forward")?));
+                }
+                return Ok(Value::String(lua.create_string("discard")?));
+            }
+            Ok(Value::String(lua.create_string("pass")?))
+        })?,
+    )?;
+
+    // os.autocomplete(line, cwd) -> replacement line or nil. Resolves in Rust from /bin and cwd; no ambiguity (single match or common prefix).
+    {
+        let fs_svc = fs_service.clone();
+        os.set(
+            "autocomplete",
+            lua.create_function(move |lua, (line, cwd): (String, String)| {
+                let ctx = lua
+                    .app_data_ref::<VmContext>()
+                    .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+                let vm_id = ctx.vm_id;
+                drop(ctx);
+                // On any error or panic (e.g. fs.ls, no runtime, invalid path), return nil so the shell keeps running.
+                let result = tokio::task::block_in_place(|| {
+                    panic::catch_unwind(AssertUnwindSafe(|| {
+                        autocomplete_line(&fs_svc, vm_id, &line, &cwd).ok().flatten()
+                    }))
+                    .unwrap_or(None)
+                });
+                Ok(match result {
+                    Some(s) => Value::String(lua.create_string(&s)?),
+                    None => Value::Nil,
+                })
+            })?,
+        )?;
+    }
 
     // os.read_stdout(pid) -> string or nil (includes stdout of just-finished processes from last_stdout_of_finished)
     os.set(

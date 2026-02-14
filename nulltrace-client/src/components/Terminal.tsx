@@ -310,6 +310,13 @@ export default function Terminal({ username, windowId }: TerminalProps) {
           if (payload.sessionId !== sid) return;
 
           if (payload.type === "stdout" && payload.data !== undefined) {
+            const TABCOMPLETE_PREFIX = "\x01TABCOMPLETE\t";
+            if (payload.data.startsWith(TABCOMPLETE_PREFIX)) {
+              const replacement = payload.data.slice(TABCOMPLETE_PREFIX.length).split("\n")[0] ?? "";
+              setInput(replacement);
+              setCursorPosition(replacement.length);
+              return;
+            }
             setLines((prev) =>
               trimToLast([
                 ...prev,
@@ -360,12 +367,23 @@ export default function Terminal({ username, windowId }: TerminalProps) {
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
-      // Handle Ctrl+C - send interrupt (kill foreground process), echo ^C
+      // Handle Ctrl+C - send special sequence via stdin (kill foreground or forward through SSH), echo ^C
       if (e.ctrlKey && e.key === "c") {
         e.preventDefault();
         if (sessionId && !sessionEnded) {
           setLines((prev) => trimToLast([...prev, { type: "output", content: "^C" }]));
-          invoke("terminal_send_interrupt", { sessionId }).catch((err) => {
+          invoke("terminal_send_stdin", { sessionId, data: "\x03" }).catch((err) => {
+            setLines((prev) => trimToLast([...prev, { type: "error", content: String(err) }]));
+          });
+        }
+        return;
+      }
+
+      // Handle Tab - send autocomplete request via stdin (input + \x09); shell responds with \x01TABCOMPLETE\t + replacement
+      if (e.key === "Tab") {
+        e.preventDefault();
+        if (sessionId && !sessionEnded) {
+          invoke("terminal_send_stdin", { sessionId, data: input + "\x09" }).catch((err) => {
             setLines((prev) => trimToLast([...prev, { type: "error", content: String(err) }]));
           });
         }

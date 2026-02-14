@@ -179,8 +179,30 @@ while true do
   local line = io.read()
   if line and line ~= "" then
     if child_pid then
-      os.write_stdin(child_pid, line)
+      local action = os.handle_special_stdin(line, child_pid)
+      if action == "kill_child" then
+        os.request_kill(child_pid)
+        os.clear_foreground_pid()
+        child_pid = nil
+      elseif action == "forward" then
+        os.write_stdin(child_pid, line)
+      elseif action == "pass" then
+        os.write_stdin(child_pid, line)
+      end
+      -- "discard": do not forward (e.g. Tab when child is not ssh)
     else
+      -- Tab autocomplete: line contains \x09; Rust resolves from cwd and /bin; protocol \x01TABCOMPLETE\t + replacement
+      local is_tab = (line == "\x09") or (line:find("\x09") ~= nil)
+      if is_tab then
+        local replacement = os.autocomplete(line, cwd)
+        if replacement and replacement ~= "" then
+          io.write("\x01TABCOMPLETE\t" .. replacement .. "\n")
+        else
+          local prefix = (line == "\x09") and "" or line:gsub("\x09", "")
+          io.write("\x01TABCOMPLETE\t" .. prefix .. "\n")
+        end
+      elseif line ~= "\x03" then
+      -- Ignore Ctrl+C (\x03) when no foreground child
       local t = os.parse_cmd(line)
       if t and t.program and t.program ~= "" then
         local prog = t.program
@@ -221,6 +243,7 @@ while true do
           child_pid = os.spawn(prog, spawn_args, { forward_stdout = true })
           os.set_foreground_pid(child_pid)
         end
+      end
       end
     end
   end

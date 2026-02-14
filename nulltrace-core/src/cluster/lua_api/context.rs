@@ -78,11 +78,17 @@ pub struct VmContext {
     /// Snapshot of process stdout by PID. Built at start of VM tick.
     pub process_stdout: HashMap<u64, String>,
 
+    /// Snapshot of process display name (or args[0]) by PID. Built at start of VM tick. Used by shell to detect e.g. "ssh".
+    pub process_display_name: HashMap<u64, String>,
+
     /// Stdout of processes that finished in the previous tick (so os.read_stdout(pid) works once after exit).
     pub last_stdout_of_finished: HashMap<u64, String>,
 
     /// (vm_id, shell_pid) -> foreground child pid. Used by terminal Ctrl+C to kill only the foreground process.
     pub shell_foreground_pid: HashMap<(Uuid, u64), u64>,
+
+    /// PIDs the shell (or any process) requested to kill this tick. Drained by game loop after tick; applied via kill_process_and_descendants.
+    pub requested_kills: Vec<u64>,
 }
 
 impl VmContext {
@@ -113,8 +119,10 @@ impl VmContext {
             process_status_map: HashMap::new(),
             stdin_inject_queue: Vec::new(),
             process_stdout: HashMap::new(),
+            process_display_name: HashMap::new(),
             last_stdout_of_finished: HashMap::new(),
             shell_foreground_pid: HashMap::new(),
+            requested_kills: Vec::new(),
         }
     }
 
@@ -142,6 +150,8 @@ impl VmContext {
         self.process_status_map.clear();
         self.stdin_inject_queue.clear();
         self.process_stdout.clear();
+        self.process_display_name.clear();
+        self.requested_kills.clear();
     }
 
     /// Set port ownership snapshot from the NIC (call after set_vm when VM has a NIC).
