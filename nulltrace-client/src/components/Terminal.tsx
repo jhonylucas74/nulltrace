@@ -112,6 +112,66 @@ const CONNECT_ERROR_MESSAGE =
 
 const MAX_LINES = 100;
 
+/** Tab size for expanding tabs in terminal output (column alignment). */
+const TAB_SIZE = 8;
+
+/**
+ * Expands tab characters to spaces so columns align in monospace.
+ * Backend may send tab-separated output (e.g. old ls); this keeps alignment in the UI.
+ */
+function expandTabs(line: string, tabSize: number = TAB_SIZE): string {
+  if (!line.includes("\t")) return line;
+  let col = 0;
+  let out = "";
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === "\t") {
+      const spaces = tabSize - (col % tabSize);
+      out += " ".repeat(spaces);
+      col += spaces;
+    } else {
+      out += c;
+      col += 1;
+    }
+  }
+  return out;
+}
+
+function padRight(s: string, w: number): string {
+  return s + " ".repeat(Math.max(0, w - s.length));
+}
+
+function padLeft(s: string, w: number): string {
+  return " ".repeat(Math.max(0, w - s.length)) + s;
+}
+
+/** Fixed column widths for ls-style 4-column output (name, type, size, owner). */
+const LS_COL_NAME = 20;
+const LS_COL_TYPE = 12;
+const LS_COL_SIZE = 8;
+
+/**
+ * Normalizes a line for display: if it looks like ls output (4 tab-separated fields),
+ * re-formats with fixed-width columns so they align; otherwise expands tabs as usual.
+ */
+function normalizeOutputLine(content: string): string {
+  if (!content.includes("\t")) return content;
+  const parts = content.split("\t");
+  if (parts.length === 4) {
+    const [name, type_, size, owner] = parts;
+    return (
+      padRight(name, LS_COL_NAME) +
+      "  " +
+      padRight(type_, LS_COL_TYPE) +
+      "  " +
+      padLeft(size.trim(), LS_COL_SIZE) +
+      "  " +
+      owner
+    );
+  }
+  return expandTabs(content);
+}
+
 function trimToLast<T>(arr: T[]): T[] {
   return arr.length > MAX_LINES ? arr.slice(-MAX_LINES) : arr;
 }
@@ -128,8 +188,12 @@ export default function Terminal({ username, windowId }: TerminalProps) {
   const [sessionEnded, setSessionEnded] = useState(false);
   const [connectErrorModalOpen, setConnectErrorModalOpen] = useState(false);
   const [memoryLimitModalOpen, setMemoryLimitModalOpen] = useState(false);
+  const [cursorVisible, setCursorVisible] = useState(true);
+  const [cursorPosition, setCursorPosition] = useState(0);
+  const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const hiddenInputRef = useRef<HTMLInputElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   sessionIdRef.current = sessionId;
 
@@ -140,7 +204,85 @@ export default function Terminal({ username, windowId }: TerminalProps) {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
   }, [lines, input]);
 
+  // Cursor blink effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCursorVisible((v) => !v);
+    }, 530);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Reset cursor visibility when typing
+  useEffect(() => {
+    setCursorVisible(true);
+  }, [input]);
+
+  // Sync cursor position from hidden input
+  useEffect(() => {
+    const updateCursorPosition = () => {
+      requestAnimationFrame(() => {
+        const pos = hiddenInputRef.current?.selectionStart ?? input.length;
+        setCursorPosition(pos);
+      });
+    };
+
+    const inputElement = hiddenInputRef.current;
+    if (inputElement) {
+      updateCursorPosition();
+      inputElement.addEventListener("keydown", updateCursorPosition);
+      inputElement.addEventListener("keyup", updateCursorPosition);
+      inputElement.addEventListener("click", updateCursorPosition);
+      inputElement.addEventListener("select", updateCursorPosition);
+      inputElement.addEventListener("input", updateCursorPosition);
+
+      return () => {
+        inputElement.removeEventListener("keydown", updateCursorPosition);
+        inputElement.removeEventListener("keyup", updateCursorPosition);
+        inputElement.removeEventListener("click", updateCursorPosition);
+        inputElement.removeEventListener("select", updateCursorPosition);
+        inputElement.removeEventListener("input", updateCursorPosition);
+      };
+    }
+  }, [input]);
+
   const prompt = `${username}@nulltrace:~$ `;
+
+  // Word navigation helpers
+  const findPreviousWordStart = useCallback((text: string, currentPos: number): number => {
+    if (currentPos === 0) return 0;
+
+    let pos = currentPos - 1;
+
+    // Skip whitespace
+    while (pos > 0 && /\s/.test(text[pos])) {
+      pos--;
+    }
+
+    // Skip to beginning of word
+    while (pos > 0 && /\S/.test(text[pos - 1])) {
+      pos--;
+    }
+
+    return pos;
+  }, []);
+
+  const findNextWordStart = useCallback((text: string, currentPos: number): number => {
+    if (currentPos >= text.length) return text.length;
+
+    let pos = currentPos;
+
+    // Skip current word
+    while (pos < text.length && /\S/.test(text[pos])) {
+      pos++;
+    }
+
+    // Skip whitespace
+    while (pos < text.length && /\s/.test(text[pos])) {
+      pos++;
+    }
+
+    return pos;
+  }, []);
 
   // Connect to VM shell when we have playerId (Tauri only).
   // Deferred so that in React Strict Mode only the final mount opens one terminal (not two).
@@ -174,7 +316,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
                 ...payload.data!
                   .split("\n")
                   .filter((s) => s.length > 0)
-                  .map((content) => ({ type: "output" as const, content })),
+                  .map((content) => ({ type: "output" as const, content: normalizeOutputLine(content) })),
               ])
             );
           } else if (payload.type === "closed") {
@@ -218,10 +360,94 @@ export default function Terminal({ username, windowId }: TerminalProps) {
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
+      // Handle Alt + ArrowLeft - jump to previous word
+      if (e.key === "ArrowLeft" && e.altKey) {
+        e.preventDefault();
+        const newPos = findPreviousWordStart(input, cursorPosition);
+        if (hiddenInputRef.current) {
+          hiddenInputRef.current.selectionStart = newPos;
+          hiddenInputRef.current.selectionEnd = newPos;
+          setCursorPosition(newPos);
+        }
+        return;
+      }
+
+      // Handle Alt + ArrowRight - jump to next word
+      if (e.key === "ArrowRight" && e.altKey) {
+        e.preventDefault();
+        const newPos = findNextWordStart(input, cursorPosition);
+        if (hiddenInputRef.current) {
+          hiddenInputRef.current.selectionStart = newPos;
+          hiddenInputRef.current.selectionEnd = newPos;
+          setCursorPosition(newPos);
+        }
+        return;
+      }
+
+      // Handle arrow up - navigate to previous command
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (commandHistory.length === 0) return;
+
+        const newIndex = historyIndex + 1;
+        if (newIndex < commandHistory.length) {
+          setHistoryIndex(newIndex);
+          const cmd = commandHistory[commandHistory.length - 1 - newIndex];
+          setInput(cmd);
+          // Move cursor to end of line
+          setTimeout(() => {
+            if (hiddenInputRef.current) {
+              hiddenInputRef.current.selectionStart = cmd.length;
+              hiddenInputRef.current.selectionEnd = cmd.length;
+              setCursorPosition(cmd.length);
+            }
+          }, 0);
+        }
+        return;
+      }
+
+      // Handle arrow down - navigate to next command
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (historyIndex > 0) {
+          const newIndex = historyIndex - 1;
+          setHistoryIndex(newIndex);
+          const cmd = commandHistory[commandHistory.length - 1 - newIndex];
+          setInput(cmd);
+          // Move cursor to end of line
+          setTimeout(() => {
+            if (hiddenInputRef.current) {
+              hiddenInputRef.current.selectionStart = cmd.length;
+              hiddenInputRef.current.selectionEnd = cmd.length;
+              setCursorPosition(cmd.length);
+            }
+          }, 0);
+        } else if (historyIndex === 0) {
+          setHistoryIndex(-1);
+          setInput("");
+          setTimeout(() => {
+            if (hiddenInputRef.current) {
+              hiddenInputRef.current.selectionStart = 0;
+              hiddenInputRef.current.selectionEnd = 0;
+              setCursorPosition(0);
+            }
+          }, 0);
+        }
+        return;
+      }
+
+      // Handle Enter - submit command
       if (e.key !== "Enter") return;
       e.preventDefault();
       const cmd = input;
       setInput("");
+      setHistoryIndex(-1);
+      setCursorPosition(0);
+
+      // Add non-empty commands to history
+      if (cmd.trim()) {
+        setCommandHistory((prev) => [...prev, cmd]);
+      }
 
       if (isClearCommand(cmd)) {
         setLines([]);
@@ -243,7 +469,18 @@ export default function Terminal({ username, windowId }: TerminalProps) {
         setLines((prev) => trimToLast([...prev, ...newLines]));
       }
     },
-    [input, prompt, sessionId, sessionEnded, username]
+    [
+      input,
+      prompt,
+      sessionId,
+      sessionEnded,
+      username,
+      commandHistory,
+      historyIndex,
+      cursorPosition,
+      findPreviousWordStart,
+      findNextWordStart,
+    ]
   );
 
   const handleContainerMouseUp = useCallback((e: React.MouseEvent) => {
@@ -251,7 +488,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
     if (target.closest(`.${styles.inputRow}`)) return;
     const selection = window.getSelection?.();
     if (!selection?.toString().trim()) {
-      inputRef.current?.focus();
+      hiddenInputRef.current?.focus();
     }
   }, []);
 
@@ -276,7 +513,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
         const target = e.target as HTMLElement;
         if (target.closest(`.${styles.inputRow}`)) {
           e.preventDefault();
-          inputRef.current?.focus();
+          hiddenInputRef.current?.focus();
         }
       }}
       onMouseUp={handleContainerMouseUp}
@@ -304,7 +541,10 @@ export default function Terminal({ username, windowId }: TerminalProps) {
       </Modal>
       <div className={styles.scroll} ref={scrollRef}>
         {lines.map((line, i) => (
-          <div key={i} className={line.type === "error" ? styles.lineError : styles.line}>
+          <div
+            key={i}
+            className={`${line.type === "error" ? styles.lineError : styles.line} ${line.type !== "prompt" ? styles.lineAnimated : ""}`}
+          >
             {line.type === "prompt" ? (
               <>
                 <span className={styles.promptText}>{prompt}</span>
@@ -317,17 +557,32 @@ export default function Terminal({ username, windowId }: TerminalProps) {
         ))}
         <div className={styles.inputRow}>
           <span className={styles.promptText}>{prompt}</span>
-          <input
-            ref={inputRef}
-            type="text"
-            className={styles.input}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            spellCheck={false}
-            autoFocus
-            aria-label="Command input"
-          />
+          <div className={styles.inputContainer}>
+            {/* Hidden input for keyboard capture */}
+            <input
+              ref={hiddenInputRef}
+              type="text"
+              className={styles.hiddenInput}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              spellCheck={false}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              autoFocus
+              aria-label="Command input"
+            />
+            {/* Visual text display with cursor in the middle */}
+            <span className={styles.inputText}>{input.slice(0, cursorPosition)}</span>
+            {/* Block cursor */}
+            <span
+              className={`${styles.cursor} ${cursorVisible ? styles.cursorVisible : styles.cursorHidden}`}
+            >
+              {input[cursorPosition] || "\u00A0"}
+            </span>
+            <span className={styles.inputText}>{input.slice(cursorPosition + 1)}</span>
+          </div>
         </div>
       </div>
     </div>

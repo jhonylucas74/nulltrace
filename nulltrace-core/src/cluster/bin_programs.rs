@@ -24,14 +24,42 @@ end
 "#;
 
 /// Ls: lists directory entries. Args: path (default ".")
+/// Columns are aligned by computing max widths from all entries, then padding each field.
 pub const LS: &str = r#"
 local args = os.get_args()
 local path = (#args >= 1) and args[1] or "."
 local entries = fs.ls(path)
+
+if #entries == 0 then
+  return
+end
+
+-- Minimum column widths for a single entry or short names
+local min_name, min_type, min_size, min_owner = 8, 9, 6, 4
+local w_name, w_type, w_size, w_owner = min_name, min_type, min_size, min_owner
+
 for i = 1, #entries do
-    local e = entries[i]
-    local line = e.name .. "\t" .. e.type .. "\t" .. tostring(e.size) .. "\t" .. e.owner .. "\n"
-    io.write(line)
+  local e = entries[i]
+  local size_str = tostring(e.size)
+  if #e.name > w_name then w_name = #e.name end
+  if #e.type > w_type then w_type = #e.type end
+  if #size_str > w_size then w_size = #size_str end
+  if #e.owner > w_owner then w_owner = #e.owner end
+end
+
+local function pad_right(s, width)
+  return s .. string.rep(" ", math.max(0, width - #s))
+end
+local function pad_left(s, width)
+  return string.rep(" ", math.max(0, width - #s)) .. s
+end
+
+for i = 1, #entries do
+  local e = entries[i]
+  local name_padded = pad_right(e.name, w_name)
+  local type_padded = pad_right(e.type, w_type)
+  local size_padded = pad_left(tostring(e.size), w_size)
+  io.write(name_padded .. "  " .. type_padded .. "  " .. size_padded .. "  " .. e.owner .. "\n")
 end
 "#;
 
