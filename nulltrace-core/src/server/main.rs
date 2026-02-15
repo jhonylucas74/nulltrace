@@ -5,10 +5,11 @@ use game::{
     GetPlayerProfileRequest, GetPlayerProfileResponse, GetProcessListRequest, GetProcessListResponse,
     GetRankingRequest, GetRankingResponse, HelloRequest, HelloResponse, LeaveFactionRequest,
     LeaveFactionResponse, ListFsRequest, ListFsResponse, LoginRequest, LoginResponse,
-    MovePathRequest, MovePathResponse, PingRequest, PingResponse, RefreshTokenRequest,
-    RefreshTokenResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest,
-    RestoreDiskResponse, SetPreferredThemeRequest, SetPreferredThemeResponse, SetShortcutsRequest,
-    SetShortcutsResponse, TerminalClientMessage, TerminalServerMessage,
+    MovePathRequest, MovePathResponse, PingRequest, PingResponse, ProcessSpyClientMessage,
+    ProcessSpyServerMessage, RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest,
+    RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
+    SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, TerminalClientMessage,
+    TerminalServerMessage,
 };
 use tonic::{Request, Response, Status, transport::Server};
 use tokio_stream::wrappers::ReceiverStream;
@@ -24,10 +25,12 @@ use game::TerminalError;
 pub struct MyGameService {}
 
 type TerminalStreamStream = ReceiverStream<Result<TerminalServerMessage, Status>>;
+type ProcessSpyStreamStream = ReceiverStream<Result<ProcessSpyServerMessage, Status>>;
 
 #[tonic::async_trait]
 impl GameService for MyGameService {
     type TerminalStreamStream = TerminalStreamStream;
+    type ProcessSpyStreamStream = ProcessSpyStreamStream;
 
     async fn say_hello(
         &self,
@@ -87,6 +90,23 @@ impl GameService for MyGameService {
                 msg: Some(TerminalServerMsg::TerminalError(TerminalError {
                     message: "Use the unified cluster binary for terminal".to_string(),
                 })),
+            }))
+            .await;
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn process_spy_stream(
+        &self,
+        _request: Request<tonic::Streaming<ProcessSpyClientMessage>>,
+    ) -> Result<Response<ProcessSpyStreamStream>, Status> {
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        let _ = tx
+            .send(Ok(ProcessSpyServerMessage {
+                msg: Some(game::process_spy_server_message::Msg::ProcessSpyError(
+                    game::ProcessSpyError {
+                        message: "Use the unified cluster binary for process spy".to_string(),
+                    },
+                )),
             }))
             .await;
         Ok(Response::new(ReceiverStream::new(rx)))

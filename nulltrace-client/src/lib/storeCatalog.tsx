@@ -23,6 +23,7 @@ const DESCRIPTION_BY_TYPE: Partial<Record<WindowType, string>> = {
   sysinfo: "View system information.",
   shortcuts: "View and customize keyboard shortcuts.",
   sysmon: "Monitor CPU, memory, and processes.",
+  pspy: "Spy on VM processes: view and inject stdin and stdout in real time.",
   nullcloud: "Cloud machines and VPS.",
   hackerboard: "Leaderboard and challenges.",
   startup: "Choose which apps start with the system.",

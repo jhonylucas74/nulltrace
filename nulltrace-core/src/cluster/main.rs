@@ -10,6 +10,7 @@ mod net;
 mod db;
 mod grpc;
 mod lua_api;
+mod process_spy_hub;
 mod terminal_hub;
 mod vm_manager;
 mod vm_worker;
@@ -23,6 +24,7 @@ use db::user_service::UserService;
 use db::vm_service::VmService;
 use grpc::game::game_service_server::GameServiceServer;
 use grpc::ClusterGameService;
+use process_spy_hub::new_hub as new_process_spy_hub;
 use terminal_hub::new_hub;
 use net::ip::{Ipv4Addr, Subnet};
 use lua_api::context::VmContext;
@@ -106,6 +108,7 @@ async fn main() {
     };
 
     let terminal_hub = new_hub();
+    let process_spy_hub = new_process_spy_hub();
 
     let process_snapshot_store: Arc<DashMap<uuid::Uuid, Vec<ProcessSnapshot>>> =
         Arc::new(DashMap::new());
@@ -121,6 +124,7 @@ async fn main() {
         faction_service.clone(),
         shortcuts_service.clone(),
         terminal_hub.clone(),
+        process_spy_hub.clone(),
         process_snapshot_store.clone(),
         vm_lua_memory_store.clone(),
     );
@@ -138,7 +142,7 @@ async fn main() {
 
     // ── Game loop (main task) ──
     manager
-        .run_loop(&mut vms, terminal_hub, process_snapshot_store, vm_lua_memory_store, &pool, stress_mode)
+        .run_loop(&mut vms, terminal_hub, process_spy_hub, process_snapshot_store, vm_lua_memory_store, &pool, stress_mode)
         .await;
 }
 

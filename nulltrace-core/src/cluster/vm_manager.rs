@@ -12,6 +12,7 @@ use super::net::ip::{Ipv4Addr, Subnet};
 use super::net::net_manager::NetManager;
 use super::net::nic::NIC;
 use super::net::router::{RouteResult, Router};
+use super::process_spy_hub::{ProcessSpyDownstreamMsg, ProcessSpyHub};
 use super::terminal_hub::{SessionReady, TerminalHub, TerminalSession};
 use super::vm::VirtualMachine;
 use super::vm_worker::{VmWorker, WorkerResult};
@@ -34,8 +35,8 @@ pub struct ProcessSnapshot {
     pub memory_bytes: u64,
 }
 
-/// Interval in ticks between process snapshot updates (once per second at 60 TPS).
-const SNAPSHOT_INTERVAL_TICKS: u64 = 60;
+/// Wall-clock interval between process list snapshot updates (for GetProcessList and Process Spy).
+const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(500); // 0.5 seconds
 
 const TPS: u32 = 60;
 const TICK_TIME: Duration = Duration::from_millis(1000 / TPS as u64);
@@ -439,6 +440,7 @@ impl VmManager {
         &mut self,
         vms: &mut Vec<VirtualMachine>,
         terminal_hub: Arc<TerminalHub>,
+        process_spy_hub: Arc<ProcessSpyHub>,
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
         vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
         pool: &PgPool,
@@ -459,6 +461,7 @@ impl VmManager {
         let mut tick_count: u64 = 0;
         let start = Instant::now();
         let mut last_budget_reset = Instant::now();
+        let mut last_process_snapshot_time = Instant::now();
         let mut last_tick_log_secs: u64 = 0;
 
         // Executable VM indices (those with budget remaining). Rebuilt every second; shrinks as VMs exhaust budget.
@@ -478,7 +481,7 @@ impl VmManager {
             }
             let tick_start = Instant::now();
 
-            // Snapshot process list on first tick so GetProcessList has data immediately (and every 60 ticks below)
+            // Snapshot process list on first tick so GetProcessList has data immediately (and periodically below)
             if tick_count == 0 {
                 for vm in vms.iter() {
                     if !self.player_owned_vm_ids.contains(&vm.id) {
@@ -817,6 +820,13 @@ impl VmManager {
                                 push_stdin_line(&mut guard, line.clone());
                             }
                         }
+                        // Notify process spy connections subscribed to this pid
+                        let mut hub = process_spy_hub.lock().unwrap();
+                        for conn in hub.connections.values_mut() {
+                            if conn.vm_id == *vm_id && conn.subscriptions.contains_key(pid) {
+                                let _ = conn.downstream_tx.try_send(ProcessSpyDownstreamMsg::StdinChunk(*pid, line.clone()));
+                            }
+                        }
                     }
                 }
                 // Apply requested_kills (collected from workers; shell handle_special_stdin / request_kill)
@@ -826,6 +836,71 @@ impl VmManager {
                             continue;
                         }
                         vm.os.kill_process_and_descendants(*pid);
+                    }
+                }
+            }
+
+            // Process Spy: send initial process list to new connections (from store), then drain stdin/stdout (peek stdout only, do not consume)
+            {
+                let mut hub = process_spy_hub.lock().unwrap();
+                for (_conn_id, conn) in hub.connections.iter_mut() {
+                    if !conn.sent_initial_list {
+                        if let Some(snapshots) = process_snapshot_store.get(&conn.vm_id) {
+                            let list = snapshots.clone();
+                            let _ = conn.downstream_tx.try_send(ProcessSpyDownstreamMsg::ProcessList(list));
+                            conn.sent_initial_list = true;
+                        }
+                    }
+                }
+                let mut to_remove: Vec<(Uuid, u64)> = Vec::new();
+                for (conn_id, conn) in hub.connections.iter_mut() {
+                    for (pid, sub) in conn.subscriptions.iter_mut() {
+                        let vm_id = conn.vm_id;
+                        let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) else {
+                            continue;
+                        };
+                        // Drain stdin_rx and push into process stdin; send StdinChunk for each line
+                        while let Ok(line) = sub.stdin_rx.try_recv() {
+                            if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == *pid) {
+                                if let Ok(mut guard) = p.stdin.lock() {
+                                    push_stdin_line(&mut guard, line.clone());
+                                }
+                            }
+                            let _ = conn.downstream_tx.try_send(ProcessSpyDownstreamMsg::StdinChunk(*pid, line));
+                        }
+                        // Read new stdout suffix and send downstream (peek only: do not clear process buffer).
+                        // When Terminal clears the buffer after us, next tick len < last_stdout_len; treat all current content as new.
+                        if let Some(p) = vm.os.processes.iter().find(|pr| pr.id == *pid) {
+                            if let Ok(guard) = p.stdout.lock() {
+                                let len = guard.len();
+                                if len > sub.last_stdout_len {
+                                    let suffix = guard[sub.last_stdout_len..].to_string();
+                                    sub.last_stdout_len = len;
+                                    drop(guard);
+                                    let _ = conn.downstream_tx.try_send(ProcessSpyDownstreamMsg::Stdout(*pid, suffix));
+                                } else if len < sub.last_stdout_len && len > 0 {
+                                    // Buffer was cleared (e.g. by Terminal); current content is all new
+                                    sub.last_stdout_len = 0;
+                                    let suffix = guard[0..len].to_string();
+                                    sub.last_stdout_len = len;
+                                    drop(guard);
+                                    let _ = conn.downstream_tx.try_send(ProcessSpyDownstreamMsg::Stdout(*pid, suffix));
+                                } else if len < sub.last_stdout_len {
+                                    sub.last_stdout_len = 0;
+                                }
+                            }
+                            if p.is_finished() {
+                                to_remove.push((*conn_id, *pid));
+                            }
+                        } else {
+                            to_remove.push((*conn_id, *pid));
+                        }
+                    }
+                }
+                for (conn_id, pid) in to_remove {
+                    if let Some(conn) = hub.connections.get_mut(&conn_id) {
+                        conn.subscriptions.remove(&pid);
+                        let _ = conn.downstream_tx.try_send(ProcessSpyDownstreamMsg::ProcessGone(pid));
                     }
                 }
             }
@@ -844,7 +919,14 @@ impl VmManager {
                     while let Ok(line) = session.stdin_rx.try_recv() {
                         if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == session.pid) {
                             if let Ok(mut guard) = p.stdin.lock() {
-                                push_stdin_line(&mut guard, line);
+                                push_stdin_line(&mut guard, line.clone());
+                            }
+                        }
+                        // Notify Process Spy so it can show stdin from Terminal in subscribed tabs
+                        let mut spy_hub = process_spy_hub.lock().unwrap();
+                        for conn in spy_hub.connections.values_mut() {
+                            if conn.vm_id == session.vm_id && conn.subscriptions.contains_key(&session.pid) {
+                                let _ = conn.downstream_tx.try_send(ProcessSpyDownstreamMsg::StdinChunk(session.pid, line.clone()));
                             }
                         }
                     }
@@ -889,8 +971,9 @@ impl VmManager {
 
             tick_count += 1;
 
-            // Snapshot process list for player-owned VMs every SNAPSHOT_INTERVAL_TICKS (e.g. once per second)
-            if tick_count % SNAPSHOT_INTERVAL_TICKS == 0 {
+            // Snapshot process list for player-owned VMs every SNAPSHOT_INTERVAL (0.5 s wall-clock)
+            if tick_start.duration_since(last_process_snapshot_time) >= SNAPSHOT_INTERVAL {
+                last_process_snapshot_time = tick_start;
                 for vm in vms.iter() {
                     if !self.player_owned_vm_ids.contains(&vm.id) {
                         continue;
@@ -919,8 +1002,15 @@ impl VmManager {
                             }
                         })
                         .collect();
-                    process_snapshot_store.insert(vm.id, snapshots);
+                    process_snapshot_store.insert(vm.id, snapshots.clone());
                     vm_lua_memory_store.insert(vm.id, vm.lua.used_memory() as u64);
+                    // Push process list to process spy connections for this VM
+                    let mut hub = process_spy_hub.lock().unwrap();
+                    for conn in hub.connections.values_mut() {
+                        if conn.vm_id == vm.id {
+                            let _ = conn.downstream_tx.try_send(ProcessSpyDownstreamMsg::ProcessList(snapshots.clone()));
+                        }
+                    }
                 }
             }
 

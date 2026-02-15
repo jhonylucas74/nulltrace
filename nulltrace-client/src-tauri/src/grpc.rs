@@ -5,14 +5,18 @@ mod game {
 }
 
 use game::game_service_client::GameServiceClient;
+use game::process_spy_client_message::Msg as ProcessSpyClientMsg;
+use game::process_spy_server_message::Msg as ProcessSpyServerMsg;
 use game::terminal_client_message::Msg as TerminalClientMsg;
 use game::terminal_server_message::Msg as TerminalServerMsg;
 use game::{
     CopyPathRequest, CreateFactionRequest, GetDiskUsageRequest, GetHomePathRequest,
     GetPlayerProfileRequest, GetProcessListRequest, GetRankingRequest, GetSysinfoRequest,
-    Interrupt, LeaveFactionRequest, ListFsRequest, LoginRequest, MovePathRequest, OpenTerminal,
-    PingRequest, RenamePathRequest, RestoreDiskRequest, SetPreferredThemeRequest, SetShortcutsRequest,
-    StdinData, TerminalClientMessage, TerminalOpened,
+    InjectStdin, Interrupt, LeaveFactionRequest, ListFsRequest, LoginRequest, MovePathRequest,
+    OpenTerminal, PingRequest, ProcessListSnapshot, ProcessSpyClientMessage, ProcessSpyOpened,
+    RenamePathRequest, RestoreDiskRequest, SetPreferredThemeRequest,
+    SetShortcutsRequest, StdinData, SubscribePid, TerminalClientMessage, TerminalOpened,
+    UnsubscribePid,
 };
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -983,4 +987,256 @@ pub fn terminal_disconnect(
     sessions: tauri::State<'_, TerminalSessionsState>,
 ) {
     sessions.lock().unwrap().remove(&session_id);
+}
+
+// ─── Process Spy (Proc Spy) stream ─────────────────────────────────────────
+
+/// Commands sent from Tauri commands to the process spy stream task.
+pub enum ProcessSpyCommand {
+    Subscribe(u64),
+    Unsubscribe(u64),
+    Stdin(u64, String),
+}
+
+/// Shared state: single active process spy connection (connection_id, sender for commands).
+pub struct ProcessSpyState {
+    pub connection_id: Option<String>,
+    pub tx: Option<mpsc::Sender<ProcessSpyCommand>>,
+}
+
+pub fn new_process_spy_state() -> Arc<Mutex<ProcessSpyState>> {
+    Arc::new(Mutex::new(ProcessSpyState {
+        connection_id: None,
+        tx: None,
+    }))
+}
+
+/// Tauri command: Open Process Spy stream. Returns connection_id. Emits process-spy-opened, process-spy-process-list, process-spy-stdout, process-spy-stdin, process-spy-process-gone, process-spy-error, process-spy-closed.
+#[tauri::command]
+pub async fn process_spy_connect(
+    token: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<Mutex<ProcessSpyState>>>,
+) -> Result<String, String> {
+    {
+        let s = state.lock().unwrap();
+        if s.connection_id.is_some() {
+            return Err("Process Spy already connected".to_string());
+        }
+    }
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let (client_tx, client_rx) = mpsc::channel(32);
+    let _ = client_tx
+        .send(ProcessSpyClientMessage {
+            msg: Some(ProcessSpyClientMsg::OpenProcessSpy(game::OpenProcessSpy {})),
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let stream = ReceiverStream::new(client_rx);
+    let mut request = tonic::Request::new(stream);
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .process_spy_stream(request)
+        .await
+        .map_err(|e| {
+            if e.to_string().contains("Unauthenticated") || e.to_string().contains("UNAUTHENTICATED") {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?;
+    let mut server_rx = response.into_inner();
+
+    let first = server_rx
+        .next()
+        .await
+        .ok_or("stream closed before ProcessSpyOpened")?
+        .map_err(|e| e.to_string())?;
+    match first.msg {
+        Some(ProcessSpyServerMsg::ProcessSpyOpened(ProcessSpyOpened {})) => {}
+        Some(ProcessSpyServerMsg::ProcessSpyError(e)) => return Err(e.message),
+        _ => return Err("expected ProcessSpyOpened".to_string()),
+    }
+
+    let connection_id = uuid::Uuid::new_v4().to_string();
+    let (cmd_tx, mut cmd_rx) = mpsc::channel(32);
+    let state_clone = state.inner().clone();
+    {
+        let mut s = state.lock().unwrap();
+        s.connection_id = Some(connection_id.clone());
+        s.tx = Some(cmd_tx);
+    }
+
+    let app_emit = app.clone();
+    tokio::spawn(async move {
+        let mut server_rx = server_rx;
+        let mut client_tx = client_tx;
+        loop {
+            tokio::select! {
+                msg = server_rx.next() => {
+                    match msg {
+                        Some(Ok(m)) => {
+                            match m.msg {
+                                Some(ProcessSpyServerMsg::ProcessListSnapshot(ProcessListSnapshot { processes })) => {
+                                    let list: Vec<serde_json::Value> = processes
+                                        .into_iter()
+                                        .map(|p| serde_json::json!({
+                                            "pid": p.pid,
+                                            "name": p.name,
+                                            "username": p.username,
+                                            "status": p.status,
+                                            "memory_bytes": p.memory_bytes,
+                                        }))
+                                        .collect();
+                                    let _ = app_emit.emit("process-spy-process-list", serde_json::json!({ "processes": list }));
+                                }
+                                Some(ProcessSpyServerMsg::ProcessSpyStdout(s)) => {
+                                    let _ = app_emit.emit("process-spy-stdout", serde_json::json!({
+                                        "pid": s.pid,
+                                        "data": String::from_utf8_lossy(&s.data),
+                                    }));
+                                }
+                                Some(ProcessSpyServerMsg::StdinChunk(s)) => {
+                                    let _ = app_emit.emit("process-spy-stdin", serde_json::json!({
+                                        "pid": s.pid,
+                                        "data": String::from_utf8_lossy(&s.data),
+                                    }));
+                                }
+                                Some(ProcessSpyServerMsg::ProcessGone(p)) => {
+                                    let _ = app_emit.emit("process-spy-process-gone", serde_json::json!({ "pid": p.pid }));
+                                }
+                                Some(ProcessSpyServerMsg::ProcessSpyError(e)) => {
+                                    let _ = app_emit.emit("process-spy-error", serde_json::json!({ "message": e.message }));
+                                    break;
+                                }
+                                _ => {}
+                            }
+                        }
+                        Some(Err(_)) | None => {
+                            let _ = app_emit.emit("process-spy-closed", ());
+                            break;
+                        }
+                    }
+                }
+                cmd = cmd_rx.recv() => {
+                    match cmd {
+                        Some(ProcessSpyCommand::Subscribe(pid)) => {
+                            let _ = client_tx
+                                .send(ProcessSpyClientMessage {
+                                    msg: Some(ProcessSpyClientMsg::SubscribePid(SubscribePid { pid })),
+                                })
+                                .await;
+                        }
+                        Some(ProcessSpyCommand::Unsubscribe(pid)) => {
+                            let _ = client_tx
+                                .send(ProcessSpyClientMessage {
+                                    msg: Some(ProcessSpyClientMsg::UnsubscribePid(UnsubscribePid { pid })),
+                                })
+                                .await;
+                        }
+                        Some(ProcessSpyCommand::Stdin(pid, data)) => {
+                            let _ = client_tx
+                                .send(ProcessSpyClientMessage {
+                                    msg: Some(ProcessSpyClientMsg::InjectStdin(InjectStdin {
+                                        pid,
+                                        data: data.into_bytes(),
+                                    })),
+                                })
+                                .await;
+                        }
+                        None => break,
+                    }
+                }
+            }
+        }
+        let mut s = state_clone.lock().unwrap();
+        s.connection_id = None;
+        s.tx = None;
+        let _ = app_emit.emit("process-spy-closed", ());
+    });
+
+    let _ = app.emit("process-spy-opened", serde_json::json!({ "connectionId": connection_id }));
+    Ok(connection_id)
+}
+
+/// Tauri command: Subscribe to a PID (open a tab). Call after process_spy_connect.
+#[tauri::command]
+pub async fn process_spy_subscribe(
+    connection_id: String,
+    pid: u64,
+    state: tauri::State<'_, Arc<Mutex<ProcessSpyState>>>,
+) -> Result<(), String> {
+    let tx = {
+        let s = state.lock().unwrap();
+        if s.connection_id.as_deref() != Some(connection_id.as_str()) {
+            return Err("Process Spy not connected or connection id mismatch".to_string());
+        }
+        s.tx.clone()
+    };
+    let tx = tx.ok_or("Process Spy not connected".to_string())?;
+    tx.send(ProcessSpyCommand::Subscribe(pid))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Tauri command: Unsubscribe from a PID (close tab).
+#[tauri::command]
+pub async fn process_spy_unsubscribe(
+    connection_id: String,
+    pid: u64,
+    state: tauri::State<'_, Arc<Mutex<ProcessSpyState>>>,
+) -> Result<(), String> {
+    let tx = {
+        let s = state.lock().unwrap();
+        if s.connection_id.as_deref() != Some(connection_id.as_str()) {
+            return Err("Process Spy not connected or connection id mismatch".to_string());
+        }
+        s.tx.clone()
+    };
+    let tx = tx.ok_or("Process Spy not connected".to_string())?;
+    tx.send(ProcessSpyCommand::Unsubscribe(pid))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Tauri command: Inject stdin into a process.
+#[tauri::command]
+pub async fn process_spy_stdin(
+    connection_id: String,
+    pid: u64,
+    data: String,
+    state: tauri::State<'_, Arc<Mutex<ProcessSpyState>>>,
+) -> Result<(), String> {
+    let tx = {
+        let s = state.lock().unwrap();
+        if s.connection_id.as_deref() != Some(connection_id.as_str()) {
+            return Err("Process Spy not connected or connection id mismatch".to_string());
+        }
+        s.tx.clone()
+    };
+    let tx = tx.ok_or("Process Spy not connected".to_string())?;
+    tx.send(ProcessSpyCommand::Stdin(pid, data))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Tauri command: Disconnect Process Spy stream.
+#[tauri::command]
+pub fn process_spy_disconnect(
+    connection_id: String,
+    state: tauri::State<'_, Arc<Mutex<ProcessSpyState>>>,
+) {
+    let mut s = state.lock().unwrap();
+    if s.connection_id.as_deref() == Some(connection_id.as_str()) {
+        s.connection_id = None;
+        s.tx = None;
+    }
 }

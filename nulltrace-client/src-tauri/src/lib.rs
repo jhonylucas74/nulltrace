@@ -67,6 +67,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(grpc::new_terminal_sessions())
+        .manage(grpc::new_process_spy_state())
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             run_luau,
@@ -92,6 +93,11 @@ pub fn run() {
             grpc::terminal_send_stdin,
             grpc::terminal_send_interrupt,
             grpc::terminal_disconnect,
+            grpc::process_spy_connect,
+            grpc::process_spy_subscribe,
+            grpc::process_spy_unsubscribe,
+            grpc::process_spy_stdin,
+            grpc::process_spy_disconnect,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())

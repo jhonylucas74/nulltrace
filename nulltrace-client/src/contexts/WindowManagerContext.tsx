@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 
-export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard" | "startup" | "wallpaper" | "settings" | "traceroute" | "store" | "minesweeper" | "packet" | "codelab" | "diskmanager";
+export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard" | "startup" | "wallpaper" | "settings" | "traceroute" | "store" | "minesweeper" | "packet" | "codelab" | "diskmanager" | "pspy";
 
 export interface WindowPosition {
   x: number;
@@ -118,6 +118,9 @@ const CODELAB_WINDOW_SIZE: WindowSize = { width: 960, height: 640 };
 /** Disk Manager app: storage usage and restore. */
 const DISKMANAGER_WINDOW_SIZE: WindowSize = { width: 480, height: 380 };
 
+/** Proc Spy app: process list + stdin/stdout tabs. */
+const PSPY_WINDOW_SIZE: WindowSize = { width: 720, height: 560 };
+
 export function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "browser" || type === "editor") return LARGE_WINDOW_SIZE;
   if (type === "pixelart") return PIXELART_PICKER_SIZE;
@@ -139,6 +142,7 @@ export function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "packet") return PACKET_WINDOW_SIZE;
   if (type === "codelab") return CODELAB_WINDOW_SIZE;
   if (type === "diskmanager") return DISKMANAGER_WINDOW_SIZE;
+  if (type === "pspy") return PSPY_WINDOW_SIZE;
   return DEFAULT_SIZE;
 }
 const MIN_WIDTH = 320;
@@ -312,6 +316,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         packet: "Packet",
         codelab: "Codelab",
         diskmanager: "Disk Manager",
+        pspy: "Proc Spy",
       };
       const title = options?.title ?? defaultTitles[type];
       const workspaceId = options?.workspaceId ?? "";

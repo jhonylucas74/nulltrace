@@ -8,8 +8,10 @@ use super::db::player_service::PlayerService;
 use super::db::shortcuts_service::ShortcutsService;
 use super::db::user_service::{UserService, VmUser};
 use super::db::vm_service::VmService;
+use super::process_spy_hub::{ProcessSpyConnection, ProcessSpyDownstreamMsg, ProcessSpyHub};
 use super::terminal_hub::{SessionReady, TerminalHub};
 use super::vm_manager::ProcessSnapshot;
+use std::collections::HashMap;
 use dashmap::DashMap;
 use game::terminal_server_message::Msg as TerminalServerMsg;
 use std::sync::Arc;
@@ -23,17 +25,21 @@ pub mod game {
 }
 
 use game::game_service_server::GameService;
+use game::process_spy_server_message::Msg as ProcessSpyServerMsg;
 use game::{
     CopyPathRequest, CopyPathResponse, CreateFactionRequest, CreateFactionResponse, FsEntry,
     GetDiskUsageRequest, GetDiskUsageResponse, GetHomePathRequest, GetHomePathResponse,
     GetPlayerProfileRequest, GetPlayerProfileResponse, GetProcessListRequest, GetProcessListResponse,
     GetRankingRequest, GetRankingResponse, GetSysinfoRequest, GetSysinfoResponse, HelloRequest,
     HelloResponse, LeaveFactionRequest, LeaveFactionResponse, ListFsRequest, ListFsResponse,
-    LoginRequest, LoginResponse, MovePathRequest, MovePathResponse, OpenTerminal, PingRequest,
-    PingResponse, ProcessEntry, RankingEntry, RefreshTokenRequest, RefreshTokenResponse,
+    InjectStdin, LoginRequest, LoginResponse, MovePathRequest, MovePathResponse,
+    OpenTerminal, PingRequest, PingResponse, ProcessEntry, ProcessGone, ProcessListSnapshot,
+    ProcessSpyClientMessage, ProcessSpyOpened, ProcessSpyServerMessage, ProcessSpyStdout,
+    ProcessSpyError, RankingEntry, RefreshTokenRequest, RefreshTokenResponse,
     RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
-    SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, StdinData, StdoutData,
-    TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened, TerminalServerMessage,
+    SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, StdinChunk, StdinData,
+    StdoutData, SubscribePid, TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened,
+    TerminalServerMessage, UnsubscribePid,
 };
 
 pub struct ClusterGameService {
@@ -44,6 +50,7 @@ pub struct ClusterGameService {
     faction_service: Arc<FactionService>,
     shortcuts_service: Arc<ShortcutsService>,
     terminal_hub: Arc<TerminalHub>,
+    process_spy_hub: Arc<ProcessSpyHub>,
     process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
     vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
 }
@@ -57,6 +64,7 @@ impl ClusterGameService {
         faction_service: Arc<FactionService>,
         shortcuts_service: Arc<ShortcutsService>,
         terminal_hub: Arc<TerminalHub>,
+        process_spy_hub: Arc<ProcessSpyHub>,
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
         vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
     ) -> Self {
@@ -68,6 +76,7 @@ impl ClusterGameService {
             faction_service,
             shortcuts_service,
             terminal_hub,
+            process_spy_hub,
             process_snapshot_store,
             vm_lua_memory_store,
         }
@@ -90,6 +99,8 @@ impl ClusterGameService {
 #[tonic::async_trait]
 impl GameService for ClusterGameService {
     type TerminalStreamStream = ReceiverStream<Result<TerminalServerMessage, Status>>;
+    type ProcessSpyStreamStream = ReceiverStream<Result<ProcessSpyServerMessage, Status>>;
+
     async fn say_hello(
         &self,
         request: Request<HelloRequest>,
@@ -365,6 +376,155 @@ impl GameService for ClusterGameService {
                         msg: Some(TerminalServerMsg::TerminalClosed(TerminalClosed {})),
                     }))
                     .await;
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn process_spy_stream(
+        &self,
+        request: Request<tonic::Streaming<ProcessSpyClientMessage>>,
+    ) -> Result<Response<Self::ProcessSpyStreamStream>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let mut client_stream = request.into_inner();
+        let (tx, rx) = mpsc::channel(32);
+        let process_spy_hub = Arc::clone(&self.process_spy_hub);
+
+        let first = client_stream
+            .message()
+            .await
+            .map_err(|e| Status::invalid_argument(e.to_string()))?
+            .ok_or_else(|| Status::invalid_argument("stream closed before OpenProcessSpy"))?;
+
+        let is_open = matches!(first.msg, Some(game::process_spy_client_message::Msg::OpenProcessSpy(_)));
+        if !is_open {
+            let _ = tx
+                .send(Ok(ProcessSpyServerMessage {
+                    msg: Some(ProcessSpyServerMsg::ProcessSpyError(ProcessSpyError {
+                        message: "first message must be OpenProcessSpy".to_string(),
+                    })),
+                }))
+                .await;
+            return Ok(Response::new(ReceiverStream::new(rx)));
+        }
+
+        let vm = self
+            .vm_service
+            .get_vm_by_owner_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("No VM found for this player"))?;
+        let vm_id = vm.id;
+
+        let connection_id = Uuid::new_v4();
+        let (downstream_tx, mut downstream_rx) = mpsc::channel(64);
+        {
+            let mut hub = process_spy_hub.lock().unwrap();
+            hub.connections.insert(
+                connection_id,
+                ProcessSpyConnection {
+                    player_id,
+                    vm_id,
+                    downstream_tx,
+                    subscriptions: HashMap::new(),
+                    sent_initial_list: false,
+                },
+            );
+        }
+
+        let _ = tx
+            .send(Ok(ProcessSpyServerMessage {
+                msg: Some(ProcessSpyServerMsg::ProcessSpyOpened(ProcessSpyOpened {})),
+            }))
+            .await;
+
+        let hub_for_recv = Arc::clone(&process_spy_hub);
+        tokio::spawn(async move {
+            let mut client_stream = client_stream;
+            while let Ok(Some(msg)) = client_stream.message().await {
+                match msg.msg {
+                    Some(game::process_spy_client_message::Msg::SubscribePid(SubscribePid { pid })) => {
+                        let (stdin_tx, stdin_rx) = mpsc::channel(32);
+                        let mut hub = hub_for_recv.lock().unwrap();
+                        if let Some(conn) = hub.connections.get_mut(&connection_id) {
+                            conn.subscriptions.insert(
+                                pid,
+                                super::process_spy_hub::ProcessSpySubscription {
+                                    stdin_tx,
+                                    stdin_rx,
+                                    last_stdout_len: 0,
+                                },
+                            );
+                        }
+                    }
+                    Some(game::process_spy_client_message::Msg::UnsubscribePid(UnsubscribePid { pid })) => {
+                        let mut hub = hub_for_recv.lock().unwrap();
+                        if let Some(conn) = hub.connections.get_mut(&connection_id) {
+                            conn.subscriptions.remove(&pid);
+                        }
+                    }
+                    Some(game::process_spy_client_message::Msg::InjectStdin(InjectStdin { pid, data })) => {
+                        if let Ok(s) = String::from_utf8(data) {
+                            let mut hub = hub_for_recv.lock().unwrap();
+                            if let Some(conn) = hub.connections.get(&connection_id) {
+                                if let Some(sub) = conn.subscriptions.get(&pid) {
+                                    let _ = sub.stdin_tx.try_send(s);
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let mut hub = hub_for_recv.lock().unwrap();
+            hub.connections.remove(&connection_id);
+        });
+
+        tokio::spawn(async move {
+            while let Some(msg) = downstream_rx.recv().await {
+                let server_msg = match msg {
+                    ProcessSpyDownstreamMsg::ProcessList(snapshots) => ProcessSpyServerMessage {
+                        msg: Some(ProcessSpyServerMsg::ProcessListSnapshot(ProcessListSnapshot {
+                            processes: snapshots
+                                .into_iter()
+                                .map(|s| ProcessEntry {
+                                    pid: s.pid,
+                                    name: s.name,
+                                    username: s.username,
+                                    status: s.status,
+                                    memory_bytes: s.memory_bytes,
+                                })
+                                .collect(),
+                        })),
+                    },
+                    ProcessSpyDownstreamMsg::Stdout(pid, data) => ProcessSpyServerMessage {
+                        msg: Some(ProcessSpyServerMsg::ProcessSpyStdout(ProcessSpyStdout {
+                            pid,
+                            data: data.into_bytes(),
+                        })),
+                    },
+                    ProcessSpyDownstreamMsg::StdinChunk(pid, data) => ProcessSpyServerMessage {
+                        msg: Some(ProcessSpyServerMsg::StdinChunk(StdinChunk {
+                            pid,
+                            data: data.into_bytes(),
+                        })),
+                    },
+                    ProcessSpyDownstreamMsg::ProcessGone(pid) => ProcessSpyServerMessage {
+                        msg: Some(ProcessSpyServerMsg::ProcessGone(ProcessGone { pid })),
+                    },
+                    ProcessSpyDownstreamMsg::Error(message) => ProcessSpyServerMessage {
+                        msg: Some(ProcessSpyServerMsg::ProcessSpyError(ProcessSpyError {
+                            message,
+                        })),
+                    },
+                };
+                if tx.send(Ok(server_msg)).await.is_err() {
+                    break;
+                }
             }
         });
 

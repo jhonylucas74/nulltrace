@@ -7,6 +7,7 @@ service GameService {
   rpc Login (LoginRequest) returns (LoginResponse);
   rpc RefreshToken (RefreshTokenRequest) returns (RefreshTokenResponse);
   rpc TerminalStream (stream TerminalClientMessage) returns (stream TerminalServerMessage);
+  rpc ProcessSpyStream (stream ProcessSpyClientMessage) returns (stream ProcessSpyServerMessage);
   rpc GetDiskUsage (GetDiskUsageRequest) returns (GetDiskUsageResponse);
   rpc GetProcessList (GetProcessListRequest) returns (GetProcessListResponse);
   rpc GetSysinfo (GetSysinfoRequest) returns (GetSysinfoResponse);
@@ -100,6 +101,66 @@ message StdoutData {
 message TerminalClosed {}
 
 message TerminalError {
+  string message = 1;
+}
+
+// Process Spy: bidirectional stream to list processes and attach to PIDs for stdin/stdout.
+message ProcessSpyClientMessage {
+  oneof msg {
+    OpenProcessSpy open_process_spy = 1;
+    SubscribePid subscribe_pid = 2;
+    UnsubscribePid unsubscribe_pid = 3;
+    InjectStdin inject_stdin = 4;
+  }
+}
+
+message OpenProcessSpy {}
+
+message SubscribePid {
+  uint64 pid = 1;
+}
+
+message UnsubscribePid {
+  uint64 pid = 1;
+}
+
+message InjectStdin {
+  uint64 pid = 1;
+  bytes data = 2;
+}
+
+message ProcessSpyServerMessage {
+  oneof msg {
+    ProcessSpyOpened process_spy_opened = 1;
+    ProcessListSnapshot process_list_snapshot = 2;
+    ProcessSpyStdout process_spy_stdout = 3;
+    StdinChunk stdin_chunk = 4;
+    ProcessGone process_gone = 5;
+    ProcessSpyError process_spy_error = 6;
+  }
+}
+
+message ProcessSpyOpened {}
+
+message ProcessListSnapshot {
+  repeated ProcessEntry processes = 1;
+}
+
+message ProcessSpyStdout {
+  uint64 pid = 1;
+  bytes data = 2;
+}
+
+message StdinChunk {
+  uint64 pid = 1;
+  bytes data = 2;
+}
+
+message ProcessGone {
+  uint64 pid = 1;
+}
+
+message ProcessSpyError {
   string message = 1;
 }
 

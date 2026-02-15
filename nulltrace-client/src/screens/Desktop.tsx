@@ -48,6 +48,7 @@ import FilePicker from "../components/FilePicker";
 import PacketApp from "../components/PacketApp";
 import CodelabApp from "../components/CodelabApp";
 import DiskManagerApp from "../components/DiskManagerApp";
+import ProcessSpyApp from "../components/ProcessSpyApp";
 import { getAppTitle } from "../lib/appList";
 import styles from "./Desktop.module.css";
 
@@ -197,6 +198,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   packet: <Package size={12} />,
   codelab: <GraduationCap size={12} />,
   diskmanager: <HardDrive size={12} />,
+  pspy: <Activity size={12} />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -567,6 +569,9 @@ function DesktopContent() {
     }
     if (win.type === "diskmanager") {
       return <DiskManagerApp />;
+    }
+    if (win.type === "pspy") {
+      return <ProcessSpyApp />;
     }
     return <PlaceholderContent title={win.title} />;
   }
