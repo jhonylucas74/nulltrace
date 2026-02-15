@@ -3,6 +3,7 @@ pub mod fs_service;
 pub mod user_service;
 pub mod player_service;
 pub mod faction_service;
+pub mod shortcuts_service;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -50,6 +51,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
     sqlx::raw_sql(include_str!("../../../migrations/011_add_player_preferred_theme.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/012_create_player_shortcuts.sql"))
         .execute(pool)
         .await?;
     Ok(())

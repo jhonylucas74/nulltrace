@@ -11,8 +11,8 @@ use game::{
     CopyPathRequest, CreateFactionRequest, GetDiskUsageRequest, GetHomePathRequest,
     GetPlayerProfileRequest, GetProcessListRequest, GetRankingRequest, GetSysinfoRequest,
     Interrupt, LeaveFactionRequest, ListFsRequest, LoginRequest, MovePathRequest, OpenTerminal,
-    PingRequest, RenamePathRequest, RestoreDiskRequest, SetPreferredThemeRequest, StdinData,
-    TerminalClientMessage, TerminalOpened,
+    PingRequest, RenamePathRequest, RestoreDiskRequest, SetPreferredThemeRequest, SetShortcutsRequest,
+    StdinData, TerminalClientMessage, TerminalOpened,
 };
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -34,6 +34,7 @@ pub struct LoginResponse {
     pub token: String,
     pub error_message: String,
     pub preferred_theme: String,
+    pub shortcuts_overrides: String,
 }
 
 /// Response for grpc_ping command.
@@ -73,6 +74,7 @@ pub async fn grpc_login(username: String, password: String) -> Result<LoginRespo
         token: response.token,
         error_message: response.error_message,
         preferred_theme: response.preferred_theme,
+        shortcuts_overrides: response.shortcuts_overrides,
     })
 }
 
@@ -369,6 +371,7 @@ pub struct GetPlayerProfileCommandResponse {
     pub faction_name: String,
     pub error_message: String,
     pub preferred_theme: String,
+    pub shortcuts_overrides: String,
 }
 
 /// Tauri command: Get current player profile (rank, points, faction).
@@ -402,6 +405,49 @@ pub async fn grpc_get_player_profile(token: String) -> Result<GetPlayerProfileCo
         faction_name: response.faction_name,
         error_message: response.error_message,
         preferred_theme: response.preferred_theme,
+        shortcuts_overrides: response.shortcuts_overrides,
+    })
+}
+
+/// Response for grpc_set_shortcuts command.
+#[derive(serde::Serialize)]
+pub struct SetShortcutsCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Set keyboard shortcut overrides (authenticated).
+#[tauri::command]
+pub async fn grpc_set_shortcuts(
+    token: String,
+    shortcuts_overrides_json: String,
+) -> Result<SetShortcutsCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(SetShortcutsRequest {
+        shortcuts_overrides_json,
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .set_shortcuts(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(SetShortcutsCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
     })
 }
 

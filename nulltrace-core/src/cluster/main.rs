@@ -18,6 +18,7 @@ use dashmap::DashMap;
 use db::faction_service::FactionService;
 use db::fs_service::FsService;
 use db::player_service::PlayerService;
+use db::shortcuts_service::ShortcutsService;
 use db::user_service::UserService;
 use db::vm_service::VmService;
 use grpc::game::game_service_server::GameServiceServer;
@@ -70,6 +71,7 @@ async fn main() {
     let user_service = Arc::new(UserService::new(pool.clone()));
     let player_service = Arc::new(PlayerService::new(pool.clone()));
     let faction_service = Arc::new(FactionService::new(pool.clone()));
+    let shortcuts_service = Arc::new(ShortcutsService::new(pool.clone()));
 
     // ── Seed default player (Haru) if not present ──
     player_service
@@ -117,6 +119,7 @@ async fn main() {
         fs_service.clone(),
         user_service.clone(),
         faction_service.clone(),
+        shortcuts_service.clone(),
         terminal_hub.clone(),
         process_snapshot_store.clone(),
         vm_lua_memory_store.clone(),

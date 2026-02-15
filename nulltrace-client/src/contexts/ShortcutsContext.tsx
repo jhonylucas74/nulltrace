@@ -6,6 +6,8 @@ import React, {
   useEffect,
   useRef,
 } from "react";
+import { useAuth } from "./AuthContext";
+import { useGrpc } from "./GrpcContext";
 
 const STORAGE_KEY = "nulltrace-shortcuts";
 
@@ -66,6 +68,26 @@ function loadOverrides(): Partial<Record<ShortcutActionId, string[]>> {
   }
 }
 
+/** Parse server shortcuts_overrides JSON into overrides map; return null if invalid or empty. */
+function parseServerShortcuts(raw: string | undefined): Partial<Record<ShortcutActionId, string[]>> | null {
+  if (!raw || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+    const out: Partial<Record<ShortcutActionId, string[]>> = {};
+    const validIds = new Set(SHORTCUT_ACTIONS.map((a) => a.actionId));
+    for (const id of Object.keys(parsed)) {
+      if (!validIds.has(id as ShortcutActionId)) continue;
+      const val = parsed[id];
+      if (!Array.isArray(val) || !val.every((x) => typeof x === "string")) continue;
+      out[id as ShortcutActionId] = val as string[];
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 function saveOverrides(overrides: Partial<Record<ShortcutActionId, string[]>>) {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
@@ -102,9 +124,27 @@ export function ShortcutsProvider({ children }: { children: React.ReactNode }) {
   const [overrides, setOverrides] = useState<Partial<Record<ShortcutActionId, string[]>>>(() => loadOverrides());
   const [recordingActionId, setRecordingActionId] = useState<ShortcutActionId | null>(null);
   const handlersRef = useRef<Partial<Record<ShortcutActionId, () => void>>>({});
+  const { token } = useAuth();
+  const { getPlayerProfile, setShortcuts } = useGrpc();
   const isRecording = recordingActionId !== null;
   const startRecording = useCallback((actionId: ShortcutActionId) => setRecordingActionId(actionId), []);
   const stopRecording = useCallback(() => setRecordingActionId(null), []);
+
+  // When we have a token, fetch profile and apply server shortcuts_overrides (if valid and non-empty).
+  useEffect(() => {
+    if (!token) return;
+    getPlayerProfile(token)
+      .then((profile) => {
+        const serverOverrides = parseServerShortcuts(profile.shortcuts_overrides);
+        if (serverOverrides) {
+          setOverrides(serverOverrides);
+          saveOverrides(serverOverrides);
+        }
+      })
+      .catch(() => {
+        // Keep current theme (localStorage or default)
+      });
+  }, [token, getPlayerProfile]);
 
   const getKeysForAction = useCallback((actionId: ShortcutActionId): string[] => {
     if (overrides[actionId]) return overrides[actionId]!;
@@ -112,27 +152,42 @@ export function ShortcutsProvider({ children }: { children: React.ReactNode }) {
     return action?.defaultKeys ?? [];
   }, [overrides]);
 
-  const setShortcut = useCallback((actionId: ShortcutActionId, keys: string[]) => {
-    setOverrides((prev) => {
-      const next = { ...prev, [actionId]: keys };
-      saveOverrides(next);
-      return next;
-    });
-  }, []);
+  const setShortcut = useCallback(
+    (actionId: ShortcutActionId, keys: string[]) => {
+      setOverrides((prev) => {
+        const next = { ...prev, [actionId]: keys };
+        saveOverrides(next);
+        if (token) {
+          setShortcuts(token, JSON.stringify(next)).catch(() => {});
+        }
+        return next;
+      });
+    },
+    [token, setShortcuts]
+  );
 
-  const resetShortcut = useCallback((actionId: ShortcutActionId) => {
-    setOverrides((prev) => {
-      const next = { ...prev };
-      delete next[actionId];
-      saveOverrides(next);
-      return next;
-    });
-  }, []);
+  const resetShortcut = useCallback(
+    (actionId: ShortcutActionId) => {
+      setOverrides((prev) => {
+        const next = { ...prev };
+        delete next[actionId];
+        saveOverrides(next);
+        if (token) {
+          setShortcuts(token, JSON.stringify(next)).catch(() => {});
+        }
+        return next;
+      });
+    },
+    [token, setShortcuts]
+  );
 
   const resetAllShortcuts = useCallback(() => {
     setOverrides({});
     saveOverrides({});
-  }, []);
+    if (token) {
+      setShortcuts(token, "{}").catch(() => {});
+    }
+  }, [token, setShortcuts]);
 
   const getShortcuts = useCallback(() => {
     return SHORTCUT_ACTIONS.map((a) => ({

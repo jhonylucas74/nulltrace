@@ -19,6 +19,7 @@ service GameService {
   rpc GetRanking (GetRankingRequest) returns (GetRankingResponse);
   rpc GetPlayerProfile (GetPlayerProfileRequest) returns (GetPlayerProfileResponse);
   rpc SetPreferredTheme (SetPreferredThemeRequest) returns (SetPreferredThemeResponse);
+  rpc SetShortcuts (SetShortcutsRequest) returns (SetShortcutsResponse);
   rpc CreateFaction (CreateFactionRequest) returns (CreateFactionResponse);
   rpc LeaveFaction (LeaveFactionRequest) returns (LeaveFactionResponse);
 }
@@ -48,6 +49,7 @@ message LoginResponse {
   string token = 3;
   string error_message = 4;
   string preferred_theme = 5;
+  string shortcuts_overrides = 6;
 }
 
 message RefreshTokenRequest {
@@ -230,6 +232,7 @@ message GetPlayerProfileResponse {
   string faction_name = 4;
   string error_message = 5;
   string preferred_theme = 6;
+  string shortcuts_overrides = 7;
 }
 
 message SetPreferredThemeRequest {
@@ -237,6 +240,15 @@ message SetPreferredThemeRequest {
 }
 
 message SetPreferredThemeResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message SetShortcutsRequest {
+  string shortcuts_overrides_json = 1;
+}
+
+message SetShortcutsResponse {
   bool success = 1;
   string error_message = 2;
 }

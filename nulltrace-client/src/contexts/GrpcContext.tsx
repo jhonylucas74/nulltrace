@@ -7,6 +7,7 @@ export interface LoginResponseMessage {
   token: string;
   error_message: string;
   preferred_theme?: string;
+  shortcuts_overrides?: string;
 }
 
 export interface PingResponseMessage {
@@ -25,6 +26,7 @@ export interface GetPlayerProfileResponse {
   faction_id: string;
   faction_name: string;
   preferred_theme: string;
+  shortcuts_overrides: string;
   error_message: string;
 }
 
@@ -34,6 +36,7 @@ export interface GrpcContextValue {
   refreshToken: (currentToken: string) => Promise<RefreshTokenResponse>;
   getPlayerProfile: (token: string) => Promise<GetPlayerProfileResponse>;
   setPreferredTheme: (token: string, preferredTheme: string) => Promise<void>;
+  setShortcuts: (token: string, shortcutsOverridesJson: string) => Promise<void>;
 }
 
 const GrpcContext = createContext<GrpcContextValue | null>(null);
@@ -52,6 +55,15 @@ export function GrpcProvider({ children }: { children: React.ReactNode }) {
         invoke<{ success: boolean; error_message: string }>("grpc_set_preferred_theme", {
           token,
           preferred_theme: preferredTheme,
+        }).then((res) => {
+          if (!res.success && res.error_message) {
+            throw new Error(res.error_message);
+          }
+        }),
+      setShortcuts: (token: string, shortcutsOverridesJson: string) =>
+        invoke<{ success: boolean; error_message: string }>("grpc_set_shortcuts", {
+          token,
+          shortcuts_overrides_json: shortcutsOverridesJson,
         }).then((res) => {
           if (!res.success && res.error_message) {
             throw new Error(res.error_message);

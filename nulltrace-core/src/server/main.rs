@@ -7,8 +7,8 @@ use game::{
     LeaveFactionResponse, ListFsRequest, ListFsResponse, LoginRequest, LoginResponse,
     MovePathRequest, MovePathResponse, PingRequest, PingResponse, RefreshTokenRequest,
     RefreshTokenResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest,
-    RestoreDiskResponse, SetPreferredThemeRequest, SetPreferredThemeResponse, TerminalClientMessage,
-    TerminalServerMessage,
+    RestoreDiskResponse, SetPreferredThemeRequest, SetPreferredThemeResponse, SetShortcutsRequest,
+    SetShortcutsResponse, TerminalClientMessage, TerminalServerMessage,
 };
 use tonic::{Request, Response, Status, transport::Server};
 use tokio_stream::wrappers::ReceiverStream;
@@ -62,6 +62,7 @@ impl GameService for MyGameService {
             token: String::new(),
             error_message: "Use the unified cluster binary for login".to_string(),
             preferred_theme: String::new(),
+            shortcuts_overrides: String::new(),
         }))
     }
 
@@ -208,6 +209,17 @@ impl GameService for MyGameService {
             faction_name: String::new(),
             error_message: "Use the unified cluster binary for profile".to_string(),
             preferred_theme: String::new(),
+            shortcuts_overrides: String::new(),
+        }))
+    }
+
+    async fn set_shortcuts(
+        &self,
+        _request: Request<SetShortcutsRequest>,
+    ) -> Result<Response<SetShortcutsResponse>, Status> {
+        Ok(Response::new(SetShortcutsResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for shortcuts".to_string(),
         }))
     }
 

@@ -1317,6 +1317,7 @@ dependencies = [
  "prost",
  "redis",
  "serde",
+ "serde_json",
  "sha2",
  "sqlx",
  "sysinfo",

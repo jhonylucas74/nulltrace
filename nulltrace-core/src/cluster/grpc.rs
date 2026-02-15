@@ -5,6 +5,7 @@ use super::bin_programs;
 use super::db::faction_service::FactionService;
 use super::db::fs_service::FsService;
 use super::db::player_service::PlayerService;
+use super::db::shortcuts_service::ShortcutsService;
 use super::db::user_service::{UserService, VmUser};
 use super::db::vm_service::VmService;
 use super::terminal_hub::{SessionReady, TerminalHub};
@@ -31,8 +32,8 @@ use game::{
     LoginRequest, LoginResponse, MovePathRequest, MovePathResponse, OpenTerminal, PingRequest,
     PingResponse, ProcessEntry, RankingEntry, RefreshTokenRequest, RefreshTokenResponse,
     RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
-    SetPreferredThemeResponse, StdinData, StdoutData, TerminalClientMessage, TerminalClosed,
-    TerminalError, TerminalOpened, TerminalServerMessage,
+    SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, StdinData, StdoutData,
+    TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened, TerminalServerMessage,
 };
 
 pub struct ClusterGameService {
@@ -41,6 +42,7 @@ pub struct ClusterGameService {
     fs_service: Arc<FsService>,
     user_service: Arc<UserService>,
     faction_service: Arc<FactionService>,
+    shortcuts_service: Arc<ShortcutsService>,
     terminal_hub: Arc<TerminalHub>,
     process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
     vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
@@ -53,6 +55,7 @@ impl ClusterGameService {
         fs_service: Arc<FsService>,
         user_service: Arc<UserService>,
         faction_service: Arc<FactionService>,
+        shortcuts_service: Arc<ShortcutsService>,
         terminal_hub: Arc<TerminalHub>,
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
         vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
@@ -63,6 +66,7 @@ impl ClusterGameService {
             fs_service,
             user_service,
             faction_service,
+            shortcuts_service,
             terminal_hub,
             process_snapshot_store,
             vm_lua_memory_store,
@@ -121,6 +125,7 @@ impl GameService for ClusterGameService {
                 token: String::new(),
                 error_message: "Username is required".to_string(),
                 preferred_theme: String::new(),
+                shortcuts_overrides: String::new(),
             }));
         }
 
@@ -145,12 +150,18 @@ impl GameService for ClusterGameService {
                     .as_deref()
                     .unwrap_or("githubdark")
                     .to_string();
+                let shortcuts_overrides = self
+                    .shortcuts_service
+                    .get_shortcuts(p.id)
+                    .await
+                    .unwrap_or_else(|_| "{}".to_string());
                 Ok(Response::new(LoginResponse {
                     success: true,
                     player_id: p.id.to_string(),
                     token,
                     error_message: String::new(),
                     preferred_theme,
+                    shortcuts_overrides,
                 }))
             }
             None => Ok(Response::new(LoginResponse {
@@ -159,6 +170,7 @@ impl GameService for ClusterGameService {
                 token: String::new(),
                 error_message: "Invalid credentials".to_string(),
                 preferred_theme: String::new(),
+                shortcuts_overrides: String::new(),
             })),
         }
     }
@@ -901,6 +913,11 @@ impl GameService for ClusterGameService {
         let preferred_theme = player
             .preferred_theme
             .unwrap_or_else(|| "githubdark".to_string());
+        let shortcuts_overrides = self
+            .shortcuts_service
+            .get_shortcuts(player_id)
+            .await
+            .unwrap_or_else(|_| "{}".to_string());
         Ok(Response::new(GetPlayerProfileResponse {
             rank: player_rank,
             points: player.points,
@@ -908,7 +925,37 @@ impl GameService for ClusterGameService {
             faction_name,
             error_message: String::new(),
             preferred_theme,
+            shortcuts_overrides,
         }))
+    }
+
+    async fn set_shortcuts(
+        &self,
+        request: Request<SetShortcutsRequest>,
+    ) -> Result<Response<SetShortcutsResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let SetShortcutsRequest {
+            shortcuts_overrides_json,
+        } = request.into_inner();
+        match self
+            .shortcuts_service
+            .set_shortcuts(player_id, &shortcuts_overrides_json)
+            .await
+        {
+            Ok(()) => Ok(Response::new(SetShortcutsResponse {
+                success: true,
+                error_message: String::new(),
+            })),
+            Err(e) => {
+                let msg = e.to_string();
+                Ok(Response::new(SetShortcutsResponse {
+                    success: false,
+                    error_message: msg,
+                }))
+            }
+        }
     }
 
     async fn set_preferred_theme(
@@ -1069,7 +1116,8 @@ async fn vm_and_owner(
 mod tests {
     use super::super::db::{
         self, faction_service::FactionService, fs_service::FsService,
-        player_service::PlayerService, user_service::UserService, vm_service::{VmConfig, VmService},
+        player_service::PlayerService, shortcuts_service::ShortcutsService, user_service::UserService,
+        vm_service::{VmConfig, VmService},
     };
     use super::super::terminal_hub::new_hub;
     use super::super::vm_manager::ProcessSnapshot;
@@ -1086,6 +1134,7 @@ mod tests {
             Arc::new(FsService::new(pool.clone())),
             Arc::new(UserService::new(pool.clone())),
             Arc::new(FactionService::new(pool.clone())),
+            Arc::new(ShortcutsService::new(pool.clone())),
             new_hub(),
             Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
@@ -1102,6 +1151,7 @@ mod tests {
             Arc::new(FsService::new(pool.clone())),
             Arc::new(UserService::new(pool.clone())),
             Arc::new(FactionService::new(pool.clone())),
+            Arc::new(ShortcutsService::new(pool.clone())),
             new_hub(),
             process_snapshot_store,
             Arc::new(DashMap::new()),
