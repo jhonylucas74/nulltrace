@@ -459,6 +459,7 @@ impl VmManager {
         let mut tick_count: u64 = 0;
         let start = Instant::now();
         let mut last_budget_reset = Instant::now();
+        let mut last_tick_log_secs: u64 = 0;
 
         // Executable VM indices (those with budget remaining). Rebuilt every second; shrinks as VMs exhaust budget.
         let mut executable_vm_indices: Vec<usize> = Vec::new();
@@ -937,15 +938,16 @@ impl VmManager {
                 slow_ticks += 1;
             }
 
-            // Log every 5 seconds
-            if tick_count % (TPS as u64 * 5) == 0 {
-                let uptime = start.elapsed().as_secs();
+            // Log at most once per second (wall-clock) to avoid flooding when loop runs faster than 60 TPS
+            let uptime_secs = start.elapsed().as_secs();
+            if uptime_secs > 0 && uptime_secs != last_tick_log_secs {
+                last_tick_log_secs = uptime_secs;
                 println!(
                     "[cluster] Tick {} | {} VMs active | uptime {}s | {:.1} TPS",
                     tick_count,
                     vms.len(),
-                    uptime,
-                    tick_count as f64 / uptime as f64,
+                    uptime_secs,
+                    tick_count as f64 / uptime_secs as f64,
                 );
             }
         }

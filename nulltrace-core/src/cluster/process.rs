@@ -90,6 +90,14 @@ impl Process {
         match self.thread.status() {
             ThreadStatus::Resumable => {
                 if let Err(e) = self.thread.resume::<()>(()) {
+                    let name = self
+                        .display_name
+                        .as_deref()
+                        .unwrap_or_else(|| self.args.first().map(|s| s.as_str()).unwrap_or("?"));
+                    eprintln!(
+                        "[cluster] Lua process error (pid={}, name={}): {}",
+                        self.id, name, e
+                    );
                     self.finished = true;
                     return Err(e);
                 }
@@ -98,6 +106,14 @@ impl Process {
                 // Process still running (yielded)
             }
             ThreadStatus::Error => {
+                let name = self
+                    .display_name
+                    .as_deref()
+                    .unwrap_or_else(|| self.args.first().map(|s| s.as_str()).unwrap_or("?"));
+                eprintln!(
+                    "[cluster] Lua process in Error state (pid={}, name={}) — thread errored in a previous tick",
+                    self.id, name
+                );
                 self.finished = true;
             }
             ThreadStatus::Finished => {

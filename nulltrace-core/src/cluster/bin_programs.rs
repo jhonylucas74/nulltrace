@@ -192,15 +192,19 @@ while true do
       -- "discard": do not forward (e.g. Tab when child is not ssh)
     else
       -- Tab autocomplete: line contains \x09; Rust resolves from cwd and /bin; protocol \x01TABCOMPLETE\t + replacement
-      local is_tab = (line == "\x09") or (line:find("\x09") ~= nil)
+      -- pcall so any error from os.autocomplete (Rust or Lua) never kills the shell process.
+      -- Use pure-Lua for tab detection and stripping to avoid "attempt to yield across metamethod/C-call boundary" in Luau.
+      local function line_has_tab(s)
+        for i = 1, #s do if s:sub(i, i) == "\x09" then return true end end
+        return false
+      end
+      local is_tab = (line == "\x09") or line_has_tab(line)
       if is_tab then
-        local replacement = os.autocomplete(line, cwd)
-        if replacement and replacement ~= "" then
+        local ok, replacement = pcall(function() return os.autocomplete(line, cwd) end)
+        if ok and replacement and type(replacement) == "string" and replacement ~= "" then
           io.write("\x01TABCOMPLETE\t" .. replacement .. "\n")
-        else
-          local prefix = (line == "\x09") and "" or line:gsub("\x09", "")
-          io.write("\x01TABCOMPLETE\t" .. prefix .. "\n")
         end
+        -- When no completion: do not send TABCOMPLETE so the terminal UI leaves the input unchanged.
       elseif line ~= "\x03" then
       -- Ignore Ctrl+C (\x03) when no foreground child
       local t = os.parse_cmd(line)
