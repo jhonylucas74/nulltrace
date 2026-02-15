@@ -92,15 +92,7 @@ pub fn run() {
             grpc::terminal_send_interrupt,
             grpc::terminal_disconnect,
         ])
-        .setup(|app| {
-            #[cfg(debug_assertions)]
-            {
-                if let Some(window) = app.get_webview_window("main") {
-                    window.open_devtools();
-                }
-            }
-            Ok(())
-        })
+        .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
