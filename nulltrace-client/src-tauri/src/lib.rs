@@ -79,6 +79,7 @@ pub fn run() {
             grpc::grpc_restore_disk,
             grpc::grpc_get_ranking,
             grpc::grpc_get_player_profile,
+            grpc::grpc_set_preferred_theme,
             grpc::grpc_create_faction,
             grpc::grpc_leave_faction,
             grpc::grpc_get_home_path,

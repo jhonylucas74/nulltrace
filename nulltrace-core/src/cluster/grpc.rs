@@ -30,9 +30,9 @@ use game::{
     HelloResponse, LeaveFactionRequest, LeaveFactionResponse, ListFsRequest, ListFsResponse,
     LoginRequest, LoginResponse, MovePathRequest, MovePathResponse, OpenTerminal, PingRequest,
     PingResponse, ProcessEntry, RankingEntry, RefreshTokenRequest, RefreshTokenResponse,
-    RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, StdinData,
-    StdoutData, TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened,
-    TerminalServerMessage,
+    RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
+    SetPreferredThemeResponse, StdinData, StdoutData, TerminalClientMessage, TerminalClosed,
+    TerminalError, TerminalOpened, TerminalServerMessage,
 };
 
 pub struct ClusterGameService {
@@ -120,6 +120,7 @@ impl GameService for ClusterGameService {
                 player_id: String::new(),
                 token: String::new(),
                 error_message: "Username is required".to_string(),
+                preferred_theme: String::new(),
             }));
         }
 
@@ -139,11 +140,17 @@ impl GameService for ClusterGameService {
                 )
                 .map_err(|e| Status::internal(format!("Token generation failed: {}", e)))?;
 
+                let preferred_theme = p
+                    .preferred_theme
+                    .as_deref()
+                    .unwrap_or("githubdark")
+                    .to_string();
                 Ok(Response::new(LoginResponse {
                     success: true,
                     player_id: p.id.to_string(),
                     token,
                     error_message: String::new(),
+                    preferred_theme,
                 }))
             }
             None => Ok(Response::new(LoginResponse {
@@ -151,6 +158,7 @@ impl GameService for ClusterGameService {
                 player_id: String::new(),
                 token: String::new(),
                 error_message: "Invalid credentials".to_string(),
+                preferred_theme: String::new(),
             })),
         }
     }
@@ -890,11 +898,44 @@ impl GameService for ClusterGameService {
             None => (String::new(), String::new()),
         };
 
+        let preferred_theme = player
+            .preferred_theme
+            .unwrap_or_else(|| "githubdark".to_string());
         Ok(Response::new(GetPlayerProfileResponse {
             rank: player_rank,
             points: player.points,
             faction_id: faction_id_str,
             faction_name,
+            error_message: String::new(),
+            preferred_theme,
+        }))
+    }
+
+    async fn set_preferred_theme(
+        &self,
+        request: Request<SetPreferredThemeRequest>,
+    ) -> Result<Response<SetPreferredThemeResponse>, Status> {
+        const ALLOWED_THEMES: &[&str] = &[
+            "latte", "frappe", "macchiato", "mocha", "onedark", "dracula", "githubdark", "monokai",
+            "solardark",
+        ];
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let SetPreferredThemeRequest { preferred_theme } = request.into_inner();
+        let theme = preferred_theme.trim();
+        if theme.is_empty() || !ALLOWED_THEMES.contains(&theme) {
+            return Ok(Response::new(SetPreferredThemeResponse {
+                success: false,
+                error_message: "Invalid theme".to_string(),
+            }));
+        }
+        self.player_service
+            .set_preferred_theme(player_id, theme)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(SetPreferredThemeResponse {
+            success: true,
             error_message: String::new(),
         }))
     }

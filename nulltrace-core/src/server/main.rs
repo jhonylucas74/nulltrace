@@ -7,7 +7,8 @@ use game::{
     LeaveFactionResponse, ListFsRequest, ListFsResponse, LoginRequest, LoginResponse,
     MovePathRequest, MovePathResponse, PingRequest, PingResponse, RefreshTokenRequest,
     RefreshTokenResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest,
-    RestoreDiskResponse, TerminalClientMessage, TerminalServerMessage,
+    RestoreDiskResponse, SetPreferredThemeRequest, SetPreferredThemeResponse, TerminalClientMessage,
+    TerminalServerMessage,
 };
 use tonic::{Request, Response, Status, transport::Server};
 use tokio_stream::wrappers::ReceiverStream;
@@ -60,6 +61,7 @@ impl GameService for MyGameService {
             player_id: String::new(),
             token: String::new(),
             error_message: "Use the unified cluster binary for login".to_string(),
+            preferred_theme: String::new(),
         }))
     }
 
@@ -205,6 +207,17 @@ impl GameService for MyGameService {
             faction_id: String::new(),
             faction_name: String::new(),
             error_message: "Use the unified cluster binary for profile".to_string(),
+            preferred_theme: String::new(),
+        }))
+    }
+
+    async fn set_preferred_theme(
+        &self,
+        _request: Request<SetPreferredThemeRequest>,
+    ) -> Result<Response<SetPreferredThemeResponse>, Status> {
+        Ok(Response::new(SetPreferredThemeResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for theme preference".to_string(),
         }))
     }
 

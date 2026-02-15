@@ -49,6 +49,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(include_str!("../../../migrations/010_create_factions.sql"))
         .execute(pool)
         .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/011_add_player_preferred_theme.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

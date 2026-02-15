@@ -6,6 +6,7 @@ export interface LoginResponseMessage {
   player_id: string;
   token: string;
   error_message: string;
+  preferred_theme?: string;
 }
 
 export interface PingResponseMessage {
@@ -18,10 +19,21 @@ export interface RefreshTokenResponse {
   error_message: string;
 }
 
+export interface GetPlayerProfileResponse {
+  rank: number;
+  points: number;
+  faction_id: string;
+  faction_name: string;
+  preferred_theme: string;
+  error_message: string;
+}
+
 export interface GrpcContextValue {
   ping: () => Promise<PingResponseMessage>;
   login: (username: string, password: string) => Promise<LoginResponseMessage>;
   refreshToken: (currentToken: string) => Promise<RefreshTokenResponse>;
+  getPlayerProfile: (token: string) => Promise<GetPlayerProfileResponse>;
+  setPreferredTheme: (token: string, preferredTheme: string) => Promise<void>;
 }
 
 const GrpcContext = createContext<GrpcContextValue | null>(null);
@@ -34,6 +46,17 @@ export function GrpcProvider({ children }: { children: React.ReactNode }) {
         invoke<LoginResponseMessage>("grpc_login", { username, password }),
       refreshToken: (currentToken: string) =>
         invoke<RefreshTokenResponse>("grpc_refresh_token", { currentToken }),
+      getPlayerProfile: (token: string) =>
+        invoke<GetPlayerProfileResponse>("grpc_get_player_profile", { token }),
+      setPreferredTheme: (token: string, preferredTheme: string) =>
+        invoke<{ success: boolean; error_message: string }>("grpc_set_preferred_theme", {
+          token,
+          preferred_theme: preferredTheme,
+        }).then((res) => {
+          if (!res.success && res.error_message) {
+            throw new Error(res.error_message);
+          }
+        }),
     }),
     []
   );

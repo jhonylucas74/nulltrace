@@ -17,6 +17,7 @@ pub struct Player {
     pub password_hash: String,
     pub points: i32,
     pub faction_id: Option<Uuid>,
+    pub preferred_theme: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -47,7 +48,7 @@ impl PlayerService {
             r#"
             INSERT INTO players (id, username, password_hash)
             VALUES ($1, $2, $3)
-            RETURNING id, username, password_hash, points, faction_id, created_at, updated_at
+            RETURNING id, username, password_hash, points, faction_id, preferred_theme, created_at, updated_at
             "#,
         )
         .bind(id)
@@ -62,7 +63,7 @@ impl PlayerService {
     pub async fn get_by_username(&self, username: &str) -> Result<Option<Player>, sqlx::Error> {
         let rec = sqlx::query_as::<_, Player>(
             r#"
-            SELECT id, username, password_hash, points, faction_id, created_at, updated_at
+            SELECT id, username, password_hash, points, faction_id, preferred_theme, created_at, updated_at
             FROM players WHERE username = $1
             "#,
         )
@@ -76,7 +77,7 @@ impl PlayerService {
     pub async fn get_by_id(&self, id: Uuid) -> Result<Option<Player>, sqlx::Error> {
         let rec = sqlx::query_as::<_, Player>(
             r#"
-            SELECT id, username, password_hash, points, faction_id, created_at, updated_at
+            SELECT id, username, password_hash, points, faction_id, preferred_theme, created_at, updated_at
             FROM players WHERE id = $1
             "#,
         )
@@ -123,6 +124,25 @@ impl PlayerService {
         .fetch_one(&self.pool)
         .await?;
         Ok(rec.0)
+    }
+
+    /// Set preferred UI theme for a player.
+    pub async fn set_preferred_theme(
+        &self,
+        player_id: Uuid,
+        theme: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE players SET preferred_theme = $2, updated_at = now()
+            WHERE id = $1
+            "#,
+        )
+        .bind(player_id)
+        .bind(theme)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     /// Set faction for a player (None to leave faction).

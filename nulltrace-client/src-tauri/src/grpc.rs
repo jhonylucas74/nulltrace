@@ -11,8 +11,8 @@ use game::{
     CopyPathRequest, CreateFactionRequest, GetDiskUsageRequest, GetHomePathRequest,
     GetPlayerProfileRequest, GetProcessListRequest, GetRankingRequest, GetSysinfoRequest,
     Interrupt, LeaveFactionRequest, ListFsRequest, LoginRequest, MovePathRequest, OpenTerminal,
-    PingRequest, RenamePathRequest, RestoreDiskRequest, StdinData, TerminalClientMessage,
-    TerminalOpened,
+    PingRequest, RenamePathRequest, RestoreDiskRequest, SetPreferredThemeRequest, StdinData,
+    TerminalClientMessage, TerminalOpened,
 };
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -33,6 +33,7 @@ pub struct LoginResponse {
     pub player_id: String,
     pub token: String,
     pub error_message: String,
+    pub preferred_theme: String,
 }
 
 /// Response for grpc_ping command.
@@ -71,6 +72,7 @@ pub async fn grpc_login(username: String, password: String) -> Result<LoginRespo
         player_id: response.player_id,
         token: response.token,
         error_message: response.error_message,
+        preferred_theme: response.preferred_theme,
     })
 }
 
@@ -366,6 +368,7 @@ pub struct GetPlayerProfileCommandResponse {
     pub faction_id: String,
     pub faction_name: String,
     pub error_message: String,
+    pub preferred_theme: String,
 }
 
 /// Tauri command: Get current player profile (rank, points, faction).
@@ -397,6 +400,47 @@ pub async fn grpc_get_player_profile(token: String) -> Result<GetPlayerProfileCo
         points: response.points,
         faction_id: response.faction_id,
         faction_name: response.faction_name,
+        error_message: response.error_message,
+        preferred_theme: response.preferred_theme,
+    })
+}
+
+/// Response for grpc_set_preferred_theme command.
+#[derive(serde::Serialize)]
+pub struct SetPreferredThemeCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Set preferred UI theme (authenticated).
+#[tauri::command]
+pub async fn grpc_set_preferred_theme(
+    token: String,
+    preferred_theme: String,
+) -> Result<SetPreferredThemeCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(SetPreferredThemeRequest { preferred_theme });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .set_preferred_theme(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(SetPreferredThemeCommandResponse {
+        success: response.success,
         error_message: response.error_message,
     })
 }

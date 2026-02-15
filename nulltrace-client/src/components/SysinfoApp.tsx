@@ -40,7 +40,7 @@ export default function SysinfoApp() {
   const { theme } = useTheme();
   const { username, playerId, token } = useAuth();
   const [sysinfo, setSysinfo] = useState<SysinfoData | null>(null);
-  const [sysinfoError, setSysinfoError] = useState<string | null>(null);
+  const [, setSysinfoError] = useState<string | null>(null);
   const [profile, setProfile] = useState<{ rank: number; faction_name: string } | null>(null);
 
   const fetchSysinfo = useCallback(async () => {

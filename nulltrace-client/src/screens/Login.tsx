@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Power } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useGrpc } from "../contexts/GrpcContext";
+import { useTheme, VALID_THEMES } from "../contexts/ThemeContext";
+import type { ThemeId } from "../contexts/ThemeContext";
 import styles from "./Login.module.css";
 
 /** Available users on the OS simulator (selectable cards). Haru only for now. */
@@ -28,6 +30,7 @@ export default function Login() {
   const powerMenuRef = useRef<HTMLDivElement>(null);
   const { login } = useAuth();
   const { login: grpcLogin, ping } = useGrpc();
+  const { setTheme } = useTheme();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -88,6 +91,16 @@ export default function Login() {
         const { parseJwt } = await import("../contexts/AuthContext");
         const claims = parseJwt(res.token);
         login(user, res.player_id, res.token, claims.exp);
+        // Only apply server theme when it's a real saved preference (not default), so we don't
+        // overwrite the user's localStorage choice with "githubdark" after login.
+        const serverTheme = res.preferred_theme?.trim();
+        if (
+          serverTheme &&
+          VALID_THEMES.includes(serverTheme as ThemeId) &&
+          serverTheme !== "githubdark"
+        ) {
+          setTheme(serverTheme as ThemeId);
+        }
         navigate("/desktop", { replace: true });
       } else {
         setError(res.error_message || "Invalid credentials");
