@@ -16,7 +16,7 @@ use game::{
     OpenTerminal, PingRequest, ProcessListSnapshot, ProcessSpyClientMessage, ProcessSpyOpened,
     RenamePathRequest, RestoreDiskRequest, SetPreferredThemeRequest,
     SetShortcutsRequest, StdinData, SubscribePid, TerminalClientMessage, TerminalOpened,
-    UnsubscribePid,
+    UnsubscribePid, WriteFileRequest, EmptyTrashRequest,
 };
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -801,6 +801,92 @@ pub async fn grpc_rename_path(
 
 #[derive(serde::Serialize)]
 pub struct RenamePathCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Write file (creates or overwrites). Empty content creates a new empty file.
+#[tauri::command]
+pub async fn grpc_write_file(
+    player_id: String,
+    path: String,
+    content: String,
+    token: String,
+) -> Result<WriteFileCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(WriteFileRequest {
+        player_id: player_id.clone(),
+        path: path.clone(),
+        content: content.into_bytes(),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .write_file(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(WriteFileCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct WriteFileCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Permanently delete all items in the user's Trash folder.
+#[tauri::command]
+pub async fn grpc_empty_trash(
+    player_id: String,
+    token: String,
+) -> Result<EmptyTrashCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(EmptyTrashRequest {
+        player_id: player_id.clone(),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .empty_trash(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(EmptyTrashCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct EmptyTrashCommandResponse {
     pub success: bool,
     pub error_message: String,
 }

@@ -17,6 +17,8 @@ service GameService {
   rpc CopyPath (CopyPathRequest) returns (CopyPathResponse);
   rpc MovePath (MovePathRequest) returns (MovePathResponse);
   rpc RenamePath (RenamePathRequest) returns (RenamePathResponse);
+  rpc WriteFile (WriteFileRequest) returns (WriteFileResponse);
+  rpc EmptyTrash (EmptyTrashRequest) returns (EmptyTrashResponse);
   rpc GetRanking (GetRankingRequest) returns (GetRankingResponse);
   rpc GetPlayerProfile (GetPlayerProfileRequest) returns (GetPlayerProfileResponse);
   rpc SetPreferredTheme (SetPreferredThemeRequest) returns (SetPreferredThemeResponse);
@@ -264,6 +266,26 @@ message RenamePathRequest {
 }
 
 message RenamePathResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message WriteFileRequest {
+  string player_id = 1;
+  string path = 2;
+  bytes content = 3;
+}
+
+message WriteFileResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message EmptyTrashRequest {
+  string player_id = 1;
+}
+
+message EmptyTrashResponse {
   bool success = 1;
   string error_message = 2;
 }

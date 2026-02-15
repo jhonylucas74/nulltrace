@@ -9,7 +9,8 @@ use game::{
     ProcessSpyServerMessage, RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest,
     RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
     SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, TerminalClientMessage,
-    TerminalServerMessage,
+    TerminalServerMessage, WriteFileRequest, WriteFileResponse,
+    EmptyTrashRequest, EmptyTrashResponse,
 };
 use tonic::{Request, Response, Status, transport::Server};
 use tokio_stream::wrappers::ReceiverStream;
@@ -178,6 +179,26 @@ impl GameService for MyGameService {
         _request: Request<RenamePathRequest>,
     ) -> Result<Response<RenamePathResponse>, Status> {
         Ok(Response::new(RenamePathResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for file operations".to_string(),
+        }))
+    }
+
+    async fn write_file(
+        &self,
+        _request: Request<WriteFileRequest>,
+    ) -> Result<Response<WriteFileResponse>, Status> {
+        Ok(Response::new(WriteFileResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for file operations".to_string(),
+        }))
+    }
+
+    async fn empty_trash(
+        &self,
+        _request: Request<EmptyTrashRequest>,
+    ) -> Result<Response<EmptyTrashResponse>, Status> {
+        Ok(Response::new(EmptyTrashResponse {
             success: false,
             error_message: "Use the unified cluster binary for file operations".to_string(),
         }))

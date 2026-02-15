@@ -111,6 +111,21 @@
   cursor: default;
 }
 
+.emptyTrashBtn {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.emptyTrashBtn:hover {
+  color: var(--accent);
+  background: var(--accent-muted);
+}
+
 .breadcrumb {
   flex: 1;
   min-width: 0;

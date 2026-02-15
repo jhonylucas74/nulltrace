@@ -39,7 +39,8 @@ use game::{
     RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
     SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, StdinChunk, StdinData,
     StdoutData, SubscribePid, TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened,
-    TerminalServerMessage, UnsubscribePid,
+    TerminalServerMessage, UnsubscribePid, WriteFileRequest, WriteFileResponse,
+    EmptyTrashRequest, EmptyTrashResponse,
 };
 
 pub struct ClusterGameService {
@@ -986,6 +987,83 @@ impl GameService for ClusterGameService {
                 error_message: e.to_string(),
             })),
         }
+    }
+
+    async fn write_file(
+        &self,
+        request: Request<WriteFileRequest>,
+    ) -> Result<Response<WriteFileResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let WriteFileRequest { path, content, .. } = request.into_inner();
+
+        let (vm, owner) = vm_and_owner(&self, player_id).await?;
+        if !path_under_home(&path, &owner.1) {
+            return Ok(Response::new(WriteFileResponse {
+                success: false,
+                error_message: "Path must be under home".to_string(),
+            }));
+        }
+
+        match self
+            .fs_service
+            .write_file(vm.id, &path, &content, Some("text/plain"), &owner.1)
+            .await
+        {
+            Ok(_) => Ok(Response::new(WriteFileResponse {
+                success: true,
+                error_message: String::new(),
+            })),
+            Err(e) => Ok(Response::new(WriteFileResponse {
+                success: false,
+                error_message: e.to_string(),
+            })),
+        }
+    }
+
+    async fn empty_trash(
+        &self,
+        request: Request<EmptyTrashRequest>,
+    ) -> Result<Response<EmptyTrashResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let (vm, owner) = vm_and_owner(&self, player_id).await?;
+        let trash_path = owner.1.trim_end_matches('/').to_string() + "/Trash";
+        if !path_under_home(&trash_path, &owner.1) {
+            return Ok(Response::new(EmptyTrashResponse {
+                success: false,
+                error_message: "Trash path must be under home".to_string(),
+            }));
+        }
+
+        let entries = match self.fs_service.ls(vm.id, &trash_path).await {
+            Ok(e) => e,
+            Err(e) => {
+                return Ok(Response::new(EmptyTrashResponse {
+                    success: false,
+                    error_message: e.to_string(),
+                }));
+            }
+        };
+
+        for e in entries {
+            let child_path = format!("{}/{}", trash_path.trim_end_matches('/'), e.name);
+            if let Err(e) = self.fs_service.rm(vm.id, &child_path).await {
+                return Ok(Response::new(EmptyTrashResponse {
+                    success: false,
+                    error_message: e.to_string(),
+                }));
+            }
+        }
+
+        Ok(Response::new(EmptyTrashResponse {
+            success: true,
+            error_message: String::new(),
+        }))
     }
 
     async fn get_ranking(

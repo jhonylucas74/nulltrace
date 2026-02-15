@@ -232,6 +232,7 @@ impl FsService {
         "Desktop",
         "Music",
         "Videos",
+        "Trash",
     ];
 
     /// Create standard home subdirs (Documents, Downloads, Images, etc.) under home_path if they don't exist.

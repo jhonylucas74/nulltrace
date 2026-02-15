@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { Trash2 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useClipboard } from "../contexts/ClipboardContext";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
@@ -59,6 +60,11 @@ export default function Explorer() {
   } | null>(null);
   const [replaceAll, setReplaceAll] = useState(false);
   const replaceAllCheckRef = useRef<HTMLInputElement>(null);
+  const [createFileModal, setCreateFileModal] = useState(false);
+  const [createFileName, setCreateFileName] = useState("");
+  const [createFileLoading, setCreateFileLoading] = useState(false);
+  const [emptyTrashConfirmOpen, setEmptyTrashConfirmOpen] = useState(false);
+  const [emptyTrashLoading, setEmptyTrashLoading] = useState(false);
 
   useEffect(() => {
     listRef.current?.focus();
@@ -133,8 +139,13 @@ export default function Explorer() {
     if (renameModal) setRenameValue(renameModal.currentName);
   }, [renameModal]);
 
+  useEffect(() => {
+    if (createFileModal) setCreateFileName("");
+  }, [createFileModal]);
+
   const parentPath = homePath ? getParentPath(currentPath, homePath) : null;
   const breadcrumb = homePath ? pathToBreadcrumb(currentPath, homePath) : [];
+  const trashPath = homePath ? `${homePath.replace(/\/$/, "")}/Trash` : null;
 
   const places = homePath
     ? [
@@ -142,6 +153,7 @@ export default function Explorer() {
         { label: "Documents", path: `${homePath}/Documents` },
         { label: "Downloads", path: `${homePath}/Downloads` },
         { label: "Images", path: `${homePath}/Images` },
+        ...(trashPath ? [{ label: "Trash", path: trashPath }] : []),
       ]
     : [];
 
@@ -202,6 +214,93 @@ export default function Explorer() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setRenameLoading(false);
+    }
+  }
+
+  async function handleDeleteClick(fullPath: string) {
+    setContextMenu(null);
+    if (!playerId || !token || !tauri || !trashPath) return;
+    setError(null);
+    try {
+      const res = await invoke<{ success: boolean; error_message: string }>(
+        "grpc_move_path",
+        { playerId, srcPath: fullPath, destPath: trashPath, token }
+      );
+      if (!res.success) {
+        if (res.error_message === "UNAUTHENTICATED") {
+          logout();
+          navigate("/login");
+          return;
+        }
+        setError(res.error_message);
+        return;
+      }
+      await fetchEntries();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleEmptyTrashConfirm() {
+    if (!playerId || !token || !tauri) return;
+    setEmptyTrashLoading(true);
+    setError(null);
+    try {
+      const res = await invoke<{ success: boolean; error_message: string }>(
+        "grpc_empty_trash",
+        { playerId, token }
+      );
+      if (!res.success) {
+        if (res.error_message === "UNAUTHENTICATED") {
+          logout();
+          navigate("/login");
+          return;
+        }
+        setError(res.error_message);
+        setEmptyTrashLoading(false);
+        return;
+      }
+      setEmptyTrashConfirmOpen(false);
+      await fetchEntries();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEmptyTrashLoading(false);
+    }
+  }
+
+  async function handleCreateFileSubmit() {
+    if (!playerId || !token || !tauri || !currentPath) return;
+    const trimmed = createFileName.trim();
+    if (!trimmed) return;
+    if (trimmed.includes("/")) {
+      setError("File name cannot contain /");
+      return;
+    }
+    setCreateFileLoading(true);
+    setError(null);
+    const path = currentPath.replace(/\/$/, "") + "/" + trimmed;
+    try {
+      const res = await invoke<{ success: boolean; error_message: string }>(
+        "grpc_write_file",
+        { playerId, path, content: "", token }
+      );
+      if (!res.success) {
+        if (res.error_message === "UNAUTHENTICATED") {
+          logout();
+          navigate("/login");
+          return;
+        }
+        setError(res.error_message);
+        setCreateFileLoading(false);
+        return;
+      }
+      await fetchEntries();
+      setCreateFileModal(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreateFileLoading(false);
     }
   }
 
@@ -382,7 +481,7 @@ export default function Explorer() {
 
   return (
     <div className={styles.app}>
-      <aside className={styles.sidebar}>
+      <aside className={styles.sidebar} onClick={() => setContextMenu(null)}>
         <div className={styles.sidebarSection}>Places</div>
         {places.map(({ label, path }) => (
           <button
@@ -392,14 +491,20 @@ export default function Explorer() {
             onClick={() => handlePlace(path)}
           >
             <span className={styles.placeIcon}>
-              {path === homePath ? <HomeIcon /> : <FolderIcon />}
+              {path === trashPath ? (
+                <Trash2 size={20} />
+              ) : path === homePath ? (
+                <HomeIcon />
+              ) : (
+                <FolderIcon />
+              )}
             </span>
             <span className={styles.placeLabel}>{label}</span>
           </button>
         ))}
       </aside>
       <div className={styles.main}>
-        <div className={styles.toolbar}>
+        <div className={styles.toolbar} onClick={() => setContextMenu(null)}>
           <button
             type="button"
             className={styles.backBtn}
@@ -423,17 +528,26 @@ export default function Explorer() {
               </span>
             ))}
           </div>
+          {currentPath === trashPath && (
+            <button
+              type="button"
+              className={styles.emptyTrashBtn}
+              onClick={() => setEmptyTrashConfirmOpen(true)}
+              title="Empty trash"
+            >
+              Empty trash
+            </button>
+          )}
         </div>
         <div
           ref={listRef}
           className={styles.list}
           tabIndex={0}
+          onClick={() => setContextMenu(null)}
           onKeyDown={handleKeyDown}
           onContextMenu={(e) => {
-            if (hasItems) {
-              e.preventDefault();
-              setContextMenu({ x: e.clientX, y: e.clientY, type: "background" });
-            }
+            e.preventDefault();
+            setContextMenu({ x: e.clientX, y: e.clientY, type: "background" });
           }}
           role="list"
         >
@@ -515,6 +629,42 @@ export default function Explorer() {
         document.body
       )}
 
+      {createPortal(
+        <Modal
+          open={createFileModal}
+          onClose={() => !createFileLoading && setCreateFileModal(false)}
+          title="New file"
+          primaryButton={{
+            label: createFileLoading ? "Creating…" : "Create",
+            onClick: handleCreateFileSubmit,
+            disabled: createFileLoading || !createFileName.trim(),
+          }}
+          secondaryButton={{
+            label: "Cancel",
+            onClick: () => setCreateFileModal(false),
+            disabled: createFileLoading,
+          }}
+        >
+          <label className={styles.renameLabel}>
+            File name
+            <input
+              type="text"
+              className={styles.renameInput}
+              value={createFileName}
+              onChange={(e) => setCreateFileName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateFileSubmit();
+                if (e.key === "Escape") setCreateFileModal(false);
+              }}
+              disabled={createFileLoading}
+              autoFocus
+              placeholder="e.g. notes.txt or script.lua"
+            />
+          </label>
+        </Modal>,
+        document.body
+      )}
+
       {conflict && (
         <Modal
           open
@@ -550,6 +700,29 @@ export default function Explorer() {
           )}
         </Modal>
       )}
+
+      {createPortal(
+        <Modal
+          open={emptyTrashConfirmOpen}
+          onClose={() => !emptyTrashLoading && setEmptyTrashConfirmOpen(false)}
+          title="Empty trash"
+          primaryButton={{
+            label: emptyTrashLoading ? "Emptying…" : "Empty trash",
+            onClick: handleEmptyTrashConfirm,
+            disabled: emptyTrashLoading,
+          }}
+          secondaryButton={{
+            label: "Cancel",
+            onClick: () => setEmptyTrashConfirmOpen(false),
+            disabled: emptyTrashLoading,
+          }}
+        >
+          <p className={styles.conflictMessage}>
+            Permanently delete all items in Trash? This cannot be undone.
+          </p>
+        </Modal>,
+        document.body
+      )}
     </div>
   );
 
@@ -570,14 +743,26 @@ export default function Explorer() {
         });
       }
       items.push({ label: "Rename", onClick: () => handleRenameClick(ctx.entry, ctx.fullPath) });
-    } else if ("type" in ctx && ctx.type === "background" && hasItems) {
+      if (trashPath && ctx.fullPath !== trashPath) {
+        items.push({ label: "Delete", onClick: () => handleDeleteClick(ctx.fullPath) });
+      }
+    } else if ("type" in ctx && ctx.type === "background") {
       items.push({
-        label: "Paste",
+        label: "Create file",
         onClick: () => {
-          const { items: clipItems, operation } = getClipboard();
-          if (clipItems.length > 0) performPaste(clipItems, operation);
+          setContextMenu(null);
+          setCreateFileModal(true);
         },
       });
+      if (hasItems) {
+        items.push({
+          label: "Paste",
+          onClick: () => {
+            const { items: clipItems, operation } = getClipboard();
+            if (clipItems.length > 0) performPaste(clipItems, operation);
+          },
+        });
+      }
     }
     return items;
   }
