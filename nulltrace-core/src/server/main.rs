@@ -11,6 +11,9 @@ use game::{
     SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, TerminalClientMessage,
     TerminalServerMessage, WriteFileRequest, WriteFileResponse,
     EmptyTrashRequest, EmptyTrashResponse,
+    GetInstalledStoreAppsRequest, GetInstalledStoreAppsResponse,
+    InstallStoreAppRequest, InstallStoreAppResponse,
+    UninstallStoreAppRequest, UninstallStoreAppResponse,
 };
 use tonic::{Request, Response, Status, transport::Server};
 use tokio_stream::wrappers::ReceiverStream;
@@ -201,6 +204,36 @@ impl GameService for MyGameService {
         Ok(Response::new(EmptyTrashResponse {
             success: false,
             error_message: "Use the unified cluster binary for file operations".to_string(),
+        }))
+    }
+
+    async fn get_installed_store_apps(
+        &self,
+        _request: Request<GetInstalledStoreAppsRequest>,
+    ) -> Result<Response<GetInstalledStoreAppsResponse>, Status> {
+        Ok(Response::new(GetInstalledStoreAppsResponse {
+            app_types: vec![],
+            error_message: "Use the unified cluster binary for store apps".to_string(),
+        }))
+    }
+
+    async fn install_store_app(
+        &self,
+        _request: Request<InstallStoreAppRequest>,
+    ) -> Result<Response<InstallStoreAppResponse>, Status> {
+        Ok(Response::new(InstallStoreAppResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for store apps".to_string(),
+        }))
+    }
+
+    async fn uninstall_store_app(
+        &self,
+        _request: Request<UninstallStoreAppRequest>,
+    ) -> Result<Response<UninstallStoreAppResponse>, Status> {
+        Ok(Response::new(UninstallStoreAppResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for store apps".to_string(),
         }))
     }
 

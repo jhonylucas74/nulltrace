@@ -41,6 +41,9 @@ use game::{
     StdoutData, SubscribePid, TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened,
     TerminalServerMessage, UnsubscribePid, WriteFileRequest, WriteFileResponse,
     EmptyTrashRequest, EmptyTrashResponse,
+    GetInstalledStoreAppsRequest, GetInstalledStoreAppsResponse,
+    InstallStoreAppRequest, InstallStoreAppResponse,
+    UninstallStoreAppRequest, UninstallStoreAppResponse,
 };
 
 pub struct ClusterGameService {
@@ -234,9 +237,8 @@ impl GameService for ClusterGameService {
             .await
             .map_err(|e| Status::invalid_argument(e.to_string()))?
             .ok_or_else(|| Status::invalid_argument("stream closed before OpenTerminal"))?;
-        let _player_id_str = match first.msg {
-            Some(game::terminal_client_message::Msg::OpenTerminal(OpenTerminal { player_id: _ })) => {
-                // Ignore player_id from message, use authenticated one
+        let _ = match first.msg {
+            Some(game::terminal_client_message::Msg::OpenTerminal(OpenTerminal {})) => {
                 authenticated_player_id.to_string()
             }
             _ => {
@@ -1061,6 +1063,169 @@ impl GameService for ClusterGameService {
         }
 
         Ok(Response::new(EmptyTrashResponse {
+            success: true,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn get_installed_store_apps(
+        &self,
+        request: Request<GetInstalledStoreAppsRequest>,
+    ) -> Result<Response<GetInstalledStoreAppsResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let vm = self
+            .vm_service
+            .get_vm_by_owner_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("No VM found for this player"))?;
+
+        const PATH: &str = "/etc/installed-apps.txt";
+        const ALLOWED: &[&str] = &["sound", "network", "minesweeper", "pixelart", "pspy"];
+        let content = match self.fs_service.read_file(vm.id, PATH).await {
+            Ok(Some((data, _))) => data,
+            Ok(None) | Err(_) => {
+                return Ok(Response::new(GetInstalledStoreAppsResponse {
+                    app_types: vec![],
+                    error_message: String::new(),
+                }));
+            }
+        };
+        let s = match String::from_utf8(content) {
+            Ok(x) => x,
+            Err(_) => {
+                return Ok(Response::new(GetInstalledStoreAppsResponse {
+                    app_types: vec![],
+                    error_message: "File is not valid UTF-8".to_string(),
+                }));
+            }
+        };
+        let allowed: std::collections::HashSet<&str> = ALLOWED.iter().copied().collect();
+        let mut seen = std::collections::HashSet::new();
+        let app_types: Vec<String> = s
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .filter(|l| allowed.contains(&l[..]))
+            .filter(|l| seen.insert(&l[..]))
+            .map(String::from)
+            .collect();
+        Ok(Response::new(GetInstalledStoreAppsResponse {
+            app_types,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn install_store_app(
+        &self,
+        request: Request<InstallStoreAppRequest>,
+    ) -> Result<Response<InstallStoreAppResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let vm = self
+            .vm_service
+            .get_vm_by_owner_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("No VM found for this player"))?;
+
+        const PATH: &str = "/etc/installed-apps.txt";
+        const ALLOWED: &[&str] = &["sound", "network", "minesweeper", "pixelart", "pspy"];
+        let InstallStoreAppRequest { app_type, .. } = request.into_inner();
+        let app_type = app_type.trim();
+        if !ALLOWED.contains(&app_type) {
+            return Ok(Response::new(InstallStoreAppResponse {
+                success: false,
+                error_message: "Invalid app type".to_string(),
+            }));
+        }
+
+        let content = match self.fs_service.read_file(vm.id, PATH).await {
+            Ok(Some((data, _))) => data,
+            Ok(None) | Err(_) => Vec::new(),
+        };
+        let s = String::from_utf8(content).unwrap_or_default();
+        let allowed: std::collections::HashSet<&str> = ALLOWED.iter().copied().collect();
+        let mut lines: Vec<String> = s
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && allowed.contains(&l[..]))
+            .collect();
+        if lines.contains(&app_type.to_string()) {
+            return Ok(Response::new(InstallStoreAppResponse {
+                success: true,
+                error_message: String::new(),
+            }));
+        }
+        lines.push(app_type.to_string());
+        let new_content = lines.join("\n") + "\n";
+        if let Err(e) = self
+            .fs_service
+            .write_file(vm.id, PATH, new_content.as_bytes(), Some("text/plain"), "root")
+            .await
+        {
+            return Ok(Response::new(InstallStoreAppResponse {
+                success: false,
+                error_message: e.to_string(),
+            }));
+        }
+        Ok(Response::new(InstallStoreAppResponse {
+            success: true,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn uninstall_store_app(
+        &self,
+        request: Request<UninstallStoreAppRequest>,
+    ) -> Result<Response<UninstallStoreAppResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let vm = self
+            .vm_service
+            .get_vm_by_owner_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("No VM found for this player"))?;
+
+        const PATH: &str = "/etc/installed-apps.txt";
+        const ALLOWED: &[&str] = &["sound", "network", "minesweeper", "pixelart", "pspy"];
+        let UninstallStoreAppRequest { app_type, .. } = request.into_inner();
+        let app_type = app_type.trim();
+
+        let content = match self.fs_service.read_file(vm.id, PATH).await {
+            Ok(Some((data, _))) => data,
+            Ok(None) | Err(_) => {
+                return Ok(Response::new(UninstallStoreAppResponse {
+                    success: true,
+                    error_message: String::new(),
+                }));
+            }
+        };
+        let s = String::from_utf8(content).unwrap_or_default();
+        let allowed: std::collections::HashSet<&str> = ALLOWED.iter().copied().collect();
+        let lines: Vec<String> = s
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && allowed.contains(&l[..]))
+            .filter(|l| &l[..] != app_type)
+            .collect();
+        let new_content = lines.join("\n") + if lines.is_empty() { "" } else { "\n" };
+        if let Err(e) = self
+            .fs_service
+            .write_file(vm.id, PATH, new_content.as_bytes(), Some("text/plain"), "root")
+            .await
+        {
+            return Ok(Response::new(UninstallStoreAppResponse {
+                success: false,
+                error_message: e.to_string(),
+            }));
+        }
+        Ok(Response::new(UninstallStoreAppResponse {
             success: true,
             error_message: String::new(),
         }))

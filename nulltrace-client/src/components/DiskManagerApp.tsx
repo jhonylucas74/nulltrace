@@ -41,7 +41,7 @@ export default function DiskManagerApp() {
     try {
       const res = await invoke<{ used_bytes: number; total_bytes: number; error_message: string }>(
         "grpc_disk_usage",
-        { playerId, token }
+        { token }
       );
       if (res.error_message) {
         if (res.error_message === "UNAUTHENTICATED") {
@@ -72,7 +72,6 @@ export default function DiskManagerApp() {
     setError(null);
     try {
       const res = await invoke<{ success: boolean; error_message: string }>("grpc_restore_disk", {
-        playerId,
         token,
       });
       if (res.success) {

@@ -1,30 +1,10 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useAuth } from "./AuthContext";
 import type { WindowType } from "./WindowManagerContext";
 
-const STORAGE_KEY = "nulltrace-installed-apps";
-
-/** App types that can be installed from the Store (not already in the launcher). */
-export const INSTALLABLE_STORE_TYPES: WindowType[] = ["sound", "network", "minesweeper"];
-
-function loadInstalled(): WindowType[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return (parsed as string[]).filter((t): t is WindowType =>
-      INSTALLABLE_STORE_TYPES.includes(t as WindowType)
-    );
-  } catch {
-    return [];
-  }
-}
-
-function saveInstalled(types: WindowType[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(types));
-}
+/** App types that can be installed from the Store (store-only; not in LAUNCHABLE_APPS by default). */
+export const INSTALLABLE_STORE_TYPES: WindowType[] = ["sound", "network", "minesweeper", "pixelart", "pspy"];
 
 interface InstalledAppsContextValue {
   installedAppTypes: WindowType[];
@@ -36,20 +16,76 @@ interface InstalledAppsContextValue {
 const InstalledAppsContext = createContext<InstalledAppsContextValue | null>(null);
 
 export function InstalledAppsProvider({ children }: { children: React.ReactNode }) {
-  const [installedAppTypes, setInstalledAppTypes] = useState<WindowType[]>(loadInstalled);
+  const { playerId, token } = useAuth();
+  const [installedAppTypes, setInstalledAppTypes] = useState<WindowType[]>([]);
 
+  // Fetch installed store apps from VM file when authenticated.
   useEffect(() => {
-    saveInstalled(installedAppTypes);
-  }, [installedAppTypes]);
+    if (!playerId || !token) {
+      setInstalledAppTypes([]);
+      return;
+    }
+    let cancelled = false;
+    invoke<{ app_types: string[]; error_message: string }>("grpc_get_installed_store_apps", {
+      token,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        const types = (res.app_types || []).filter((t): t is WindowType =>
+          INSTALLABLE_STORE_TYPES.includes(t as WindowType)
+        );
+        setInstalledAppTypes(types);
+      })
+      .catch(() => {
+        if (!cancelled) setInstalledAppTypes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [playerId, token]);
 
-  const install = useCallback((type: WindowType) => {
-    if (!INSTALLABLE_STORE_TYPES.includes(type)) return;
-    setInstalledAppTypes((prev) => (prev.includes(type) ? prev : [...prev, type]));
-  }, []);
+  const install = useCallback(
+    (type: WindowType) => {
+      if (!INSTALLABLE_STORE_TYPES.includes(type)) return;
+      if (!playerId || !token) return;
+      invoke<{ success: boolean; error_message: string }>("grpc_install_store_app", {
+        appType: type,
+        token,
+      })
+        .then((res) => {
+          if (res.success) {
+            setInstalledAppTypes((prev) => (prev.includes(type) ? prev : [...prev, type]));
+          } else if (res.error_message) {
+            console.error("[InstalledApps] Install failed:", res.error_message);
+          }
+        })
+        .catch((e) => {
+          console.error("[InstalledApps] Install error:", e);
+        });
+    },
+    [playerId, token]
+  );
 
-  const uninstall = useCallback((type: WindowType) => {
-    setInstalledAppTypes((prev) => prev.filter((t) => t !== type));
-  }, []);
+  const uninstall = useCallback(
+    (type: WindowType) => {
+      if (!playerId || !token) return;
+      invoke<{ success: boolean; error_message: string }>("grpc_uninstall_store_app", {
+        appType: type,
+        token,
+      })
+        .then((res) => {
+          if (res.success) {
+            setInstalledAppTypes((prev) => prev.filter((t) => t !== type));
+          } else if (res.error_message) {
+            console.error("[InstalledApps] Uninstall failed:", res.error_message);
+          }
+        })
+        .catch((e) => {
+          console.error("[InstalledApps] Uninstall error:", e);
+        });
+    },
+    [playerId, token]
+  );
 
   const isInstalled = useCallback(
     (type: WindowType) => installedAppTypes.includes(type),

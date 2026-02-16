@@ -133,7 +133,6 @@ export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "theme", label: "Theme", icon: <ThemeIcon /> },
   { type: "email", label: "Mail", icon: <MailIcon /> },
   { type: "wallet", label: "Wallet", icon: <WalletIcon /> },
-  { type: "pixelart", label: "Pixel Art", icon: <PixelArtIcon /> },
   { type: "sysinfo", label: "Nullfetch", icon: <SysinfoIcon /> },
   { type: "shortcuts", label: "Shortcuts", icon: <ShortcutsIcon /> },
   { type: "sysmon", label: "System Monitor", icon: <SysmonIcon /> },
@@ -147,7 +146,6 @@ export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "packet", label: "Packet", icon: <Package size={24} /> },
   { type: "codelab", label: "Codelab", icon: <GraduationCap size={24} /> },
   { type: "diskmanager", label: "Disk Manager", icon: <HardDrive size={24} /> },
-  { type: "pspy", label: "Proc Spy", icon: <Terminal size={24} /> },
 ];
 
 /** Get launchable app entry by type (for dock icon/label). */

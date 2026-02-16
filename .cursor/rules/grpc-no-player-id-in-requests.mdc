@@ -1,0 +1,34 @@
+---
+description: Never send player_id in gRPC request bodies; identity comes only from the JWT on the server
+globs:
+alwaysApply: true
+---
+
+# gRPC: no player_id in request bodies (security)
+
+**Principle:** User identity must come **only from the JWT** on the server. The client must **not** send `player_id` (or any user identifier) in gRPC request bodies.
+
+## Why
+
+- Any authenticated client could send another user's `player_id` and attempt to act on that user's data (e.g. files, installed apps, disk restore).
+- The server already derives identity from the token (`claims.sub`). Sending `player_id` from the client is redundant and dangerous: if any handler (or future code) ever trusted the request's `player_id`, it would be a critical vulnerability.
+
+## Server (proto + handlers)
+
+- **Do:** Derive `player_id` only from `authenticate_request(&request)?` and `claims.sub`. Never use a `player_id` field from the request message for authorization or to decide which user's data to access.
+- **Do not:** Add or reintroduce a `player_id` field in request messages for user-scoped RPCs (e.g. GetDiskUsage, ListFs, InstallStoreApp, TerminalStream open message, etc.). Response messages (e.g. LoginResponse, RankingEntry) may still contain `player_id` when the server is telling the client who they are or listing other entities.
+
+## Client (Tauri commands + frontend)
+
+- **Do:** For authenticated gRPC calls, pass only the **token** (in request metadata) and the other non-identity parameters (e.g. `path`, `app_type`, `src_path`, `dest_path`). Tauri command signatures should not take `player_id` for these RPCs; the backend gets identity from the token.
+- **Do not:** Send `player_id` in the invoke payload or in the proto request body for any user-scoped RPC. Keep `playerId` in auth state (e.g. from Login response) only for local UI (e.g. "not logged in" guards); never send it to the backend in request bodies.
+
+## Summary
+
+| Layer   | Rule |
+|--------|------|
+| Proto  | No `player_id` in request messages for user-scoped RPCs. |
+| Server | Use only `claims.sub` (from JWT) for identity. |
+| Client | Send only `token` (and other args); never send `player_id` in gRPC requests. |
+
+This keeps identity under server control and prevents one user from impersonating another via the API.

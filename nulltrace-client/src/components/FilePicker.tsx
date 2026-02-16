@@ -32,7 +32,7 @@ export default function FilePicker({
   onSelect,
   onCancel,
 }: FilePickerProps) {
-  const { playerId } = useAuth();
+  const { token } = useAuth();
   const [currentPath, setCurrentPath] = useState(initialPath || getHomePath());
   const [homePath, setHomePath] = useState<string | null>(null);
   const [grpcEntries, setGrpcEntries] = useState<FsEntry[]>([]);
@@ -41,29 +41,29 @@ export default function FilePicker({
   const listRef = useRef<HTMLDivElement>(null);
 
   const tauri = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
-  const useGrpc = !!playerId && !!tauri;
+  const useGrpc = !!token && !!tauri;
 
   const fetchHomePath = useCallback(async () => {
-    if (!playerId || !tauri) return;
+    if (!token || !tauri) return;
     try {
       const res = await invoke<{ home_path: string; error_message: string }>(
         "grpc_get_home_path",
-        { playerId }
+        { token }
       );
       if (!res.error_message) setHomePath(res.home_path);
     } catch {
       // Ignore
     }
-  }, [playerId, tauri]);
+  }, [token, tauri]);
 
   const fetchEntries = useCallback(async () => {
-    if (!playerId || !tauri || !currentPath) return;
+    if (!token || !tauri || !currentPath) return;
     setLoading(true);
     setError(null);
     try {
       const res = await invoke<{ entries: FsEntry[]; error_message: string }>(
         "grpc_list_fs",
-        { playerId, path: currentPath }
+        { path: currentPath, token }
       );
       if (res.error_message) {
         setError(res.error_message);
@@ -77,7 +77,7 @@ export default function FilePicker({
     } finally {
       setLoading(false);
     }
-  }, [playerId, currentPath, tauri]);
+  }, [token, currentPath, tauri]);
 
   useEffect(() => {
     if (open) {

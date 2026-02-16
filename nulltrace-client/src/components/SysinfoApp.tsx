@@ -52,7 +52,7 @@ export default function SysinfoApp() {
     try {
       const res = await invoke<{ cpu_cores: number; memory_mb: number; disk_mb: number; error_message: string }>(
         "grpc_sysinfo",
-        { playerId, token }
+        { token }
       );
       if (res.error_message) {
         setSysinfoError(res.error_message);

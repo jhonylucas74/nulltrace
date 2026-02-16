@@ -16,7 +16,8 @@ use game::{
     OpenTerminal, PingRequest, ProcessListSnapshot, ProcessSpyClientMessage, ProcessSpyOpened,
     RenamePathRequest, RestoreDiskRequest, SetPreferredThemeRequest,
     SetShortcutsRequest, StdinData, SubscribePid, TerminalClientMessage, TerminalOpened,
-    UnsubscribePid, WriteFileRequest, EmptyTrashRequest,
+    UnsubscribePid,     WriteFileRequest, EmptyTrashRequest,
+    GetInstalledStoreAppsRequest, InstallStoreAppRequest, UninstallStoreAppRequest,
 };
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -121,16 +122,11 @@ pub struct DiskUsageResponse {
 
 /// Tauri command: Get disk usage for the player's VM.
 #[tauri::command]
-pub async fn grpc_disk_usage(
-    player_id: String,
-    token: String,
-) -> Result<DiskUsageResponse, String> {
+pub async fn grpc_disk_usage(token: String) -> Result<DiskUsageResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
-    let mut request = tonic::Request::new(GetDiskUsageRequest {
-        player_id: player_id.clone(),
-    });
+    let mut request = tonic::Request::new(GetDiskUsageRequest {});
     request.metadata_mut().insert(
         "authorization",
         format!("Bearer {}", token)
@@ -177,10 +173,7 @@ pub struct GetProcessListResponse {
 
 /// Tauri command: Get process list and disk usage for the player's VM (single round-trip for System Monitor).
 #[tauri::command]
-pub async fn grpc_get_process_list(
-    _player_id: String,
-    token: String,
-) -> Result<GetProcessListResponse, String> {
+pub async fn grpc_get_process_list(token: String) -> Result<GetProcessListResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
@@ -235,7 +228,7 @@ pub struct SysinfoResponse {
 
 /// Tauri command: Get VM specs (CPU, RAM total, disk total) for the player's VM.
 #[tauri::command]
-pub async fn grpc_sysinfo(player_id: String, token: String) -> Result<SysinfoResponse, String> {
+pub async fn grpc_sysinfo(token: String) -> Result<SysinfoResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
@@ -274,16 +267,11 @@ pub struct RestoreDiskCommandResponse {
 
 /// Tauri command: Restore disk (wipe and recreate default files) for the player's VM.
 #[tauri::command]
-pub async fn grpc_restore_disk(
-    player_id: String,
-    token: String,
-) -> Result<RestoreDiskCommandResponse, String> {
+pub async fn grpc_restore_disk(token: String) -> Result<RestoreDiskCommandResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
-    let mut request = tonic::Request::new(RestoreDiskRequest {
-        player_id: player_id.clone(),
-    });
+    let mut request = tonic::Request::new(RestoreDiskRequest {});
     request.metadata_mut().insert(
         "authorization",
         format!("Bearer {}", token)
@@ -573,16 +561,11 @@ pub async fn grpc_leave_faction(token: String) -> Result<LeaveFactionCommandResp
 
 /// Tauri command: Get home path for the player's VM.
 #[tauri::command]
-pub async fn grpc_get_home_path(
-    player_id: String,
-    token: String,
-) -> Result<GetHomePathCommandResponse, String> {
+pub async fn grpc_get_home_path(token: String) -> Result<GetHomePathCommandResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
-    let mut request = tonic::Request::new(GetHomePathRequest {
-        player_id: player_id.clone(),
-    });
+    let mut request = tonic::Request::new(GetHomePathRequest {});
     request.metadata_mut().insert(
         "authorization",
         format!("Bearer {}", token)
@@ -614,16 +597,11 @@ pub struct GetHomePathCommandResponse {
 
 /// Tauri command: List files and folders at path.
 #[tauri::command]
-pub async fn grpc_list_fs(
-    player_id: String,
-    path: String,
-    token: String,
-) -> Result<ListFsCommandResponse, String> {
+pub async fn grpc_list_fs(path: String, token: String) -> Result<ListFsCommandResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
     let mut request = tonic::Request::new(ListFsRequest {
-        player_id: player_id.clone(),
         path: path.clone(),
     });
     request.metadata_mut().insert(
@@ -673,7 +651,6 @@ pub struct ListFsEntry {
 /// Tauri command: Copy file or folder.
 #[tauri::command]
 pub async fn grpc_copy_path(
-    player_id: String,
     src_path: String,
     dest_path: String,
     token: String,
@@ -682,7 +659,6 @@ pub async fn grpc_copy_path(
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
     let mut request = tonic::Request::new(CopyPathRequest {
-        player_id: player_id.clone(),
         src_path: src_path.clone(),
         dest_path: dest_path.clone(),
     });
@@ -718,7 +694,6 @@ pub struct CopyPathCommandResponse {
 /// Tauri command: Move file or folder.
 #[tauri::command]
 pub async fn grpc_move_path(
-    player_id: String,
     src_path: String,
     dest_path: String,
     token: String,
@@ -727,7 +702,6 @@ pub async fn grpc_move_path(
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
     let mut request = tonic::Request::new(MovePathRequest {
-        player_id: player_id.clone(),
         src_path: src_path.clone(),
         dest_path: dest_path.clone(),
     });
@@ -763,7 +737,6 @@ pub struct MovePathCommandResponse {
 /// Tauri command: Rename file or folder.
 #[tauri::command]
 pub async fn grpc_rename_path(
-    player_id: String,
     path: String,
     new_name: String,
     token: String,
@@ -772,7 +745,6 @@ pub async fn grpc_rename_path(
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
     let mut request = tonic::Request::new(RenamePathRequest {
-        player_id: player_id.clone(),
         path: path.clone(),
         new_name: new_name.clone(),
     });
@@ -808,7 +780,6 @@ pub struct RenamePathCommandResponse {
 /// Tauri command: Write file (creates or overwrites). Empty content creates a new empty file.
 #[tauri::command]
 pub async fn grpc_write_file(
-    player_id: String,
     path: String,
     content: String,
     token: String,
@@ -817,7 +788,6 @@ pub async fn grpc_write_file(
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
     let mut request = tonic::Request::new(WriteFileRequest {
-        player_id: player_id.clone(),
         path: path.clone(),
         content: content.into_bytes(),
     });
@@ -852,16 +822,11 @@ pub struct WriteFileCommandResponse {
 
 /// Tauri command: Permanently delete all items in the user's Trash folder.
 #[tauri::command]
-pub async fn grpc_empty_trash(
-    player_id: String,
-    token: String,
-) -> Result<EmptyTrashCommandResponse, String> {
+pub async fn grpc_empty_trash(token: String) -> Result<EmptyTrashCommandResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
-    let mut request = tonic::Request::new(EmptyTrashRequest {
-        player_id: player_id.clone(),
-    });
+    let mut request = tonic::Request::new(EmptyTrashRequest {});
     request.metadata_mut().insert(
         "authorization",
         format!("Bearer {}", token)
@@ -891,6 +856,118 @@ pub struct EmptyTrashCommandResponse {
     pub error_message: String,
 }
 
+/// Response for grpc_get_installed_store_apps command.
+#[derive(serde::Serialize)]
+pub struct GetInstalledStoreAppsCommandResponse {
+    pub app_types: Vec<String>,
+    pub error_message: String,
+}
+
+/// Tauri command: Get list of installed store apps from the VM file.
+#[tauri::command]
+pub async fn grpc_get_installed_store_apps(
+    token: String,
+) -> Result<GetInstalledStoreAppsCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(GetInstalledStoreAppsRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .get_installed_store_apps(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(GetInstalledStoreAppsCommandResponse {
+        app_types: response.app_types,
+        error_message: response.error_message,
+    })
+}
+
+/// Response for grpc_install_store_app / grpc_uninstall_store_app commands.
+#[derive(serde::Serialize)]
+pub struct InstallUninstallStoreAppCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Install a store app (append to VM file).
+#[tauri::command]
+pub async fn grpc_install_store_app(
+    app_type: String,
+    token: String,
+) -> Result<InstallUninstallStoreAppCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(InstallStoreAppRequest { app_type });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .install_store_app(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(InstallUninstallStoreAppCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+/// Tauri command: Uninstall a store app (remove from VM file).
+#[tauri::command]
+pub async fn grpc_uninstall_store_app(
+    app_type: String,
+    token: String,
+) -> Result<InstallUninstallStoreAppCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(UninstallStoreAppRequest { app_type });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .uninstall_store_app(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(InstallUninstallStoreAppCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
 /// Input that can be sent to the terminal stream: stdin data or interrupt (Ctrl+C).
 pub enum TerminalInput {
     Stdin(String),
@@ -909,7 +986,6 @@ pub fn new_terminal_sessions() -> TerminalSessionsState {
 /// Tauri command: Open terminal stream for the given player. Returns session_id. Emits "terminal-output" events with { sessionId, type: 'stdout'|'closed'|'error', data? }.
 #[tauri::command]
 pub async fn terminal_connect(
-    player_id: String,
     token: String,
     app: tauri::AppHandle,
     sessions: tauri::State<'_, TerminalSessionsState>,
@@ -920,9 +996,7 @@ pub async fn terminal_connect(
     let (client_tx, client_rx) = mpsc::channel(32);
     let _ = client_tx
         .send(TerminalClientMessage {
-            msg: Some(TerminalClientMsg::OpenTerminal(OpenTerminal {
-                player_id: player_id.clone(),
-            })),
+            msg: Some(TerminalClientMsg::OpenTerminal(OpenTerminal {})),
         })
         .await
         .map_err(|e| e.to_string())?;

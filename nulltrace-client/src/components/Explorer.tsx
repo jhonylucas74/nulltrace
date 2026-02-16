@@ -77,7 +77,7 @@ export default function Explorer() {
     try {
       const res = await invoke<{ home_path: string; error_message: string }>(
         "grpc_get_home_path",
-        { playerId, token }
+        { token }
       );
       if (res.error_message) {
         if (res.error_message === "UNAUTHENTICATED") {
@@ -102,7 +102,7 @@ export default function Explorer() {
     try {
       const res = await invoke<{ entries: FsEntry[]; error_message: string }>(
         "grpc_list_fs",
-        { playerId, path: currentPath, token }
+        { path: currentPath, token }
       );
       if (res.error_message) {
         if (res.error_message === "UNAUTHENTICATED") {
@@ -196,7 +196,7 @@ export default function Explorer() {
     try {
       const res = await invoke<{ success: boolean; error_message: string }>(
         "grpc_rename_path",
-        { playerId, path: renameModal.path, newName: trimmed, token }
+        { path: renameModal.path, newName: trimmed, token }
       );
       if (!res.success) {
         if (res.error_message === "UNAUTHENTICATED") {
@@ -224,7 +224,7 @@ export default function Explorer() {
     try {
       const res = await invoke<{ success: boolean; error_message: string }>(
         "grpc_move_path",
-        { playerId, srcPath: fullPath, destPath: trashPath, token }
+        { srcPath: fullPath, destPath: trashPath, token }
       );
       if (!res.success) {
         if (res.error_message === "UNAUTHENTICATED") {
@@ -248,7 +248,7 @@ export default function Explorer() {
     try {
       const res = await invoke<{ success: boolean; error_message: string }>(
         "grpc_empty_trash",
-        { playerId, token }
+        { token }
       );
       if (!res.success) {
         if (res.error_message === "UNAUTHENTICATED") {
@@ -283,7 +283,7 @@ export default function Explorer() {
     try {
       const res = await invoke<{ success: boolean; error_message: string }>(
         "grpc_write_file",
-        { playerId, path, content: "", token }
+        { path, content: "", token }
       );
       if (!res.success) {
         if (res.error_message === "UNAUTHENTICATED") {
@@ -363,7 +363,7 @@ export default function Explorer() {
           const destPath = `${destFolder}/${basename}`;
           const res = await invoke<{ success: boolean; error_message: string }>(
             "grpc_copy_path",
-            { playerId, srcPath: item.path, destPath, token }
+            { srcPath: item.path, destPath, token }
           );
           if (!res.success) {
             if (res.error_message === "UNAUTHENTICATED") {
@@ -376,7 +376,7 @@ export default function Explorer() {
         } else {
           const res = await invoke<{ success: boolean; error_message: string }>(
             "grpc_move_path",
-            { playerId, srcPath: item.path, destPath: destFolder, token }
+            { srcPath: item.path, destPath: destFolder, token }
           );
           if (!res.success) {
             if (res.error_message === "UNAUTHENTICATED") {

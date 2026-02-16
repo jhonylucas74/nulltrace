@@ -19,6 +19,9 @@ service GameService {
   rpc RenamePath (RenamePathRequest) returns (RenamePathResponse);
   rpc WriteFile (WriteFileRequest) returns (WriteFileResponse);
   rpc EmptyTrash (EmptyTrashRequest) returns (EmptyTrashResponse);
+  rpc GetInstalledStoreApps (GetInstalledStoreAppsRequest) returns (GetInstalledStoreAppsResponse);
+  rpc InstallStoreApp (InstallStoreAppRequest) returns (InstallStoreAppResponse);
+  rpc UninstallStoreApp (UninstallStoreAppRequest) returns (UninstallStoreAppResponse);
   rpc GetRanking (GetRankingRequest) returns (GetRankingResponse);
   rpc GetPlayerProfile (GetPlayerProfileRequest) returns (GetPlayerProfileResponse);
   rpc SetPreferredTheme (SetPreferredThemeRequest) returns (SetPreferredThemeResponse);
@@ -75,9 +78,7 @@ message TerminalClientMessage {
 
 message Interrupt {}
 
-message OpenTerminal {
-  string player_id = 1;
-}
+message OpenTerminal {}
 
 message StdinData {
   bytes data = 1;
@@ -166,9 +167,7 @@ message ProcessSpyError {
   string message = 1;
 }
 
-message GetDiskUsageRequest {
-  string player_id = 1;
-}
+message GetDiskUsageRequest {}
 
 message GetDiskUsageResponse {
   int64 used_bytes = 1;
@@ -203,18 +202,14 @@ message GetSysinfoResponse {
   string error_message = 4;
 }
 
-message RestoreDiskRequest {
-  string player_id = 1;
-}
+message RestoreDiskRequest {}
 
 message RestoreDiskResponse {
   bool success = 1;
   string error_message = 2;
 }
 
-message GetHomePathRequest {
-  string player_id = 1;
-}
+message GetHomePathRequest {}
 
 message GetHomePathResponse {
   string home_path = 1;
@@ -222,7 +217,6 @@ message GetHomePathResponse {
 }
 
 message ListFsRequest {
-  string player_id = 1;
   string path = 2;
 }
 
@@ -238,7 +232,6 @@ message FsEntry {
 }
 
 message CopyPathRequest {
-  string player_id = 1;
   string src_path = 2;
   string dest_path = 3;
 }
@@ -249,7 +242,6 @@ message CopyPathResponse {
 }
 
 message MovePathRequest {
-  string player_id = 1;
   string src_path = 2;
   string dest_path = 3;
 }
@@ -260,7 +252,6 @@ message MovePathResponse {
 }
 
 message RenamePathRequest {
-  string player_id = 1;
   string path = 2;
   string new_name = 3;
 }
@@ -271,7 +262,6 @@ message RenamePathResponse {
 }
 
 message WriteFileRequest {
-  string player_id = 1;
   string path = 2;
   bytes content = 3;
 }
@@ -281,11 +271,34 @@ message WriteFileResponse {
   string error_message = 2;
 }
 
-message EmptyTrashRequest {
-  string player_id = 1;
-}
+message EmptyTrashRequest {}
 
 message EmptyTrashResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message GetInstalledStoreAppsRequest {}
+
+message GetInstalledStoreAppsResponse {
+  repeated string app_types = 1;
+  string error_message = 2;
+}
+
+message InstallStoreAppRequest {
+  string app_type = 1;
+}
+
+message InstallStoreAppResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message UninstallStoreAppRequest {
+  string app_type = 1;
+}
+
+message UninstallStoreAppResponse {
   bool success = 1;
   string error_message = 2;
 }

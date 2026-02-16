@@ -184,7 +184,7 @@ export default function SystemMonitorApp() {
         disk_total_bytes: number;
         vm_lua_memory_bytes?: number;
         error_message: string;
-      }>("grpc_get_process_list", { playerId, token });
+      }>("grpc_get_process_list", { token });
       if (res.error_message === "UNAUTHENTICATED") {
         logout();
         return;
@@ -211,7 +211,7 @@ export default function SystemMonitorApp() {
     try {
       const res = await invoke<{ cpu_cores: number; memory_mb: number; disk_mb: number; error_message: string }>(
         "grpc_sysinfo",
-        { playerId, token }
+        { token }
       );
       if (!res.error_message) {
         setSysinfoMemoryMb(res.memory_mb);

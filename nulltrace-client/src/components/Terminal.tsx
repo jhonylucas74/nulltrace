@@ -295,7 +295,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
     const runConnect = async () => {
       if (generation !== connectGenerationRef.current) return;
       try {
-        const sid = await invoke<string>("terminal_connect", { playerId, token });
+        const sid = await invoke<string>("terminal_connect", { token });
         if (generation !== connectGenerationRef.current) {
           invoke("terminal_disconnect", { sessionId: sid }).catch(() => {});
           return;

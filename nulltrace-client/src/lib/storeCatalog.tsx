@@ -1,5 +1,5 @@
 import React from "react";
-import { Volume2, Wifi, Grid3X3 } from "lucide-react";
+import { Volume2, Wifi, Grid3X3, Palette, Terminal } from "lucide-react";
 import type { WindowType } from "../contexts/WindowManagerContext";
 import { LAUNCHABLE_APPS, getAppByType } from "./appList";
 
@@ -64,6 +64,18 @@ export const STORE_CATALOG: StoreEntry[] = [
     name: "Minesweeper",
     description: "Classic minesweeper game.",
     icon: <Grid3X3 size={24} />,
+  },
+  {
+    type: "pixelart",
+    name: "Pixel Art",
+    description: "Create and edit pixel art.",
+    icon: <Palette size={24} />,
+  },
+  {
+    type: "pspy",
+    name: "Proc Spy",
+    description: "Spy on VM processes: view and inject stdin and stdout in real time.",
+    icon: <Terminal size={24} />,
   },
 ];
 

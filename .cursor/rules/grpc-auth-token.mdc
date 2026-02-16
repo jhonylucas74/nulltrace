@@ -15,7 +15,7 @@ On **gRPC routes**, always verify that the user is authenticated and that the to
   - **Ping** – health/liveness check; no token.
   - **Login** – user is not yet authenticated.
   - **RefreshToken** – uses token in the request body for renewal, not metadata.
-- **Do not:** Add new gRPC RPCs that access player/VM/data without calling `authenticate_request` first. Do not rely on client-sent player_id or user id without validating the JWT.
+- **Do not:** Add new gRPC RPCs that access player/VM/data without calling `authenticate_request` first. Do not rely on client-sent player_id or user id without validating the JWT. See also the rule **grpc-no-player-id-in-requests**: identity must come only from the token; request messages must not include player_id.
 
 ## Client (gRPC client calls)
 
