@@ -18,6 +18,7 @@ service GameService {
   rpc MovePath (MovePathRequest) returns (MovePathResponse);
   rpc RenamePath (RenamePathRequest) returns (RenamePathResponse);
   rpc WriteFile (WriteFileRequest) returns (WriteFileResponse);
+  rpc ReadFile (ReadFileRequest) returns (ReadFileResponse);
   rpc EmptyTrash (EmptyTrashRequest) returns (EmptyTrashResponse);
   rpc GetInstalledStoreApps (GetInstalledStoreAppsRequest) returns (GetInstalledStoreAppsResponse);
   rpc InstallStoreApp (InstallStoreAppRequest) returns (InstallStoreAppResponse);
@@ -73,12 +74,17 @@ message TerminalClientMessage {
     OpenTerminal open_terminal = 1;
     StdinData stdin = 2;
     Interrupt interrupt = 3;
+    OpenCodeRun open_code_run = 4;
   }
 }
 
 message Interrupt {}
 
 message OpenTerminal {}
+
+message OpenCodeRun {
+  string path = 1;
+}
 
 message StdinData {
   bytes data = 1;
@@ -114,7 +120,17 @@ message ProcessSpyClientMessage {
     SubscribePid subscribe_pid = 2;
     UnsubscribePid unsubscribe_pid = 3;
     InjectStdin inject_stdin = 4;
+    SpawnLuaScript spawn_lua_script = 5;
+    KillProcess kill_process = 6;
   }
+}
+
+message SpawnLuaScript {
+  string path = 1;
+}
+
+message KillProcess {
+  uint64 pid = 1;
 }
 
 message OpenProcessSpy {}
@@ -140,7 +156,12 @@ message ProcessSpyServerMessage {
     StdinChunk stdin_chunk = 4;
     ProcessGone process_gone = 5;
     ProcessSpyError process_spy_error = 6;
+    LuaScriptSpawned lua_script_spawned = 7;
   }
+}
+
+message LuaScriptSpawned {
+  uint64 pid = 1;
 }
 
 message ProcessSpyOpened {}
@@ -269,6 +290,16 @@ message WriteFileRequest {
 message WriteFileResponse {
   bool success = 1;
   string error_message = 2;
+}
+
+message ReadFileRequest {
+  string path = 1;
+}
+
+message ReadFileResponse {
+  bool success = 1;
+  string error_message = 2;
+  bytes content = 3;
 }
 
 message EmptyTrashRequest {}

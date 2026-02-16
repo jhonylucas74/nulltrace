@@ -38,6 +38,8 @@ pub struct TerminalSession {
 /// Shared hub: pending open requests, active sessions, pending kills when a session ends, and pending interrupts (Ctrl+C).
 pub struct TerminalHubInner {
     pub pending_opens: Vec<(Uuid, oneshot::Sender<Result<SessionReady, String>>)>,
+    /// Code Run: (player_id, script path, response channel). Game loop spawns lua path and creates session like terminal.
+    pub pending_code_runs: Vec<(Uuid, String, oneshot::Sender<Result<SessionReady, String>>)>,
     pub sessions: HashMap<Uuid, TerminalSession>,
     /// (vm_id, pid) to kill when the game loop runs (session closed); applied via kill_process_and_descendants.
     pub pending_kills: Vec<(Uuid, u64)>,
@@ -51,6 +53,7 @@ impl TerminalHubInner {
     pub fn new() -> Self {
         Self {
             pending_opens: Vec::new(),
+            pending_code_runs: Vec::new(),
             sessions: HashMap::new(),
             pending_kills: Vec::new(),
             pending_interrupts: Vec::new(),

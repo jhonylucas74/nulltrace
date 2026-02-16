@@ -12,13 +12,14 @@ use game::terminal_server_message::Msg as TerminalServerMsg;
 use game::{
     CopyPathRequest, CreateFactionRequest, GetDiskUsageRequest, GetHomePathRequest,
     GetPlayerProfileRequest, GetProcessListRequest, GetRankingRequest, GetSysinfoRequest,
-    InjectStdin, Interrupt, LeaveFactionRequest, ListFsRequest, LoginRequest, MovePathRequest,
-    OpenTerminal, PingRequest, ProcessListSnapshot, ProcessSpyClientMessage, ProcessSpyOpened,
-    RenamePathRequest, RestoreDiskRequest, SetPreferredThemeRequest,
-    SetShortcutsRequest, StdinData, SubscribePid, TerminalClientMessage, TerminalOpened,
-    UnsubscribePid,     WriteFileRequest, EmptyTrashRequest,
+    InjectStdin, Interrupt, KillProcess, LeaveFactionRequest, ListFsRequest, LoginRequest,
+    MovePathRequest, OpenCodeRun, OpenTerminal, PingRequest, ProcessListSnapshot, ProcessSpyClientMessage,
+    ProcessSpyOpened, RenamePathRequest, RestoreDiskRequest, SetPreferredThemeRequest,
+    SetShortcutsRequest, SpawnLuaScript, StdinData, SubscribePid, TerminalClientMessage,
+    TerminalOpened, UnsubscribePid, WriteFileRequest, ReadFileRequest, EmptyTrashRequest,
     GetInstalledStoreAppsRequest, InstallStoreAppRequest, UninstallStoreAppRequest,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tauri::Emitter;
@@ -820,6 +821,46 @@ pub struct WriteFileCommandResponse {
     pub error_message: String,
 }
 
+/// Tauri command: Read file content from the VM. Returns UTF-8 string content.
+#[tauri::command]
+pub async fn grpc_read_file(path: String, token: String) -> Result<ReadFileCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(ReadFileRequest { path: path.clone() });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .read_file(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+
+    let content = String::from_utf8_lossy(&response.content).into_owned();
+    Ok(ReadFileCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+        content,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct ReadFileCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+    pub content: String,
+}
+
 /// Tauri command: Permanently delete all items in the user's Trash folder.
 #[tauri::command]
 pub async fn grpc_empty_trash(token: String) -> Result<EmptyTrashCommandResponse, String> {
@@ -1105,6 +1146,129 @@ pub async fn terminal_connect(
     Ok(session_id)
 }
 
+/// Tauri command: Open a Code Run session (run Lua script at path). Uses same TerminalStream; returns session_id. Emits "terminal-output" like terminal_connect. Use terminal_send_stdin/terminal_disconnect for stdin and stop.
+#[tauri::command]
+pub async fn code_run_connect(
+    token: String,
+    path: String,
+    app: tauri::AppHandle,
+    sessions: tauri::State<'_, TerminalSessionsState>,
+) -> Result<String, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let (client_tx, client_rx) = mpsc::channel(32);
+    let _ = client_tx
+        .send(TerminalClientMessage {
+            msg: Some(TerminalClientMsg::OpenCodeRun(OpenCodeRun { path })),
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let stream = ReceiverStream::new(client_rx);
+    let mut request = tonic::Request::new(stream);
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .terminal_stream(request)
+        .await
+        .map_err(|e| {
+            if e.to_string().contains("Unauthenticated") || e.to_string().contains("UNAUTHENTICATED") {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?;
+    let mut server_rx = response.into_inner();
+
+    let first = server_rx
+        .next()
+        .await
+        .ok_or("stream closed before TerminalOpened")?
+        .map_err(|e| e.to_string())?;
+    let session_id = match first.msg {
+        Some(TerminalServerMsg::TerminalOpened(TerminalOpened { session_id })) => session_id,
+        Some(TerminalServerMsg::TerminalError(e)) => return Err(e.message),
+        _ => return Err("expected TerminalOpened".to_string()),
+    };
+
+    let (stdin_tx, stdin_rx) = mpsc::channel(32);
+    sessions.lock().unwrap().insert(session_id.clone(), stdin_tx);
+
+    let app_emit = app.clone();
+    let session_id_task = session_id.clone();
+    tokio::spawn(async move {
+        let mut server_rx = server_rx;
+        let mut stdin_rx = stdin_rx;
+        let client_tx = client_tx;
+
+        loop {
+            tokio::select! {
+                msg = server_rx.next() => {
+                    match msg {
+                        Some(Ok(m)) => {
+                            let payload: Result<serde_json::Value, String> = match m.msg {
+                                Some(TerminalServerMsg::Stdout(s)) => Ok(serde_json::json!({
+                                    "sessionId": session_id_task,
+                                    "type": "stdout",
+                                    "data": String::from_utf8_lossy(&s.data),
+                                })),
+                                Some(TerminalServerMsg::TerminalClosed(_)) => {
+                                    let _ = app_emit.emit("terminal-output", serde_json::json!({
+                                        "sessionId": session_id_task,
+                                        "type": "closed",
+                                    }));
+                                    break;
+                                }
+                                Some(TerminalServerMsg::TerminalError(e)) => {
+                                    let _ = app_emit.emit("terminal-output", serde_json::json!({
+                                        "sessionId": session_id_task,
+                                        "type": "error",
+                                        "data": e.message,
+                                    }));
+                                    break;
+                                }
+                                _ => continue,
+                            };
+                            if let Ok(p) = payload {
+                                let _ = app_emit.emit("terminal-output", p);
+                            }
+                        }
+                        Some(Err(_)) | None => break,
+                    }
+                }
+                stdin_msg = stdin_rx.recv() => {
+                    match stdin_msg {
+                        Some(TerminalInput::Stdin(line)) => {
+                            let _ = client_tx
+                                .send(TerminalClientMessage {
+                                    msg: Some(TerminalClientMsg::Stdin(StdinData {
+                                        data: line.into_bytes(),
+                                    })),
+                                })
+                                .await;
+                        }
+                        Some(TerminalInput::Interrupt) => {
+                            let _ = client_tx
+                                .send(TerminalClientMessage {
+                                    msg: Some(TerminalClientMsg::Interrupt(Interrupt {})),
+                                })
+                                .await;
+                        }
+                        None => break,
+                    }
+                }
+            }
+        }
+    });
+
+    Ok(session_id)
+}
+
 /// Tauri command: Send a line to the terminal session (shell stdin).
 #[tauri::command]
 pub async fn terminal_send_stdin(
@@ -1156,34 +1320,31 @@ pub enum ProcessSpyCommand {
     Subscribe(u64),
     Unsubscribe(u64),
     Stdin(u64, String),
+    SpawnLuaScript(String),
+    KillProcess(u64),
 }
 
-/// Shared state: single active process spy connection (connection_id, sender for commands).
+/// Shared state: multiple process spy connections (connection_id -> command sender).
+/// Each connection (Code Run, Proc Spy app, etc.) has its own stream and connection_id.
 pub struct ProcessSpyState {
-    pub connection_id: Option<String>,
-    pub tx: Option<mpsc::Sender<ProcessSpyCommand>>,
+    /// connection_id -> sender for commands to that stream task
+    pub connections: HashMap<String, mpsc::Sender<ProcessSpyCommand>>,
 }
 
 pub fn new_process_spy_state() -> Arc<Mutex<ProcessSpyState>> {
     Arc::new(Mutex::new(ProcessSpyState {
-        connection_id: None,
-        tx: None,
+        connections: HashMap::new(),
     }))
 }
 
 /// Tauri command: Open Process Spy stream. Returns connection_id. Emits process-spy-opened, process-spy-process-list, process-spy-stdout, process-spy-stdin, process-spy-process-gone, process-spy-error, process-spy-closed.
+/// Multiple connections are allowed (e.g. Code app Run and Proc Spy app can both be connected).
 #[tauri::command]
 pub async fn process_spy_connect(
     token: String,
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<Mutex<ProcessSpyState>>>,
 ) -> Result<String, String> {
-    {
-        let s = state.lock().unwrap();
-        if s.connection_id.is_some() {
-            return Err("Process Spy already connected".to_string());
-        }
-    }
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
@@ -1229,10 +1390,10 @@ pub async fn process_spy_connect(
     let connection_id = uuid::Uuid::new_v4().to_string();
     let (cmd_tx, mut cmd_rx) = mpsc::channel(32);
     let state_clone = state.inner().clone();
+    let connection_id_clone = connection_id.clone();
     {
         let mut s = state.lock().unwrap();
-        s.connection_id = Some(connection_id.clone());
-        s.tx = Some(cmd_tx);
+        s.connections.insert(connection_id.clone(), cmd_tx);
     }
 
     let app_emit = app.clone();
@@ -1260,6 +1421,7 @@ pub async fn process_spy_connect(
                                 }
                                 Some(ProcessSpyServerMsg::ProcessSpyStdout(s)) => {
                                     let _ = app_emit.emit("process-spy-stdout", serde_json::json!({
+                                        "connectionId": connection_id_clone,
                                         "pid": s.pid,
                                         "data": String::from_utf8_lossy(&s.data),
                                     }));
@@ -1271,7 +1433,16 @@ pub async fn process_spy_connect(
                                     }));
                                 }
                                 Some(ProcessSpyServerMsg::ProcessGone(p)) => {
-                                    let _ = app_emit.emit("process-spy-process-gone", serde_json::json!({ "pid": p.pid }));
+                                    let _ = app_emit.emit("process-spy-process-gone", serde_json::json!({
+                                        "connectionId": connection_id_clone,
+                                        "pid": p.pid,
+                                    }));
+                                }
+                                Some(ProcessSpyServerMsg::LuaScriptSpawned(s)) => {
+                                    let _ = app_emit.emit("process-spy-lua-script-spawned", serde_json::json!({
+                                        "connectionId": connection_id_clone,
+                                        "pid": s.pid,
+                                    }));
                                 }
                                 Some(ProcessSpyServerMsg::ProcessSpyError(e)) => {
                                     let _ = app_emit.emit("process-spy-error", serde_json::json!({ "message": e.message }));
@@ -1312,15 +1483,28 @@ pub async fn process_spy_connect(
                                 })
                                 .await;
                         }
+                        Some(ProcessSpyCommand::SpawnLuaScript(path)) => {
+                            let _ = client_tx
+                                .send(ProcessSpyClientMessage {
+                                    msg: Some(ProcessSpyClientMsg::SpawnLuaScript(SpawnLuaScript { path })),
+                                })
+                                .await;
+                        }
+                        Some(ProcessSpyCommand::KillProcess(pid)) => {
+                            let _ = client_tx
+                                .send(ProcessSpyClientMessage {
+                                    msg: Some(ProcessSpyClientMsg::KillProcess(KillProcess { pid })),
+                                })
+                                .await;
+                        }
                         None => break,
                     }
                 }
             }
         }
         let mut s = state_clone.lock().unwrap();
-        s.connection_id = None;
-        s.tx = None;
-        let _ = app_emit.emit("process-spy-closed", ());
+        s.connections.remove(&connection_id_clone);
+        let _ = app_emit.emit("process-spy-closed", serde_json::json!({ "connectionId": connection_id_clone }));
     });
 
     let _ = app.emit("process-spy-opened", serde_json::json!({ "connectionId": connection_id }));
@@ -1336,12 +1520,9 @@ pub async fn process_spy_subscribe(
 ) -> Result<(), String> {
     let tx = {
         let s = state.lock().unwrap();
-        if s.connection_id.as_deref() != Some(connection_id.as_str()) {
-            return Err("Process Spy not connected or connection id mismatch".to_string());
-        }
-        s.tx.clone()
+        s.connections.get(&connection_id).cloned()
     };
-    let tx = tx.ok_or("Process Spy not connected".to_string())?;
+    let tx = tx.ok_or("Process Spy not connected or connection id mismatch".to_string())?;
     tx.send(ProcessSpyCommand::Subscribe(pid))
         .await
         .map_err(|e| e.to_string())
@@ -1356,12 +1537,9 @@ pub async fn process_spy_unsubscribe(
 ) -> Result<(), String> {
     let tx = {
         let s = state.lock().unwrap();
-        if s.connection_id.as_deref() != Some(connection_id.as_str()) {
-            return Err("Process Spy not connected or connection id mismatch".to_string());
-        }
-        s.tx.clone()
+        s.connections.get(&connection_id).cloned()
     };
-    let tx = tx.ok_or("Process Spy not connected".to_string())?;
+    let tx = tx.ok_or("Process Spy not connected or connection id mismatch".to_string())?;
     tx.send(ProcessSpyCommand::Unsubscribe(pid))
         .await
         .map_err(|e| e.to_string())
@@ -1377,26 +1555,55 @@ pub async fn process_spy_stdin(
 ) -> Result<(), String> {
     let tx = {
         let s = state.lock().unwrap();
-        if s.connection_id.as_deref() != Some(connection_id.as_str()) {
-            return Err("Process Spy not connected or connection id mismatch".to_string());
-        }
-        s.tx.clone()
+        s.connections.get(&connection_id).cloned()
     };
-    let tx = tx.ok_or("Process Spy not connected".to_string())?;
+    let tx = tx.ok_or("Process Spy not connected or connection id mismatch".to_string())?;
     tx.send(ProcessSpyCommand::Stdin(pid, data))
         .await
         .map_err(|e| e.to_string())
 }
 
-/// Tauri command: Disconnect Process Spy stream.
+/// Tauri command: Spawn a Lua script in the VM (for Code app Run). Returns immediately; listen for process-spy-lua-script-spawned to get pid.
+#[tauri::command]
+pub async fn process_spy_spawn_lua_script(
+    connection_id: String,
+    path: String,
+    state: tauri::State<'_, Arc<Mutex<ProcessSpyState>>>,
+) -> Result<(), String> {
+    let tx = {
+        let s = state.lock().unwrap();
+        s.connections.get(&connection_id).cloned()
+    };
+    let tx = tx.ok_or("Process Spy not connected or connection id mismatch".to_string())?;
+    tx.send(ProcessSpyCommand::SpawnLuaScript(path))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Tauri command: Kill a process in the VM (for Code app Stop).
+#[tauri::command]
+pub async fn process_spy_kill_process(
+    connection_id: String,
+    pid: u64,
+    state: tauri::State<'_, Arc<Mutex<ProcessSpyState>>>,
+) -> Result<(), String> {
+    let tx = {
+        let s = state.lock().unwrap();
+        s.connections.get(&connection_id).cloned()
+    };
+    let tx = tx.ok_or("Process Spy not connected or connection id mismatch".to_string())?;
+    tx.send(ProcessSpyCommand::KillProcess(pid))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Tauri command: Disconnect Process Spy stream. Dropping the sender makes the stream task exit and remove the connection.
 #[tauri::command]
 pub fn process_spy_disconnect(
     connection_id: String,
     state: tauri::State<'_, Arc<Mutex<ProcessSpyState>>>,
 ) {
     let mut s = state.lock().unwrap();
-    if s.connection_id.as_deref() == Some(connection_id.as_str()) {
-        s.connection_id = None;
-        s.tx = None;
-    }
+    s.connections.remove(&connection_id);
+    // Dropping the sender makes the stream task's cmd_rx.recv() return None and the task exits
 }

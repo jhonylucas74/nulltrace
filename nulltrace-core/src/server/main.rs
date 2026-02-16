@@ -10,6 +10,7 @@ use game::{
     RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
     SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, TerminalClientMessage,
     TerminalServerMessage, WriteFileRequest, WriteFileResponse,
+    ReadFileRequest, ReadFileResponse,
     EmptyTrashRequest, EmptyTrashResponse,
     GetInstalledStoreAppsRequest, GetInstalledStoreAppsResponse,
     InstallStoreAppRequest, InstallStoreAppResponse,
@@ -194,6 +195,17 @@ impl GameService for MyGameService {
         Ok(Response::new(WriteFileResponse {
             success: false,
             error_message: "Use the unified cluster binary for file operations".to_string(),
+        }))
+    }
+
+    async fn read_file(
+        &self,
+        _request: Request<ReadFileRequest>,
+    ) -> Result<Response<ReadFileResponse>, Status> {
+        Ok(Response::new(ReadFileResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for file operations".to_string(),
+            content: vec![],
         }))
     }
 

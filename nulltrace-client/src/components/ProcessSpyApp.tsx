@@ -105,10 +105,16 @@ export default function ProcessSpyApp() {
       });
       unlistens.push(u5);
 
-      const u6 = await listen("process-spy-closed", () => {
-        if (!cancelled) {
-          setConnectionId(null);
-          setError("Disconnected.");
+      const u6 = await listen<{ connectionId?: string }>("process-spy-closed", (event) => {
+        const closedId = event.payload?.connectionId;
+        if (!cancelled && closedId !== undefined) {
+          setConnectionId((current) => {
+            if (current === closedId) {
+              setError("Disconnected.");
+              return null;
+            }
+            return current;
+          });
         }
       });
       unlistens.push(u6);

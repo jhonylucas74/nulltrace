@@ -7,8 +7,14 @@ import type { FilePickerMode } from "../contexts/FilePickerContext";
 import styles from "./FilePicker.module.css";
 
 function joinPath(base: string, name: string): string {
-  const b = base.replace(/\/$/, "");
+  const b = base.replace(/\/+/g, "/").replace(/\/$/, "");
   return b ? `${b}/${name}` : `/${name}`;
+}
+
+/** Normalize path: single slashes, no trailing slash, leading slash. */
+function normalizePath(p: string): string {
+  const s = p.replace(/\/+/g, "/").trim().replace(/\/$/, "") || "";
+  return s.startsWith("/") ? s : s ? `/${s}` : "/";
 }
 
 export interface FilePickerProps {
@@ -81,7 +87,7 @@ export default function FilePicker({
 
   useEffect(() => {
     if (open) {
-      setCurrentPath(initialPath || getHomePath());
+      setCurrentPath(normalizePath(initialPath || getHomePath()));
       if (useGrpc) {
         fetchHomePath();
       }
@@ -90,7 +96,7 @@ export default function FilePicker({
 
   useEffect(() => {
     if (open && useGrpc && homePath) {
-      setCurrentPath((p) => (p === getHomePath() ? homePath : p));
+      setCurrentPath((p) => (p === getHomePath() || normalizePath(p) === normalizePath(homePath) ? normalizePath(homePath) : p));
     }
   }, [open, useGrpc, homePath]);
 
@@ -102,13 +108,14 @@ export default function FilePicker({
 
   const parentPath = useGrpc && homePath
     ? (() => {
-        const norm = currentPath.replace(/\/+/g, "/").replace(/\/$/, "");
-        const homeNorm = homePath.replace(/\/+/g, "/").replace(/\/$/, "");
+        const norm = currentPath.replace(/\/+/g, "/").replace(/\/$/, "").replace(/^\//, "") || "";
+        const homeNorm = homePath.replace(/\/+/g, "/").replace(/\/$/, "").replace(/^\//, "") || "";
         if (!norm || norm === homeNorm) return null;
-        if (!norm.startsWith(homeNorm + "/")) return null;
+        if (!homeNorm && !norm) return null;
+        if (homeNorm && !norm.startsWith(homeNorm + "/")) return null;
         const parts = norm.split("/");
         parts.pop();
-        return parts.length === 0 ? "/" : "/" + parts.join("/");
+        return parts.length === 0 ? (homePath ? normalizePath(homePath) : "/") : "/" + parts.join("/");
       })()
     : getParentPath(currentPath);
 
@@ -122,7 +129,7 @@ export default function FilePicker({
   function handleSelectNode(node: FileSystemNode) {
     const path = joinPath(currentPath, node.name);
     if (node.type === "folder") {
-      setCurrentPath(path);
+      setCurrentPath(normalizePath(path));
       return;
     }
     if (node.type === "file" && mode === "file") {
@@ -139,18 +146,18 @@ export default function FilePicker({
   function handleDoubleClick(node: FileSystemNode) {
     const path = joinPath(currentPath, node.name);
     if (node.type === "folder") {
-      setCurrentPath(path);
+      setCurrentPath(normalizePath(path));
     } else if (node.type === "file" && mode === "file") {
       onSelect(path);
     }
   }
 
   function handleGoUp() {
-    if (parentPath !== null) setCurrentPath(parentPath);
+    if (parentPath !== null) setCurrentPath(normalizePath(parentPath));
   }
 
   function handleBreadcrumbRoot() {
-    setCurrentPath(useGrpc && homePath ? homePath : "/");
+    setCurrentPath(useGrpc && homePath ? normalizePath(homePath) : "/");
   }
 
   if (!open) return null;
@@ -197,7 +204,7 @@ export default function FilePicker({
                   <button
                     type="button"
                     className={styles.breadcrumbItem}
-                    onClick={() => setCurrentPath(path)}
+                    onClick={() => setCurrentPath(normalizePath(path))}
                   >
                     {segment}
                   </button>

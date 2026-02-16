@@ -90,11 +90,13 @@ pub fn run() {
             grpc::grpc_move_path,
             grpc::grpc_rename_path,
             grpc::grpc_write_file,
+            grpc::grpc_read_file,
             grpc::grpc_empty_trash,
             grpc::grpc_get_installed_store_apps,
             grpc::grpc_install_store_app,
             grpc::grpc_uninstall_store_app,
             grpc::terminal_connect,
+            grpc::code_run_connect,
             grpc::terminal_send_stdin,
             grpc::terminal_send_interrupt,
             grpc::terminal_disconnect,
@@ -102,6 +104,8 @@ pub fn run() {
             grpc::process_spy_subscribe,
             grpc::process_spy_unsubscribe,
             grpc::process_spy_stdin,
+            grpc::process_spy_spawn_lua_script,
+            grpc::process_spy_kill_process,
             grpc::process_spy_disconnect,
         ])
         .setup(|_app| Ok(()))

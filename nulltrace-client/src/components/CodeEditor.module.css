@@ -140,6 +140,34 @@
   overflow: hidden;
 }
 
+/* Header showing the open project root when a folder is selected */
+.sidebarProjectHeader {
+  flex-shrink: 0;
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.sidebarProjectLabel {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.sidebarProjectPath {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+}
+
 .sidebarHint {
   padding: 1rem 0.75rem;
   font-size: 0.85rem;
@@ -317,6 +345,29 @@
   opacity: 0.9;
 }
 
+.runBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.stopBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--term-red, #e74c3c);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.stopBtn:hover {
+  opacity: 0.95;
+}
+
 .editorBarPath {
   flex: 1;
   min-width: 0;
@@ -330,6 +381,13 @@
   color: var(--term-green);
   margin-left: auto;
   animation: fadeOut 1.2s ease-out forwards;
+}
+
+.editorBarError {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--term-red, #e74c3c);
+  margin-left: 0.5rem;
 }
 
 @keyframes fadeOut {
@@ -480,6 +538,9 @@
   padding: 0.5rem 0.75rem;
   white-space: pre-wrap;
   word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .consoleEmpty {

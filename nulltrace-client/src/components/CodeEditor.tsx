@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Play } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { Play, Square } from "lucide-react";
 import {
   getChildren,
   getHomePath,
@@ -7,10 +9,18 @@ import {
   getFileContent,
   setFileContent,
 } from "../lib/fileSystem";
+import { useAuth } from "../contexts/AuthContext";
 import { useFilePicker } from "../contexts/FilePickerContext";
 import { highlightLua, isLuaFile } from "../lib/luaHighlight";
+import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import Modal from "./Modal";
 import styles from "./CodeEditor.module.css";
+
+interface FsEntry {
+  name: string;
+  node_type: string;
+  size_bytes: number;
+}
 
 const LINE_HEIGHT = 1.5;
 const EDITOR_FONT_SIZE = "0.9rem";
@@ -42,7 +52,26 @@ export default function CodeEditor() {
   const [consoleInputValue, setConsoleInputValue] = useState("");
   const consoleEndRef = useRef<HTMLDivElement | null>(null);
   const pendingTabSelectionRef = useRef<number | null>(null);
+  const { token } = useAuth();
   const { openFilePicker } = useFilePicker();
+  const tauri = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+  const useGrpc = !!token && !!tauri;
+
+  /** VM tree cache: path -> list of entries (when useGrpc). */
+  const [treeCache, setTreeCache] = useState<Record<string, FsEntry[]>>({});
+  const [treeCacheLoading, setTreeCacheLoading] = useState(false);
+  const [loadFileError, setLoadFileError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  /** When set, New File modal uses this as parent (e.g. from sidebar context "New file here"). */
+  const [newFileParentOverride, setNewFileParentOverride] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; folderPath: string } | null>(null);
+  /** Code Run session (VM): terminal stream session_id from code_run_connect. Stop uses terminal_disconnect. */
+  const [runSessionId, setRunSessionId] = useState<string | null>(null);
+  const runSessionIdRef = useRef<string | null>(null);
+  /** Accumulates stdout for the current run so we show one console entry even when backend sends multiple chunks. */
+  const runStdoutBufferRef = useRef("");
+  /** Single unlisten for terminal-output so cleanup always removes the listener (effect cleanup runs before async listen() completes in Strict Mode). */
+  const terminalOutputUnlistenRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -63,21 +92,96 @@ export default function CodeEditor() {
     );
   }, []);
 
+  /** Fetch list_fs for rootPath and expanded folders; update tree cache. */
+  const fetchTreeCache = useCallback(async () => {
+    if (!token || !tauri || !rootPath) return;
+    setTreeCacheLoading(true);
+    const pathsToFetch = [rootPath, ...expandedFolders.filter((p) => p !== rootPath)];
+    const next: Record<string, FsEntry[]> = {};
+    try {
+      for (const p of pathsToFetch) {
+        const res = await invoke<{ entries: FsEntry[]; error_message: string }>(
+          "grpc_list_fs",
+          { path: p, token }
+        );
+        if (!res.error_message) next[p] = res.entries;
+      }
+      setTreeCache((prev) => ({ ...prev, ...next }));
+    } finally {
+      setTreeCacheLoading(false);
+    }
+  }, [token, tauri, rootPath, expandedFolders]);
+
+  useEffect(() => {
+    if (useGrpc && rootPath) {
+      fetchTreeCache();
+    } else {
+      setTreeCache({});
+    }
+  }, [useGrpc, rootPath, fetchTreeCache]);
+
+  /** Children for a path: from VM cache (when useGrpc) or in-memory fileSystem. */
+  function getChildrenForPath(path: string): { name: string; type: "folder" | "file" }[] {
+    if (useGrpc && rootPath) {
+      const entries = treeCache[path] ?? [];
+      return entries.map((e) => ({
+        name: e.name,
+        type: (e.node_type === "directory" ? "folder" : "file") as "folder" | "file",
+      })).sort((a, b) => (a.type !== b.type ? (a.type === "folder" ? -1 : 1) : a.name.localeCompare(b.name)));
+    }
+    return getChildren(path);
+  }
+
+  /** Load file content when active file changes (VM: grpc_read_file; else in-memory). */
   useEffect(() => {
     if (activeFilePath === null) {
       setEditorContent("");
+      setLoadFileError(null);
+      return;
+    }
+    if (useGrpc && token && tauri) {
+      setEditorContent("");
+      setLoadFileError(null);
+      invoke<{ success: boolean; error_message: string; content: string }>("grpc_read_file", {
+        path: activeFilePath,
+        token,
+      })
+        .then((res) => {
+          if (res.success) setEditorContent(res.content);
+          else setLoadFileError(res.error_message || "Failed to read file");
+        })
+        .catch((e) => setLoadFileError(e instanceof Error ? e.message : String(e)));
       return;
     }
     setEditorContent(getFileContent(activeFilePath));
-  }, [activeFilePath]);
+  }, [activeFilePath, useGrpc, token, tauri]);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     if (!activeFilePath) return;
+    if (useGrpc && token && tauri) {
+      setSaveError(null);
+      try {
+        const res = await invoke<{ success: boolean; error_message: string }>("grpc_write_file", {
+          path: activeFilePath,
+          content: editorContent,
+          token,
+        });
+        if (res.success) {
+          setSaveFeedback(true);
+          setTimeout(() => setSaveFeedback(false), 1200);
+        } else {
+          setSaveError(res.error_message || "Failed to save");
+        }
+      } catch (e) {
+        setSaveError(e instanceof Error ? e.message : String(e));
+      }
+      return;
+    }
     setFileContent(activeFilePath, editorContent);
     setSaveFeedback(true);
     const t = setTimeout(() => setSaveFeedback(false), 1200);
     return () => clearTimeout(t);
-  }, [activeFilePath, editorContent]);
+  }, [activeFilePath, editorContent, useGrpc, token, tauri]);
 
   function handleOpenFolder(path: string) {
     setRootPath(path);
@@ -96,55 +200,80 @@ export default function CodeEditor() {
 
   function openNewFileModal() {
     setFileMenuOpen(false);
+    setNewFileParentOverride(null);
     setNewFileName("");
     setNewFileError("");
     setNewFileModalOpen(true);
   }
 
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key === "n") {
-        e.preventDefault();
-        openNewFileModal();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        handleSave();
-      }
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handleSave]);
+  function openNewFileModalInFolder(folderPath: string) {
+    setContextMenu(null);
+    setNewFileParentOverride(folderPath);
+    setNewFileName("");
+    setNewFileError("");
+    setNewFileModalOpen(true);
+  }
 
-  function handleNewFileCreate() {
+  async function handleNewFileCreate() {
     const name = newFileName.trim();
     if (!name) {
       setNewFileError("Enter a file name.");
       return;
     }
-    const parent = rootPath ?? getHomePath();
-    if (!rootPath) {
+    const parent = newFileParentOverride ?? rootPath ?? getHomePath();
+    if (!rootPath && !newFileParentOverride) {
       setRootPath(parent);
       setExpandedFolders((prev) => [...prev, parent]);
     }
+    const newPath = joinPath(parent, name);
+
+    if (useGrpc && token && tauri) {
+      setNewFileError("");
+      try {
+        const res = await invoke<{ success: boolean; error_message: string }>("grpc_write_file", {
+          path: newPath,
+          content: "",
+          token,
+        });
+        if (!res.success) {
+          setNewFileError(res.error_message || "Failed to create file");
+          return;
+        }
+        setTreeCache((prev) => {
+          const list = prev[parent] ?? [];
+          if (list.some((e) => e.name === name)) return prev;
+          return { ...prev, [parent]: [...list, { name, node_type: "file", size_bytes: 0 }] };
+        });
+        setActiveFilePath(newPath);
+        setEditorContent("");
+        setNewFileModalOpen(false);
+        setNewFileName("");
+        setNewFileError("");
+        setNewFileParentOverride(null);
+      } catch (e) {
+        setNewFileError(e instanceof Error ? e.message : String(e));
+      }
+      return;
+    }
+
     const created = createFile(parent, name);
     if (!created) {
       setNewFileError("A file or folder with that name already exists.");
       return;
     }
-    const newPath = joinPath(parent, name);
     setActiveFilePath(newPath);
     setEditorContent("");
     setFileContent(newPath, "");
     setNewFileModalOpen(false);
     setNewFileName("");
     setNewFileError("");
+    setNewFileParentOverride(null);
   }
 
   function handleEditorChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const value = e.target.value;
     setEditorContent(value);
-    if (activeFilePath) setFileContent(activeFilePath, value);
+    if (activeFilePath && !useGrpc) setFileContent(activeFilePath, value);
   }
 
   /** Insert tab at cursor; prevent default so focus does not leave the textarea. */
@@ -161,8 +290,63 @@ export default function CodeEditor() {
     const nextContent = before + tab + after;
     pendingTabSelectionRef.current = start + tab.length;
     setEditorContent(nextContent);
-    if (activeFilePath) setFileContent(activeFilePath, nextContent);
+    if (activeFilePath && !useGrpc) setFileContent(activeFilePath, nextContent);
   }
+
+  useEffect(() => {
+    runSessionIdRef.current = runSessionId;
+  }, [runSessionId]);
+
+  useEffect(() => {
+    return () => {
+      const sid = runSessionIdRef.current;
+      if (sid && tauri) invoke("terminal_disconnect", { sessionId: sid }).catch(() => {});
+    };
+  }, [tauri]);
+
+  /** Terminal-output events for Code Run (session from code_run_connect). Same event as Terminal app. */
+  useEffect(() => {
+    if (!tauri) return;
+    terminalOutputUnlistenRef.current?.();
+    terminalOutputUnlistenRef.current = null;
+    (async () => {
+      try {
+        const u = await listen<{ sessionId?: string; type: string; data?: string }>("terminal-output", (event) => {
+          const sid = runSessionIdRef.current;
+          if (event.payload?.sessionId !== sid) return;
+          const type_ = event.payload?.type ?? "";
+          if (type_ === "stdout") {
+            const data = event.payload?.data ?? "";
+            runStdoutBufferRef.current += data;
+            const accumulated = runStdoutBufferRef.current;
+            setConsoleLogs((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.type === "stdout") {
+                return [...prev.slice(0, -1), { type: "stdout" as const, text: accumulated }];
+              }
+              return [...prev, { type: "stdout", text: accumulated }];
+            });
+          } else if (type_ === "closed") {
+            runStdoutBufferRef.current = "";
+            setRunSessionId(null);
+            setConsoleLogs((prev) => [...prev, { type: "system", text: "Done." }]);
+          } else if (type_ === "error") {
+            runStdoutBufferRef.current = "";
+            setRunSessionId(null);
+            setConsoleLogs((prev) => [...prev, { type: "system", text: `Error: ${event.payload?.data ?? "unknown"}` }]);
+          }
+        });
+        terminalOutputUnlistenRef.current?.();
+        terminalOutputUnlistenRef.current = u;
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      terminalOutputUnlistenRef.current?.();
+      terminalOutputUnlistenRef.current = null;
+    };
+  }, [tauri]);
 
   useEffect(() => {
     if (pendingTabSelectionRef.current === null) return;
@@ -183,32 +367,66 @@ export default function CodeEditor() {
 
   const lineCount = Math.max(1, editorContent.split("\n").length);
 
-  /** Simulate script run: capture print() output and io.read() requests for console. */
-  const runScript = useCallback(() => {
+  /** Run script: VM (code_run_connect + terminal stream) when useGrpc, else simulate print/io.read for console. Saves the file automatically before running. Clears the console on each run. */
+  const runScript = useCallback(async () => {
     if (!activeFilePath) return;
+    setConsoleLogs([]);
+    runStdoutBufferRef.current = "";
     const name = activeFilePath.split("/").pop() ?? activeFilePath;
+
+    if (useGrpc && token && tauri) {
+      await handleSave();
+      setConsoleLogs((prev) => [...prev, { type: "system", text: `> Running ${name}...` }]);
+      try {
+        const sessionId = await invoke<string>("code_run_connect", { token, path: activeFilePath });
+        setRunSessionId(sessionId);
+      } catch (e) {
+        setConsoleLogs((prev) => [...prev, { type: "system", text: `Run failed: ${e instanceof Error ? e.message : String(e)}` }]);
+      }
+      return;
+    }
+
     setConsoleLogs((prev) => [...prev, { type: "system", text: `> Running ${name}...` }]);
     const content = editorContent;
-
-    // Simple extraction of print("...") or print('...') (single-line strings only)
     const printDouble = /print\s*\(\s*"((?:[^"\\]|\\.)*)"\s*\)/g;
     const printSingle = /print\s*\(\s*'((?:[^'\\]|\\.)*)'\s*\)/g;
     let m: RegExpExecArray | null;
     const printed: string[] = [];
     while ((m = printDouble.exec(content)) !== null) printed.push(m[1].replace(/\\n/g, "\n").replace(/\\t/g, "\t"));
     while ((m = printSingle.exec(content)) !== null) printed.push(m[1].replace(/\\n/g, "\n").replace(/\\t/g, "\t"));
-
     printed.forEach((line) =>
       setConsoleLogs((prev) => [...prev, { type: "stdout", text: line }])
     );
-
     const hasRead = /\bio\s*\.\s*read\s*\(/.test(content) || /\bio\.read\s*\(/.test(content);
-    if (hasRead) {
-      setConsoleInputPending(true);
-    } else {
-      setConsoleLogs((prev) => [...prev, { type: "system", text: "Done." }]);
+    if (hasRead) setConsoleInputPending(true);
+    else setConsoleLogs((prev) => [...prev, { type: "system", text: "Done." }]);
+  }, [activeFilePath, editorContent, useGrpc, token, tauri, handleSave]);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "n") {
+        e.preventDefault();
+        openNewFileModal();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        handleSave();
+      }
+      if (e.key === "F5") {
+        e.preventDefault();
+        runScript();
+      }
     }
-  }, [activeFilePath, editorContent]);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleSave, runScript]);
+
+  const stopRun = useCallback(() => {
+    const sid = runSessionId;
+    if (!sid || !tauri) return;
+    invoke("terminal_disconnect", { sessionId: sid }).catch(() => {});
+    setRunSessionId(null);
+  }, [runSessionId, tauri]);
 
   useEffect(() => {
     consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -216,14 +434,23 @@ export default function CodeEditor() {
 
   const submitConsoleInput = useCallback(() => {
     const value = consoleInputValue.trim();
+    const line = value || "";
+    if (runSessionId && tauri) {
+      const toSend = line.endsWith("\n") ? line : line + "\n";
+      invoke("terminal_send_stdin", { sessionId: runSessionId, data: toSend }).catch(() => {});
+      setConsoleLogs((prev) => [...prev, { type: "stdout", text: line || "(empty input)" }]);
+      setConsoleInputValue("");
+      setConsoleInputPending(false);
+      return;
+    }
     setConsoleLogs((prev) => [...prev, { type: "stdout", text: value || "(empty input)" }]);
     setConsoleInputValue("");
     setConsoleInputPending(false);
     setConsoleLogs((prev) => [...prev, { type: "system", text: "Done." }]);
-  }, [consoleInputValue]);
+  }, [consoleInputValue, runSessionId, tauri]);
 
   function renderTree(path: string, depth: number): React.ReactNode {
-    const children = getChildren(path);
+    const children = getChildrenForPath(path);
     if (children.length === 0) return null;
     return (
       <>
@@ -238,6 +465,11 @@ export default function CodeEditor() {
                   className={styles.treeRow}
                   style={{ paddingLeft: `${0.75 + depth * 0.75}rem` }}
                   onClick={() => toggleExpanded(nodePath)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setContextMenu({ x: e.clientX, y: e.clientY, folderPath: nodePath });
+                  }}
                   data-type="folder"
                 >
                   <span className={styles.treeChevron}>{isExpanded ? "▼" : "▶"}</span>
@@ -370,7 +602,13 @@ export default function CodeEditor() {
       </div>
 
       <div className={styles.body}>
-        <aside className={styles.sidebar}>
+        <aside className={styles.sidebar} onClick={() => setContextMenu(null)}>
+          {rootPath !== null && (
+            <div className={styles.sidebarProjectHeader} title={rootPath}>
+              <span className={styles.sidebarProjectLabel}>Project</span>
+              <span className={styles.sidebarProjectPath}>{rootPath}</span>
+            </div>
+          )}
           <div className={styles.tree}>
             {rootPath !== null ? (
               renderTree(rootPath, 0)
@@ -379,6 +617,19 @@ export default function CodeEditor() {
             )}
           </div>
         </aside>
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            items={[
+              {
+                label: "New file here",
+                onClick: () => openNewFileModalInFolder(contextMenu.folderPath),
+              },
+            ]}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
 
         <div className={styles.editorArea}>
           {showWelcome ? (
@@ -405,15 +656,38 @@ export default function CodeEditor() {
                 <button
                   type="button"
                   className={styles.runBtn}
-                  onClick={runScript}
+                  onClick={() => runScript()}
                   title="Run script"
                   aria-label="Run script"
+                  disabled={!!runSessionId}
                 >
                   <Play size={14} />
                   Run
                 </button>
+                {runSessionId !== null && (
+                  <button
+                    type="button"
+                    className={styles.stopBtn}
+                    onClick={stopRun}
+                    title="Stop script"
+                    aria-label="Stop script"
+                  >
+                    <Square size={14} />
+                    Stop
+                  </button>
+                )}
                 <span className={styles.editorBarPath}>{activeFilePath}</span>
                 {saveFeedback && <span className={styles.savedBadge}>Saved</span>}
+                {loadFileError && (
+                  <span className={styles.editorBarError} title={loadFileError}>
+                    Load error
+                  </span>
+                )}
+                {saveError && (
+                  <span className={styles.editorBarError} title={saveError}>
+                    Save error
+                  </span>
+                )}
               </div>
               <div className={styles.editorAndConsole}>
                 <div className={styles.editorWithGutter}>
@@ -521,6 +795,12 @@ export default function CodeEditor() {
             onChange={(e) => {
               setNewFileName(e.target.value);
               setNewFileError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleNewFileCreate();
+              }
             }}
             placeholder="e.g. script.luau"
             autoFocus

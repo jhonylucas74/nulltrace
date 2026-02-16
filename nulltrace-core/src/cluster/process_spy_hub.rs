@@ -16,6 +16,8 @@ pub enum ProcessSpyDownstreamMsg {
     Stdout(u64, String),
     StdinChunk(u64, String),
     ProcessGone(u64),
+    /// Sent after spawning a Lua script via SpawnLuaScript; client subscribes to this pid.
+    LuaScriptSpawned(u64),
     Error(String),
 }
 
@@ -41,9 +43,23 @@ pub struct ProcessSpyConnection {
     pub sent_initial_list: bool,
 }
 
-/// Shared hub: connection_id -> connection state.
+/// Pending "spawn lua script" request: (connection_id, vm_id, path).
+pub type PendingLuaSpawn = (Uuid, Uuid, String);
+/// Pending kill: (vm_id, pid).
+pub type PendingKill = (Uuid, u64);
+
+/// Max number of (vm_id, pid) stdout buffers to keep for late subscribers (e.g. Proc Spy opening a just-exited process).
+const MAX_RECENTLY_FINISHED_STDOUT: usize = 20;
+
+/// Shared hub: connection_id -> connection state, pending spawn/kill from client, and recently finished stdout for late subscribers.
 pub struct ProcessSpyHubInner {
     pub connections: HashMap<Uuid, ProcessSpyConnection>,
+    /// Spawn lua script requests; game loop drains and spawns, then sends LuaScriptSpawned(pid).
+    pub pending_lua_spawns: Vec<PendingLuaSpawn>,
+    /// Kill process requests; game loop drains and calls kill_process_and_descendants.
+    pub pending_kills: Vec<PendingKill>,
+    /// Stdout of recently finished processes so late subscribers (e.g. Proc Spy) can receive it. Capped to MAX_RECENTLY_FINISHED_STDOUT.
+    pub recently_finished_stdout: HashMap<(Uuid, u64), String>,
 }
 
 pub type ProcessSpyHub = Mutex<ProcessSpyHubInner>;
@@ -52,7 +68,20 @@ impl ProcessSpyHubInner {
     pub fn new() -> Self {
         Self {
             connections: HashMap::new(),
+            pending_lua_spawns: Vec::new(),
+            pending_kills: Vec::new(),
+            recently_finished_stdout: HashMap::new(),
         }
+    }
+
+    /// Insert stdout for a finished (vm_id, pid). Evicts oldest entry if at capacity.
+    pub fn insert_recently_finished_stdout(&mut self, vm_id: Uuid, pid: u64, stdout: String) {
+        if self.recently_finished_stdout.len() >= MAX_RECENTLY_FINISHED_STDOUT {
+            if let Some(key) = self.recently_finished_stdout.keys().next().copied() {
+                self.recently_finished_stdout.remove(&key);
+            }
+        }
+        self.recently_finished_stdout.insert((vm_id, pid), stdout);
     }
 }
 

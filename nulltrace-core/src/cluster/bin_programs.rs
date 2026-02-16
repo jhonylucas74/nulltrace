@@ -12,13 +12,23 @@ io.write(table.concat(out, " ") .. "\n")
 "#;
 
 /// Cat: reads each file path from args and writes content to stdout.
+/// Prints an error message when the path is not found or is a directory.
 pub const CAT: &str = r#"
 local args = os.get_args()
 for i = 1, #args do
     local path = args[i]
-    local content = fs.read(path)
-    if content then
-        io.write(content)
+    local st = fs.stat(path)
+    if not st then
+        io.write("<red>cat: " .. path .. ": No such file or directory</red>\n")
+    elseif st.type == "directory" then
+        io.write("<red>cat: " .. path .. ": Is a directory</red>\n")
+    else
+        local content = fs.read(path)
+        if content then
+            io.write(content)
+        else
+            io.write("<red>cat: " .. path .. ": Cannot read file</red>\n")
+        end
     end
 end
 "#;
@@ -230,7 +240,7 @@ while true do
           end
         else
           local spawn_args = args
-          if prog == "ls" or prog == "touch" or prog == "cat" or prog == "rm" then
+          if prog == "ls" or prog == "touch" or prog == "cat" or prog == "rm" or prog == "lua" then
             spawn_args = {}
             if prog == "ls" and #args < 1 then
               spawn_args[1] = cwd
@@ -252,6 +262,39 @@ while true do
     end
   end
 end
+"#;
+
+/// Lua: runs a Lua file. Args: path [ -d ]. -help/--help prints usage; -d runs script as daemon (child process, no stdout/stdin relay).
+/// Usage: lua script.lua  |  lua script.lua -d  |  lua -help
+pub const LUA: &str = r#"
+local args = os.get_args()
+if not args or #args < 1 then
+  io.write("lua: usage: lua <file> [ -d ]\n")
+  io.write("  -d  run as daemon (no stdout/stdin relay)\n")
+  return
+end
+if args[1] == "-help" or args[1] == "--help" or args[1] == "-d" then
+  io.write("lua: usage: lua <file> [ -d ]\n")
+  io.write("  -d  run as daemon (no stdout/stdin relay)\n")
+  return
+end
+if #args >= 2 and args[#args] == "-d" then
+  local path = args[1]
+  os.spawn_path(path, {}, { forward_stdout = false })
+  return
+end
+local path = args[1]
+local content = fs.read(path)
+if not content then
+  io.write("lua: cannot read file: " .. path .. "\n")
+  return
+end
+local fn, err = load(content, "=" .. path, "t")
+if not fn then
+  io.write("lua: " .. tostring(err) .. "\n")
+  return
+end
+fn()
 "#;
 
 /// Echo stdin: reads one line from stdin and writes "got:" .. line (for shell forward-stdin tests).
@@ -340,6 +383,7 @@ pub const DEFAULT_BIN_PROGRAMS: &[(&str, &str)] = &[
     ("echo", ECHO),
     ("echo_stdin", ECHO_STDIN),
     ("ls", LS),
+    ("lua", LUA),
     ("mem_stress", MEM_STRESS),
     ("rm", RM),
     ("sh", SH),

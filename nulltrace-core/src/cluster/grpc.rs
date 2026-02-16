@@ -33,13 +33,15 @@ use game::{
     GetRankingRequest, GetRankingResponse, GetSysinfoRequest, GetSysinfoResponse, HelloRequest,
     HelloResponse, LeaveFactionRequest, LeaveFactionResponse, ListFsRequest, ListFsResponse,
     InjectStdin, LoginRequest, LoginResponse, MovePathRequest, MovePathResponse,
-    OpenTerminal, PingRequest, PingResponse, ProcessEntry, ProcessGone, ProcessListSnapshot,
+    OpenCodeRun, OpenTerminal, PingRequest, PingResponse, ProcessEntry, ProcessGone, ProcessListSnapshot,
     ProcessSpyClientMessage, ProcessSpyOpened, ProcessSpyServerMessage, ProcessSpyStdout,
-    ProcessSpyError, RankingEntry, RefreshTokenRequest, RefreshTokenResponse,
+    ProcessSpyError, KillProcess, LuaScriptSpawned, RankingEntry, RefreshTokenRequest, RefreshTokenResponse,
+    SpawnLuaScript,
     RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
     SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, StdinChunk, StdinData,
     StdoutData, SubscribePid, TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened,
     TerminalServerMessage, UnsubscribePid, WriteFileRequest, WriteFileResponse,
+    ReadFileRequest, ReadFileResponse,
     EmptyTrashRequest, EmptyTrashResponse,
     GetInstalledStoreAppsRequest, GetInstalledStoreAppsResponse,
     InstallStoreAppRequest, InstallStoreAppResponse,
@@ -236,28 +238,30 @@ impl GameService for ClusterGameService {
             .message()
             .await
             .map_err(|e| Status::invalid_argument(e.to_string()))?
-            .ok_or_else(|| Status::invalid_argument("stream closed before OpenTerminal"))?;
-        let _ = match first.msg {
-            Some(game::terminal_client_message::Msg::OpenTerminal(OpenTerminal {})) => {
-                authenticated_player_id.to_string()
-            }
-            _ => {
-                let _ = tx
-                    .send(Ok(TerminalServerMessage {
-                        msg: Some(TerminalServerMsg::TerminalError(TerminalError {
-                            message: "first message must be OpenTerminal".to_string(),
-                        })),
-                    }))
-                    .await;
-                return Ok(Response::new(ReceiverStream::new(rx)));
-            }
-        };
-        // Use authenticated player_id
+            .ok_or_else(|| Status::invalid_argument("stream closed before OpenTerminal or OpenCodeRun"))?;
         let player_id = authenticated_player_id;
         let (response_tx, response_rx) = oneshot::channel();
         {
             let mut hub = terminal_hub.lock().unwrap();
-            hub.pending_opens.push((player_id, response_tx));
+            match first.msg {
+                Some(game::terminal_client_message::Msg::OpenTerminal(OpenTerminal {})) => {
+                    hub.pending_opens.push((player_id, response_tx));
+                }
+                Some(game::terminal_client_message::Msg::OpenCodeRun(OpenCodeRun { path })) => {
+                    hub.pending_code_runs.push((player_id, path, response_tx));
+                }
+                _ => {
+                    drop(hub);
+                    let _ = tx
+                        .send(Ok(TerminalServerMessage {
+                            msg: Some(TerminalServerMsg::TerminalError(TerminalError {
+                                message: "first message must be OpenTerminal or OpenCodeRun".to_string(),
+                            })),
+                        }))
+                        .await;
+                    return Ok(Response::new(ReceiverStream::new(rx)));
+                }
+            }
         }
         let ready: SessionReady = match tokio::time::timeout(
             std::time::Duration::from_secs(10),
@@ -453,15 +457,29 @@ impl GameService for ClusterGameService {
                     Some(game::process_spy_client_message::Msg::SubscribePid(SubscribePid { pid })) => {
                         let (stdin_tx, stdin_rx) = mpsc::channel(32);
                         let mut hub = hub_for_recv.lock().unwrap();
+                        let vm_id = hub.connections.get(&connection_id).map(|c| c.vm_id);
+                        let cached_stdout = vm_id.and_then(|vm_id| hub.recently_finished_stdout.remove(&(vm_id, pid)));
                         if let Some(conn) = hub.connections.get_mut(&connection_id) {
-                            conn.subscriptions.insert(
-                                pid,
-                                super::process_spy_hub::ProcessSpySubscription {
-                                    stdin_tx,
-                                    stdin_rx,
-                                    last_stdout_len: 0,
-                                },
-                            );
+                            if let Some(cached_stdout) = cached_stdout {
+                                // Late subscribe: process already exited but we had cached stdout (e.g. Proc Spy opening a just-exited process)
+                                let _ = conn.downstream_tx.try_send(ProcessSpyDownstreamMsg::Stdout(pid, cached_stdout));
+                                let _ = conn.downstream_tx.try_send(ProcessSpyDownstreamMsg::ProcessGone(pid));
+                            } else {
+                                // Preserve last_stdout_len from existing subscription (e.g. auto-subscribe) so we don't re-send already-sent stdout
+                                let last_stdout_len = conn
+                                    .subscriptions
+                                    .get(&pid)
+                                    .map(|s| s.last_stdout_len)
+                                    .unwrap_or(0);
+                                conn.subscriptions.insert(
+                                    pid,
+                                    super::process_spy_hub::ProcessSpySubscription {
+                                        stdin_tx,
+                                        stdin_rx,
+                                        last_stdout_len,
+                                    },
+                                );
+                            }
                         }
                     }
                     Some(game::process_spy_client_message::Msg::UnsubscribePid(UnsubscribePid { pid })) => {
@@ -472,12 +490,32 @@ impl GameService for ClusterGameService {
                     }
                     Some(game::process_spy_client_message::Msg::InjectStdin(InjectStdin { pid, data })) => {
                         if let Ok(s) = String::from_utf8(data) {
-                            let mut hub = hub_for_recv.lock().unwrap();
+                            let hub = hub_for_recv.lock().unwrap();
                             if let Some(conn) = hub.connections.get(&connection_id) {
                                 if let Some(sub) = conn.subscriptions.get(&pid) {
                                     let _ = sub.stdin_tx.try_send(s);
                                 }
                             }
+                        }
+                    }
+                    Some(game::process_spy_client_message::Msg::SpawnLuaScript(SpawnLuaScript { path })) => {
+                        let vm_id = {
+                            let hub = hub_for_recv.lock().unwrap();
+                            hub.connections.get(&connection_id).map(|c| c.vm_id)
+                        };
+                        if let Some(vm_id) = vm_id {
+                            let mut hub = hub_for_recv.lock().unwrap();
+                            hub.pending_lua_spawns.push((connection_id, vm_id, path));
+                        }
+                    }
+                    Some(game::process_spy_client_message::Msg::KillProcess(KillProcess { pid })) => {
+                        let vm_id = {
+                            let hub = hub_for_recv.lock().unwrap();
+                            hub.connections.get(&connection_id).map(|c| c.vm_id)
+                        };
+                        if let Some(vm_id) = vm_id {
+                            let mut hub = hub_for_recv.lock().unwrap();
+                            hub.pending_kills.push((vm_id, pid));
                         }
                     }
                     _ => {}
@@ -518,6 +556,9 @@ impl GameService for ClusterGameService {
                     },
                     ProcessSpyDownstreamMsg::ProcessGone(pid) => ProcessSpyServerMessage {
                         msg: Some(ProcessSpyServerMsg::ProcessGone(ProcessGone { pid })),
+                    },
+                    ProcessSpyDownstreamMsg::LuaScriptSpawned(pid) => ProcessSpyServerMessage {
+                        msg: Some(ProcessSpyServerMsg::LuaScriptSpawned(LuaScriptSpawned { pid })),
                     },
                     ProcessSpyDownstreamMsg::Error(message) => ProcessSpyServerMessage {
                         msg: Some(ProcessSpyServerMsg::ProcessSpyError(ProcessSpyError {
@@ -1025,6 +1066,44 @@ impl GameService for ClusterGameService {
         }
     }
 
+    async fn read_file(
+        &self,
+        request: Request<ReadFileRequest>,
+    ) -> Result<Response<ReadFileResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let ReadFileRequest { path } = request.into_inner();
+
+        let (vm, owner) = vm_and_owner(&self, player_id).await?;
+        if !path_under_home(&path, &owner.1) {
+            return Ok(Response::new(ReadFileResponse {
+                success: false,
+                error_message: "Path must be under home".to_string(),
+                content: vec![],
+            }));
+        }
+
+        match self.fs_service.read_file(vm.id, &path).await {
+            Ok(Some((data, _))) => Ok(Response::new(ReadFileResponse {
+                success: true,
+                error_message: String::new(),
+                content: data,
+            })),
+            Ok(None) => Ok(Response::new(ReadFileResponse {
+                success: false,
+                error_message: "File not found".to_string(),
+                content: vec![],
+            })),
+            Err(e) => Ok(Response::new(ReadFileResponse {
+                success: false,
+                error_message: e.to_string(),
+                content: vec![],
+            })),
+        }
+    }
+
     async fn empty_trash(
         &self,
         request: Request<EmptyTrashRequest>,
@@ -1082,7 +1161,7 @@ impl GameService for ClusterGameService {
             .map_err(|e| Status::internal(e.to_string()))?
             .ok_or_else(|| Status::not_found("No VM found for this player"))?;
 
-        const PATH: &str = "/etc/installed-apps.txt";
+        const PATH: &str = "/etc/installed-apps";
         const ALLOWED: &[&str] = &["sound", "network", "minesweeper", "pixelart", "pspy"];
         let content = match self.fs_service.read_file(vm.id, PATH).await {
             Ok(Some((data, _))) => data,
@@ -1132,7 +1211,7 @@ impl GameService for ClusterGameService {
             .map_err(|e| Status::internal(e.to_string()))?
             .ok_or_else(|| Status::not_found("No VM found for this player"))?;
 
-        const PATH: &str = "/etc/installed-apps.txt";
+        const PATH: &str = "/etc/installed-apps";
         const ALLOWED: &[&str] = &["sound", "network", "minesweeper", "pixelart", "pspy"];
         let InstallStoreAppRequest { app_type, .. } = request.into_inner();
         let app_type = app_type.trim();
@@ -1192,7 +1271,7 @@ impl GameService for ClusterGameService {
             .map_err(|e| Status::internal(e.to_string()))?
             .ok_or_else(|| Status::not_found("No VM found for this player"))?;
 
-        const PATH: &str = "/etc/installed-apps.txt";
+        const PATH: &str = "/etc/installed-apps";
         const ALLOWED: &[&str] = &["sound", "network", "minesweeper", "pixelart", "pspy"];
         let UninstallStoreAppRequest { app_type, .. } = request.into_inner();
         let app_type = app_type.trim();
@@ -1522,6 +1601,7 @@ mod tests {
         player_service::PlayerService, shortcuts_service::ShortcutsService, user_service::UserService,
         vm_service::{VmConfig, VmService},
     };
+    use super::super::process_spy_hub::new_hub as new_process_spy_hub;
     use super::super::terminal_hub::new_hub;
     use super::super::vm_manager::ProcessSnapshot;
     use super::*;
@@ -1539,6 +1619,7 @@ mod tests {
             Arc::new(FactionService::new(pool.clone())),
             Arc::new(ShortcutsService::new(pool.clone())),
             new_hub(),
+            new_process_spy_hub(),
             Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
         )
@@ -1556,6 +1637,7 @@ mod tests {
             Arc::new(FactionService::new(pool.clone())),
             Arc::new(ShortcutsService::new(pool.clone())),
             new_hub(),
+            new_process_spy_hub(),
             process_snapshot_store,
             Arc::new(DashMap::new()),
         )

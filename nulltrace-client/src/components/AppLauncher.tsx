@@ -74,6 +74,12 @@ export default function AppLauncher() {
           placeholder="Search apps…"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && filtered.length > 0) {
+              e.preventDefault();
+              handleAppClick(filtered[0].type);
+            }
+          }}
           aria-label="Search apps"
         />
         <div className={styles.grid}>
