@@ -313,6 +313,37 @@ export default function Explorer() {
     setCurrentPath("/" + segs.join("/"));
   }
 
+  const DRAG_PATH_KEY = "application/x-nulltrace-path";
+
+  const handleDropMove = useCallback(
+    async (srcPath: string, destFolderPath: string) => {
+      if (srcPath === destFolderPath) return;
+      if (destFolderPath.startsWith(srcPath + "/")) return;
+      if (!token || !tauri) return;
+      const dest = destFolderPath.replace(/\/$/, "");
+      try {
+        const res = await invoke<{ success: boolean; error_message: string }>("grpc_move_path", {
+          srcPath,
+          destPath: dest,
+          token,
+        });
+        if (!res.success) {
+          if (res.error_message === "UNAUTHENTICATED") {
+            logout();
+            navigate("/login");
+            return;
+          }
+          setError(res.error_message);
+          return;
+        }
+        await fetchEntries();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [token, tauri, fetchEntries, logout, navigate]
+  );
+
   const performPaste = useCallback(
     async (items: { path: string; type: "file" | "folder" }[], operation: "copy" | "cut") => {
       if (!playerId || !tauri) return;
@@ -549,6 +580,15 @@ export default function Explorer() {
             e.preventDefault();
             setContextMenu({ x: e.clientX, y: e.clientY, type: "background" });
           }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const src = e.dataTransfer.getData(DRAG_PATH_KEY);
+            if (src) handleDropMove(src, currentPath.replace(/\/$/, ""));
+          }}
           role="list"
         >
           {loading ? (
@@ -561,6 +601,7 @@ export default function Explorer() {
             entries.map((entry, index) => {
               const fullPath = currentPath.replace(/\/$/, "") + "/" + entry.name;
               const isSelected = selectedPaths.has(fullPath);
+              const isDirectory = entry.node_type === "directory";
               return (
                 <div
                   key={entry.name}
@@ -568,12 +609,28 @@ export default function Explorer() {
                   tabIndex={-1}
                   className={`${styles.row} ${isSelected ? styles.rowSelected : ""}`}
                   data-type={entry.node_type}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(DRAG_PATH_KEY, fullPath);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragOver={isDirectory ? (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.dataTransfer.dropEffect = "move";
+                  } : undefined}
+                  onDrop={isDirectory ? (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const src = e.dataTransfer.getData(DRAG_PATH_KEY);
+                    if (src) handleDropMove(src, fullPath);
+                  } : undefined}
                   onClick={(e) => handleRowClick(entry, index, e)}
                   onDoubleClick={() => handleOpen(entry)}
                   onContextMenu={(e) => handleContextMenu(entry, fullPath, e)}
                 >
                   <span className={styles.rowIcon}>
-                    {entry.node_type === "directory" ? <FolderIcon /> : <FileIcon />}
+                    {isDirectory ? <FolderIcon /> : <FileIcon />}
                   </span>
                   <span className={styles.rowName}>{entry.name}</span>
                 </div>

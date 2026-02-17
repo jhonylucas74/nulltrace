@@ -376,16 +376,136 @@ while true do
 end
 "#;
 
+/// Grep: search for pattern in files. Args: pattern, then optional paths (default: "."). -r = recursive.
+/// Output: path:line_number:line for each match. Uses plain substring search.
+pub const GREP: &str = r#"
+local args = os.get_args()
+if not args or #args < 1 then
+  io.write("grep: usage: grep pattern [path ...]\n")
+  return
+end
+local pattern = args[1]
+local paths = {}
+if #args >= 2 then
+  for i = 2, #args do paths[#paths + 1] = args[i] end
+else
+  paths[#paths + 1] = "."
+end
+local function grep_file(path)
+  local st = fs.stat(path)
+  if not st then return end
+  if st.type == "directory" then return end
+  local content = fs.read(path)
+  if not content then return end
+  local s = content .. "\n"
+  local pos = 1
+  local line_num = 0
+  while pos <= #s do
+    local next_nl = s:find("\n", pos, true)
+    if not next_nl then break end
+    line_num = line_num + 1
+    local line = s:sub(pos, next_nl - 1)
+    local found = false
+    for i = 1, #line - #pattern + 1 do
+      if line:sub(i, i + #pattern - 1) == pattern then found = true; break end
+    end
+    if found then
+      io.write(path .. ":" .. tostring(line_num) .. ":" .. line .. "\n")
+    end
+    pos = next_nl + 1
+  end
+end
+local function grep_path(path)
+  local st = fs.stat(path)
+  if not st then return end
+  if st.type == "directory" then
+    local entries = fs.ls(path)
+    for i = 1, #entries do
+      local name = entries[i].name
+      local ends_slash = #path >= 1 and path:sub(-1) == "/"
+      local full = (path == "." or ends_slash) and (path .. name) or (path .. "/" .. name)
+      grep_path(full)
+    end
+  else
+    grep_file(path)
+  end
+end
+for i = 1, #paths do
+  grep_path(paths[i])
+end
+"#;
+
+/// Find: list files and dirs recursively. Args: path (default "."). One path per line.
+pub const FIND: &str = r#"
+local args = os.get_args()
+local root = (#args >= 1) and args[1] or "."
+local function visit(path)
+  io.write(path .. "\n")
+  local st = fs.stat(path)
+  if not st or st.type ~= "directory" then return end
+  local entries = fs.ls(path)
+  for i = 1, #entries do
+    local name = entries[i].name
+    local ends_slash = #path >= 1 and path:sub(-1) == "/"
+    local full = (path == "" or ends_slash) and (path .. name) or (path .. "/" .. name)
+    visit(full)
+  end
+end
+visit(root)
+"#;
+
+/// Sed: substitute pattern with replacement. Args: pattern, replacement, [file]. If no file, read stdin.
+pub const SED: &str = r#"
+local args = os.get_args()
+if not args or #args < 2 then
+  io.write("sed: usage: sed pattern replacement [file]\n")
+  return
+end
+local pattern = args[1]
+local replacement = args[2]
+local function do_sed(content)
+  local from = 1
+  while from <= #content do
+    local start_pos, end_pos = content:find(pattern, from, true)
+    if not start_pos then
+      io.write(content:sub(from))
+      break
+    end
+    io.write(content:sub(from, start_pos - 1))
+    io.write(replacement)
+    from = end_pos + 1
+  end
+end
+if #args >= 3 then
+  local path = args[3]
+  local content = fs.read(path)
+  if not content then
+    io.write("sed: cannot read " .. path .. "\n")
+    return
+  end
+  do_sed(content)
+else
+  while true do
+    local line = io.read()
+    if not line then break end
+    do_sed(line .. "\n")
+  end
+end
+"#;
+
 /// Programs to include when bootstrapping a new VM. User can delete them later.
 pub const DEFAULT_BIN_PROGRAMS: &[(&str, &str)] = &[
     ("cat", CAT),
     ("coin", COIN),
     ("echo", ECHO),
     ("echo_stdin", ECHO_STDIN),
+    ("find", FIND),
+    ("grep", GREP),
     ("ls", LS),
     ("lua", LUA),
     ("mem_stress", MEM_STRESS),
     ("rm", RM),
+    ("sed", SED),
     ("sh", SH),
     ("ssh", SSH),
     ("ssh-server", SSH_SERVER),

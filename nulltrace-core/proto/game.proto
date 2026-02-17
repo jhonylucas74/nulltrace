@@ -17,6 +17,7 @@ service GameService {
   rpc CopyPath (CopyPathRequest) returns (CopyPathResponse);
   rpc MovePath (MovePathRequest) returns (MovePathResponse);
   rpc RenamePath (RenamePathRequest) returns (RenamePathResponse);
+  rpc CreateFolder (CreateFolderRequest) returns (CreateFolderResponse);
   rpc WriteFile (WriteFileRequest) returns (WriteFileResponse);
   rpc ReadFile (ReadFileRequest) returns (ReadFileResponse);
   rpc EmptyTrash (EmptyTrashRequest) returns (EmptyTrashResponse);
@@ -29,6 +30,7 @@ service GameService {
   rpc SetShortcuts (SetShortcutsRequest) returns (SetShortcutsResponse);
   rpc CreateFaction (CreateFactionRequest) returns (CreateFactionResponse);
   rpc LeaveFaction (LeaveFactionRequest) returns (LeaveFactionResponse);
+  rpc RunProcess (RunProcessRequest) returns (stream RunProcessResponse);
 }
 
 message HelloRequest {
@@ -111,6 +113,23 @@ message TerminalClosed {}
 
 message TerminalError {
   string message = 1;
+}
+
+// RunProcess: run a VM binary with args, stream stdout then finished(exit_code).
+message RunProcessRequest {
+  string bin_name = 1;
+  repeated string args = 2;
+}
+
+message RunProcessResponse {
+  oneof msg {
+    bytes stdout_chunk = 1;
+    RunProcessFinished finished = 2;
+  }
+}
+
+message RunProcessFinished {
+  int32 exit_code = 1;
 }
 
 // Process Spy: bidirectional stream to list processes and attach to PIDs for stdin/stdout.
@@ -204,6 +223,7 @@ message ProcessEntry {
   string username = 3;
   string status = 4;
   uint64 memory_bytes = 5;
+  repeated string args = 6;  // Full argv used to invoke the process (always shown in Proc Spy)
 }
 
 message GetProcessListResponse {
@@ -278,6 +298,15 @@ message RenamePathRequest {
 }
 
 message RenamePathResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message CreateFolderRequest {
+  string path = 1;
+}
+
+message CreateFolderResponse {
   bool success = 1;
   string error_message = 2;
 }

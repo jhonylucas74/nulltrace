@@ -10,6 +10,7 @@ mod net;
 mod db;
 mod grpc;
 mod lua_api;
+mod process_run_hub;
 mod process_spy_hub;
 mod terminal_hub;
 mod vm_manager;
@@ -24,6 +25,7 @@ use db::user_service::UserService;
 use db::vm_service::VmService;
 use grpc::game::game_service_server::GameServiceServer;
 use grpc::ClusterGameService;
+use process_run_hub::new_hub as new_process_run_hub;
 use process_spy_hub::new_hub as new_process_spy_hub;
 use terminal_hub::new_hub;
 use net::ip::{Ipv4Addr, Subnet};
@@ -109,6 +111,7 @@ async fn main() {
 
     let terminal_hub = new_hub();
     let process_spy_hub = new_process_spy_hub();
+    let process_run_hub = new_process_run_hub();
 
     let process_snapshot_store: Arc<DashMap<uuid::Uuid, Vec<ProcessSnapshot>>> =
         Arc::new(DashMap::new());
@@ -125,6 +128,7 @@ async fn main() {
         shortcuts_service.clone(),
         terminal_hub.clone(),
         process_spy_hub.clone(),
+        process_run_hub.clone(),
         process_snapshot_store.clone(),
         vm_lua_memory_store.clone(),
     );
@@ -142,17 +146,33 @@ async fn main() {
 
     // ── Game loop (main task) ──
     manager
-        .run_loop(&mut vms, terminal_hub, process_spy_hub, process_snapshot_store, vm_lua_memory_store, &pool, stress_mode)
+        .run_loop(&mut vms, terminal_hub, process_spy_hub, process_run_hub, process_snapshot_store, vm_lua_memory_store, &pool, stress_mode)
         .await;
 }
 
-/// Criar 5k VMs in-memory para stress test
+/// Stress scenario: which program/script to run in each VM.
+enum StressScenario {
+    /// Simple CPU loop: print tick count (baseline).
+    SimpleLoop,
+    /// mem_stress: allocates memory until 1 MB limit, triggers VM reset.
+    MemStress,
+    /// coin: random flips, bounded history, CPU + some memory.
+    Coin,
+    /// FS stress: repeated fs.ls("/") to stress filesystem API.
+    FsListLoop,
+    /// CPU + table stress: loop with string concat and table ops (bounded memory).
+    CpuTableLoop,
+}
+
+/// Criar 5k VMs in-memory para stress test.
+/// VMs are distributed across 5 scenarios to stress: CPU loop, mem_stress, coin, fs.ls, and table/string ops.
 fn create_stress_vms(
     pool: sqlx::PgPool,
     fs_service: Arc<FsService>,
     user_service: Arc<UserService>,
 ) -> Vec<VirtualMachine> {
-    println!("[cluster] STRESS TEST MODE: Creating 5,000 VMs (in-memory)...");
+    const NUM_SCENARIOS: usize = 5;
+    println!("[cluster] STRESS TEST MODE: Creating 5,000 VMs (in-memory), 5 scenarios...");
     let mut vms = Vec::new();
     let start_creation = std::time::Instant::now();
 
@@ -161,20 +181,88 @@ fn create_stress_vms(
             .expect("Failed to create VM Lua state");
         let mut vm = VirtualMachine::new(lua);
 
-        // Spawn infinite loop process in each VM
-        vm.os.spawn_process(
-            &vm.lua,
-            r#"
+        let scenario = match i % NUM_SCENARIOS {
+            0 => StressScenario::SimpleLoop,
+            1 => StressScenario::MemStress,
+            2 => StressScenario::Coin,
+            3 => StressScenario::FsListLoop,
+            _ => StressScenario::CpuTableLoop,
+        };
+
+        match scenario {
+            StressScenario::SimpleLoop => {
+                vm.os.spawn_process(
+                    &vm.lua,
+                    r#"
 local count = 0
 while true do
     count = count + 1
     print("VM tick: " .. count)
 end
-            "#,
-            vec![],
-            0,
-            "root",
-        );
+                    "#,
+                    vec![],
+                    0,
+                    "root",
+                );
+            }
+            StressScenario::MemStress => {
+                vm.os.spawn_process(
+                    &vm.lua,
+                    bin_programs::MEM_STRESS,
+                    vec!["4".to_string()],
+                    0,
+                    "root",
+                );
+            }
+            StressScenario::Coin => {
+                vm.os.spawn_process(
+                    &vm.lua,
+                    bin_programs::COIN,
+                    vec!["1000".to_string()],
+                    0,
+                    "root",
+                );
+            }
+            StressScenario::FsListLoop => {
+                vm.os.spawn_process(
+                    &vm.lua,
+                    r#"
+local n = 0
+while true do
+    local entries = fs.ls("/")
+    n = n + 1
+    if n % 100 == 0 then
+        io.write("fs_stress: " .. n .. " ls(/)\n")
+    end
+end
+                    "#,
+                    vec![],
+                    0,
+                    "root",
+                );
+            }
+            StressScenario::CpuTableLoop => {
+                vm.os.spawn_process(
+                    &vm.lua,
+                    r#"
+local t = {}
+local cap = 500
+local count = 0
+while true do
+    count = count + 1
+    t[#t + 1] = string.rep("x", 64)
+    if #t > cap then table.remove(t, 1) end
+    if count % 50 == 0 then
+        io.write("table_stress: " .. count .. " iterations\n")
+    end
+end
+                    "#,
+                    vec![],
+                    0,
+                    "root",
+                );
+            }
+        }
 
         vms.push(vm);
 
@@ -190,7 +278,8 @@ end
         creation_time.as_secs_f64(),
         vms.len() as f64 / creation_time.as_secs_f64()
     );
-    println!("[cluster] Starting 1-minute stress test...\n");
+    println!("[cluster] Scenarios: SimpleLoop | MemStress | Coin | FsListLoop | CpuTableLoop (1k VMs each)");
+    println!("[cluster] Starting stress test...\n");
 
     vms
 }

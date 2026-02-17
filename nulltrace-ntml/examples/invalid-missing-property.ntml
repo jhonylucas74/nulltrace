@@ -1,0 +1,4 @@
+# Invalid NTML - missing required 'text' property
+Text:
+  style:
+    color: red

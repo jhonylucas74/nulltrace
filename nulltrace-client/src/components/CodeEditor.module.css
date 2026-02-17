@@ -123,6 +123,121 @@
   color: var(--text-muted);
 }
 
+/* Find / Replace panel */
+.findPanel {
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.findBar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  flex-wrap: wrap;
+}
+
+.findInput {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-width: 120px;
+}
+
+.findBtn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+}
+
+.findBtn:hover:not(:disabled) {
+  background: var(--accent-muted);
+  color: var(--text-primary);
+}
+
+.findBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.findCheckbox {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.findCloseBtn {
+  margin-left: auto;
+  padding: 0.2rem 0.5rem;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+}
+
+.findCloseBtn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.searchResults {
+  max-height: 200px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-color);
+}
+
+.searchResultItem {
+  display: block;
+  width: 100%;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.searchResultItem:hover {
+  background: var(--accent-muted);
+  color: var(--text-primary);
+}
+
+.searchResultPath {
+  color: var(--text-primary);
+  margin-right: 0.25rem;
+}
+
+.searchResultLine {
+  color: var(--text-muted);
+  margin-right: 0.35rem;
+}
+
+.searchResultText {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+  display: inline-block;
+  vertical-align: bottom;
+}
+
 /* Body: sidebar + editor area */
 .body {
   flex: 1;

@@ -1,2 +1,5 @@
 /smollm2-phishing-sim/
 .env
+
+# Rust / Cargo
+**/target

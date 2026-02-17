@@ -89,6 +89,8 @@ pub fn run() {
             grpc::grpc_copy_path,
             grpc::grpc_move_path,
             grpc::grpc_rename_path,
+            grpc::grpc_create_folder,
+            grpc::grpc_run_process,
             grpc::grpc_write_file,
             grpc::grpc_read_file,
             grpc::grpc_empty_trash,

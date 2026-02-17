@@ -1,0 +1,11 @@
+# Simple valid NTML example
+Container:
+  style:
+    padding: 16
+    backgroundColor: "#1a1a1a"
+  children:
+    - Text:
+        text: "Hello NullTrace!"
+        style:
+          color: "#ffffff"
+          fontSize: 24

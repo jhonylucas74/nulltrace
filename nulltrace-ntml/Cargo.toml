@@ -1,0 +1,17 @@
+[package]
+name = "nulltrace-ntml"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ntml-validate"
+path = "src/bin/ntml-validate.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+thiserror = "2.0"
+regex = "1.10"
+
+[dev-dependencies]
+pretty_assertions = "1.4"

@@ -8,6 +8,7 @@ use super::db::player_service::PlayerService;
 use super::db::shortcuts_service::ShortcutsService;
 use super::db::user_service::{UserService, VmUser};
 use super::db::vm_service::VmService;
+use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
 use super::process_spy_hub::{ProcessSpyConnection, ProcessSpyDownstreamMsg, ProcessSpyHub};
 use super::terminal_hub::{SessionReady, TerminalHub};
 use super::vm_manager::ProcessSnapshot;
@@ -26,6 +27,7 @@ pub mod game {
 
 use game::game_service_server::GameService;
 use game::process_spy_server_message::Msg as ProcessSpyServerMsg;
+use game::run_process_response::Msg as RunProcessResponseMsg;
 use game::{
     CopyPathRequest, CopyPathResponse, CreateFactionRequest, CreateFactionResponse, FsEntry,
     GetDiskUsageRequest, GetDiskUsageResponse, GetHomePathRequest, GetHomePathResponse,
@@ -37,7 +39,7 @@ use game::{
     ProcessSpyClientMessage, ProcessSpyOpened, ProcessSpyServerMessage, ProcessSpyStdout,
     ProcessSpyError, KillProcess, LuaScriptSpawned, RankingEntry, RefreshTokenRequest, RefreshTokenResponse,
     SpawnLuaScript,
-    RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
+    CreateFolderRequest, CreateFolderResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
     SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, StdinChunk, StdinData,
     StdoutData, SubscribePid, TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened,
     TerminalServerMessage, UnsubscribePid, WriteFileRequest, WriteFileResponse,
@@ -46,6 +48,7 @@ use game::{
     GetInstalledStoreAppsRequest, GetInstalledStoreAppsResponse,
     InstallStoreAppRequest, InstallStoreAppResponse,
     UninstallStoreAppRequest, UninstallStoreAppResponse,
+    RunProcessFinished, RunProcessRequest, RunProcessResponse,
 };
 
 pub struct ClusterGameService {
@@ -57,6 +60,7 @@ pub struct ClusterGameService {
     shortcuts_service: Arc<ShortcutsService>,
     terminal_hub: Arc<TerminalHub>,
     process_spy_hub: Arc<ProcessSpyHub>,
+    process_run_hub: Arc<ProcessRunHub>,
     process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
     vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
 }
@@ -71,6 +75,7 @@ impl ClusterGameService {
         shortcuts_service: Arc<ShortcutsService>,
         terminal_hub: Arc<TerminalHub>,
         process_spy_hub: Arc<ProcessSpyHub>,
+        process_run_hub: Arc<ProcessRunHub>,
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
         vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
     ) -> Self {
@@ -83,6 +88,7 @@ impl ClusterGameService {
             shortcuts_service,
             terminal_hub,
             process_spy_hub,
+            process_run_hub,
             process_snapshot_store,
             vm_lua_memory_store,
         }
@@ -106,6 +112,61 @@ impl ClusterGameService {
 impl GameService for ClusterGameService {
     type TerminalStreamStream = ReceiverStream<Result<TerminalServerMessage, Status>>;
     type ProcessSpyStreamStream = ReceiverStream<Result<ProcessSpyServerMessage, Status>>;
+    type RunProcessStream = ReceiverStream<Result<RunProcessResponse, Status>>;
+
+    async fn run_process(
+        &self,
+        request: Request<RunProcessRequest>,
+    ) -> Result<Response<Self::RunProcessStream>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let RunProcessRequest { bin_name, args } = request.into_inner();
+        if bin_name.is_empty() {
+            return Err(Status::invalid_argument("bin_name is required"));
+        }
+        let (response_tx, response_rx) = oneshot::channel();
+        {
+            let mut hub = self.process_run_hub.lock().unwrap();
+            hub.pending_runs.push((player_id, bin_name, args, response_tx));
+        }
+        let run_rx = match tokio::time::timeout(std::time::Duration::from_secs(15), response_rx).await {
+            Ok(Ok(Ok(rx))) => rx,
+            Ok(Ok(Err(e))) => {
+                return Err(Status::internal(e));
+            }
+            Ok(Err(_)) => {
+                return Err(Status::deadline_exceeded("run process response channel closed"));
+            }
+            Err(_) => {
+                return Err(Status::deadline_exceeded("run process start timeout"));
+            }
+        };
+        let (tx, rx) = mpsc::channel(32);
+        tokio::spawn(async move {
+            let mut run_rx = run_rx;
+            while let Some(msg) = run_rx.recv().await {
+                let is_finished = matches!(&msg, RunProcessStreamMsg::Finished(_));
+                let response = match msg {
+                    RunProcessStreamMsg::Stdout(s) => RunProcessResponse {
+                        msg: Some(RunProcessResponseMsg::StdoutChunk(s.into_bytes())),
+                    },
+                    RunProcessStreamMsg::Finished(code) => RunProcessResponse {
+                        msg: Some(RunProcessResponseMsg::Finished(RunProcessFinished {
+                            exit_code: code,
+                        })),
+                    },
+                };
+                if tx.send(Ok(response)).await.is_err() {
+                    break;
+                }
+                if is_finished {
+                    break;
+                }
+            }
+        });
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
 
     async fn say_hello(
         &self,
@@ -538,6 +599,7 @@ impl GameService for ClusterGameService {
                                     username: s.username,
                                     status: s.status,
                                     memory_bytes: s.memory_bytes,
+                                    args: s.args,
                                 })
                                 .collect(),
                         })),
@@ -633,6 +695,7 @@ impl GameService for ClusterGameService {
                         username: s.username.clone(),
                         status: s.status.clone(),
                         memory_bytes: s.memory_bytes,
+                        args: s.args.clone(),
                     })
                     .collect()
             })
@@ -1026,6 +1089,36 @@ impl GameService for ClusterGameService {
                 error_message: String::new(),
             })),
             Err(e) => Ok(Response::new(RenamePathResponse {
+                success: false,
+                error_message: e.to_string(),
+            })),
+        }
+    }
+
+    async fn create_folder(
+        &self,
+        request: Request<CreateFolderRequest>,
+    ) -> Result<Response<CreateFolderResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let CreateFolderRequest { path } = request.into_inner();
+
+        let (vm, owner) = vm_and_owner(&self, player_id).await?;
+        if !path_under_home(&path, &owner.1) {
+            return Ok(Response::new(CreateFolderResponse {
+                success: false,
+                error_message: "Path must be under home".to_string(),
+            }));
+        }
+
+        match self.fs_service.mkdir(vm.id, &path, &owner.1).await {
+            Ok(_) => Ok(Response::new(CreateFolderResponse {
+                success: true,
+                error_message: String::new(),
+            })),
+            Err(e) => Ok(Response::new(CreateFolderResponse {
                 success: false,
                 error_message: e.to_string(),
             })),
@@ -1601,6 +1694,7 @@ mod tests {
         player_service::PlayerService, shortcuts_service::ShortcutsService, user_service::UserService,
         vm_service::{VmConfig, VmService},
     };
+    use super::super::process_run_hub::new_hub as new_process_run_hub;
     use super::super::process_spy_hub::new_hub as new_process_spy_hub;
     use super::super::terminal_hub::new_hub;
     use super::super::vm_manager::ProcessSnapshot;
@@ -1620,6 +1714,7 @@ mod tests {
             Arc::new(ShortcutsService::new(pool.clone())),
             new_hub(),
             new_process_spy_hub(),
+            new_process_run_hub(),
             Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
         )
@@ -1638,6 +1733,7 @@ mod tests {
             Arc::new(ShortcutsService::new(pool.clone())),
             new_hub(),
             new_process_spy_hub(),
+            new_process_run_hub(),
             process_snapshot_store,
             Arc::new(DashMap::new()),
         )
@@ -1761,6 +1857,7 @@ mod tests {
                 username: "user".to_string(),
                 status: "running".to_string(),
                 memory_bytes: 65_536,
+                args: vec!["lua".to_string(), "/tmp/script.lua".to_string()],
             },
             ProcessSnapshot {
                 pid: 2,
@@ -1768,6 +1865,7 @@ mod tests {
                 username: "root".to_string(),
                 status: "finished".to_string(),
                 memory_bytes: 32_768,
+                args: vec!["init".to_string()],
             },
         ];
         let process_snapshot_store = Arc::new(DashMap::new());

@@ -11,6 +11,8 @@ interface ProcessEntry {
   username: string;
   status: string;
   memory_bytes: number;
+  /** Full argv used to invoke the process (always shown). */
+  args?: string[];
 }
 
 interface TabState {
@@ -136,6 +138,10 @@ export default function ProcessSpyApp() {
     };
   }, [token]);
 
+  /** Display label for a process: full command line (args) when available, else name. */
+  const processLabel = (proc: ProcessEntry) =>
+    proc.args && proc.args.length > 0 ? proc.args.join(" ") : proc.name;
+
   const openTab = useCallback(
     (pid: number, name: string) => {
       if (!connectionId) return;
@@ -197,9 +203,11 @@ export default function ProcessSpyApp() {
               className={`${styles.processRow} ${
                 activePid === proc.pid ? styles.processRowActive : ""
               }`}
-              onClick={() => openTab(proc.pid, proc.name)}
+              onClick={() => openTab(proc.pid, processLabel(proc))}
             >
-              <span className={styles.processName}>{proc.name}</span>
+              <span className={styles.processName} title={processLabel(proc)}>
+                {processLabel(proc)}
+              </span>
               <span className={styles.processPid}>{proc.pid}</span>
             </li>
           ))}

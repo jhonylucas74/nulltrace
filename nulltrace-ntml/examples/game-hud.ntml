@@ -1,0 +1,110 @@
+# Game HUD - Interface principal do jogador
+Stack:
+  alignment: topLeft
+  children:
+    # Background escuro semi-transparente
+    - Container:
+        style:
+          backgroundColor: "#000000"
+          opacity: 0.3
+
+    # HUD principal
+    - Container:
+        style:
+          padding: 16
+        children:
+          - Column:
+              gap: 12
+              children:
+                # Status do jogador
+                - Row:
+                    gap: 16
+                    align: center
+                    style:
+                      backgroundColor: "#1a1a1a"
+                      padding: 12
+                      borderRadius: 8
+                      borderWidth: 1
+                      borderColor: "#00ff00"
+                    children:
+                      # Avatar
+                      - Image:
+                          src: "player-avatar.png"
+                          alt: "Player"
+                          fit: cover
+                          style:
+                            width: 50
+                            height: 50
+                            borderRadius: 25
+                            borderWidth: 2
+                            borderColor: "#00ff00"
+
+                      # Stats
+                      - Column:
+                          gap: 8
+                          style:
+                            flex: 1
+                          children:
+                            # Nome e nível
+                            - Row:
+                                gap: 8
+                                children:
+                                  - Text:
+                                      text: "NullH4x0r"
+                                      style:
+                                        fontSize: 18
+                                        fontWeight: bold
+                                        color: "#00ff00"
+                                  - Badge:
+                                      text: "LVL 42"
+                                      variant: success
+
+                            # Health bar
+                            - Row:
+                                gap: 8
+                                align: center
+                                children:
+                                  - Icon:
+                                      name: "heart"
+                                      size: 16
+                                      style:
+                                        color: red
+                                  - ProgressBar:
+                                      value: 85
+                                      max: 100
+                                      variant: danger
+                                      showLabel: true
+                                      style:
+                                        flex: 1
+
+                            # Energy bar
+                            - Row:
+                                gap: 8
+                                align: center
+                                children:
+                                  - Icon:
+                                      name: "zap"
+                                      size: 16
+                                      style:
+                                        color: "#00ffff"
+                                  - ProgressBar:
+                                      value: 60
+                                      max: 100
+                                      variant: default
+                                      showLabel: true
+                                      style:
+                                        flex: 1
+
+                # Status indicators
+                - Row:
+                    gap: 8
+                    children:
+                      - Badge:
+                          text: "CONNECTED"
+                          variant: success
+                      - Badge:
+                          text: "ENCRYPTED"
+                          variant: primary
+                      - Badge:
+                          text: "3 ALERTS"
+                          variant: warning

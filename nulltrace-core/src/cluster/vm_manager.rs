@@ -12,6 +12,7 @@ use super::net::ip::{Ipv4Addr, Subnet};
 use super::net::net_manager::NetManager;
 use super::net::nic::NIC;
 use super::net::router::{RouteResult, Router};
+use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
 use super::process_spy_hub::{PendingKill, PendingLuaSpawn, ProcessSpyDownstreamMsg, ProcessSpyHub, ProcessSpySubscription};
 use super::terminal_hub::{SessionReady, TerminalHub, TerminalSession};
 use super::vm::VirtualMachine;
@@ -25,7 +26,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use uuid::Uuid;
 
-/// Snapshot of one process for gRPC (System Monitor). Written every 60 ticks for player-owned VMs only.
+/// Snapshot of one process for gRPC (System Monitor / Proc Spy). Written every 60 ticks for player-owned VMs only.
+/// Args are always included so Proc Spy can show the full command line used to invoke the process.
 #[derive(Debug, Clone)]
 pub struct ProcessSnapshot {
     pub pid: u64,
@@ -33,6 +35,8 @@ pub struct ProcessSnapshot {
     pub username: String,
     pub status: String,
     pub memory_bytes: u64,
+    /// Full argv used to call the process (e.g. ["grep", "bar", "/tmp/a.txt"]). Always shown in Proc Spy.
+    pub args: Vec<String>,
 }
 
 /// Wall-clock interval between process list snapshot updates (for GetProcessList and Process Spy).
@@ -441,6 +445,7 @@ impl VmManager {
         vms: &mut Vec<VirtualMachine>,
         terminal_hub: Arc<TerminalHub>,
         process_spy_hub: Arc<ProcessSpyHub>,
+        process_run_hub: Arc<ProcessRunHub>,
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
         vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
         pool: &PgPool,
@@ -508,6 +513,7 @@ impl VmManager {
                                 username: p.username.clone(),
                                 status: status.to_string(),
                                 memory_bytes: p.estimated_memory_bytes,
+                                args: p.args.clone(),
                             }
                         })
                         .collect();
@@ -704,6 +710,67 @@ impl VmManager {
                         hub.sessions.insert(session_id, session);
                     }
                     let _ = response_tx.send(Ok(ready));
+                }
+            }
+
+            // Process run hub: drain pending_runs, spawn /bin/{bin_name} with args, register active run
+            {
+                let pending: Vec<super::process_run_hub::PendingRun> = {
+                    let mut hub = process_run_hub.lock().unwrap();
+                    std::mem::take(&mut hub.pending_runs)
+                };
+                for (player_id, bin_name, args, response_tx) in pending {
+                    let vm_record = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current()
+                            .block_on(self.vm_service.get_vm_by_owner_id(player_id))
+                    });
+                    let Ok(Some(record)) = vm_record else {
+                        let _ = response_tx.send(Err("No VM for player".to_string()));
+                        continue;
+                    };
+                    let vm_id = record.id;
+                    let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) else {
+                        let _ = response_tx.send(Err("VM not loaded".to_string()));
+                        continue;
+                    };
+                    let path = format!("/bin/{}", bin_name);
+                    let lua_code = match tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current()
+                            .block_on(self.fs_service.read_file(vm_id, &path))
+                    }) {
+                        Ok(Some((data, _))) => match String::from_utf8(data) {
+                            Ok(s) => s,
+                            Err(_) => {
+                                let _ = response_tx.send(Err(format!("{} not valid UTF-8", path)));
+                                continue;
+                            }
+                        },
+                        Ok(None) => {
+                            let _ = response_tx.send(Err(format!("{} not found in VM", path)));
+                            continue;
+                        }
+                        Err(e) => {
+                            let _ = response_tx.send(Err(format!("Failed to read {}: {}", path, e)));
+                            continue;
+                        }
+                    };
+                    let pid = vm.os.next_process_id();
+                    let argv0 = bin_name.clone();
+                    vm.os.spawn_process_with_id(
+                        &vm.lua,
+                        pid,
+                        None,
+                        &lua_code,
+                        args,
+                        0,
+                        "root",
+                        None,
+                        Some(argv0),
+                    );
+                    let (stream_tx, stream_rx) = mpsc::channel(32);
+                    let _ = response_tx.send(Ok(stream_rx));
+                    let mut hub = process_run_hub.lock().unwrap();
+                    hub.active_runs.insert((vm_id, pid), (stream_tx, 0));
                 }
             }
 
@@ -1116,6 +1183,49 @@ impl VmManager {
                 }
             }
 
+            // Process run hub: drain stdout from active runs, send Finished when process exits
+            {
+                let mut to_remove = Vec::new();
+                {
+                    let mut hub = process_run_hub.lock().unwrap();
+                    for ((vm_id, pid), (stream_tx, last_len)) in hub.active_runs.iter_mut() {
+                        let Some(vm) = vms.iter().find(|v| v.id == *vm_id) else {
+                            to_remove.push((*vm_id, *pid));
+                            continue;
+                        };
+                        let Some(p) = vm.os.processes.iter().find(|pr| pr.id == *pid) else {
+                            to_remove.push((*vm_id, *pid));
+                            continue;
+                        };
+                        if let Ok(mut guard) = p.stdout.lock() {
+                            let len = guard.len();
+                            if len > *last_len {
+                                let suffix = guard[*last_len..].to_string();
+                                guard.clear();
+                                *last_len = 0;
+                                drop(guard);
+                                if stream_tx.try_send(RunProcessStreamMsg::Stdout(suffix)).is_err() {
+                                    to_remove.push((*vm_id, *pid));
+                                }
+                            }
+                        }
+                        if p.is_finished() {
+                            let _ = stream_tx.try_send(RunProcessStreamMsg::Finished(0));
+                            to_remove.push((*vm_id, *pid));
+                        }
+                    }
+                }
+                for (vm_id, pid) in to_remove {
+                    {
+                        let mut hub = process_run_hub.lock().unwrap();
+                        hub.active_runs.remove(&(vm_id, pid));
+                    }
+                    if let Some(vm) = vms.iter_mut().find(|v| v.id == vm_id) {
+                        vm.os.kill_process_and_descendants(pid);
+                    }
+                }
+            }
+
             // Network tick — route packets between VMs
             self.network_tick(vms);
 
@@ -1149,6 +1259,7 @@ impl VmManager {
                                 username: p.username.clone(),
                                 status: status.to_string(),
                                 memory_bytes: p.estimated_memory_bytes,
+                                args: p.args.clone(),
                             }
                         })
                         .collect();
@@ -2652,6 +2763,1746 @@ end
             "ls / should list 'home', got: {:?}",
             stdout
         );
+    }
+
+    /// Bin grep: search for pattern in files.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-test-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/grep_a.txt", b"foo\nbar\nbaz\n", None, "root")
+            .await
+            .unwrap();
+        fs_service
+            .write_file(vm_id, "/tmp/grep_b.txt", b"nobar\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec!["bar".to_string(), "/tmp/grep_a.txt".to_string(), "/tmp/grep_b.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "grep-test-vm");
+        assert!(stdout.contains("/tmp/grep_a.txt:2:bar"), "grep should find bar in grep_a.txt, got: {:?}", stdout);
+        assert!(stdout.contains("/tmp/grep_b.txt:1:nobar"), "grep should find nobar in grep_b.txt, got: {:?}", stdout);
+    }
+
+    /// Bin find: list paths recursively.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-test-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/find_dir", "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_dir/f.txt", b"x", None, "root").await.unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/find_dir".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "find-test-vm");
+        assert!(stdout.contains("/tmp/find_dir"), "find should list dir, got: {:?}", stdout);
+        assert!(stdout.contains("/tmp/find_dir/f.txt"), "find should list file, got: {:?}", stdout);
+    }
+
+    /// Bin sed: substitute pattern with replacement.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_sed() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "sed-test-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/sed_in.txt", b"hello world\nworld end\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::SED,
+            vec!["world".to_string(), "Earth".to_string(), "/tmp/sed_in.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "sed-test-vm");
+        assert!(stdout.contains("hello Earth"), "sed should replace world, got: {:?}", stdout);
+        assert!(stdout.contains("Earth end"), "sed should replace second world, got: {:?}", stdout);
+    }
+
+    /// Bin grep: no match in any file yields empty stdout.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep_no_match() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 1), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-no-match-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/nomatch.txt", b"foo\nbaz\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec!["nonexistent".to_string(), "/tmp/nomatch.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "grep-no-match-vm");
+        assert!(
+            !stdout.contains(":") || stdout.contains("usage"),
+            "grep with no match should not print path:line, got: {:?}",
+            stdout
+        );
+    }
+
+    /// Bin grep: recursive -r on directory finds pattern in nested files.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep_recursive() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 2), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-recursive-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/grep_rec", "root").await.unwrap();
+        fs_service
+            .write_file(vm_id, "/tmp/grep_rec/one.txt", b"needle here\n", None, "root")
+            .await
+            .unwrap();
+        fs_service.mkdir(vm_id, "/tmp/grep_rec/sub", "root").await.unwrap();
+        fs_service
+            .write_file(vm_id, "/tmp/grep_rec/sub/two.txt", b"no\nneedle there\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec!["needle".to_string(), "/tmp/grep_rec".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "grep-recursive-vm");
+        assert!(stdout.contains("needle here"), "grep on dir should find in one.txt, got: {:?}", stdout);
+        assert!(stdout.contains("needle there"), "grep on dir should find in sub/two.txt, got: {:?}", stdout);
+    }
+
+    /// Bin find: nested directories all listed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_nested_dirs() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 2), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-nested-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/nested", "root").await.unwrap();
+        fs_service.mkdir(vm_id, "/tmp/nested/a", "root").await.unwrap();
+        fs_service.mkdir(vm_id, "/tmp/nested/a/b", "root").await.unwrap();
+        fs_service
+            .write_file(vm_id, "/tmp/nested/a/b/leaf.txt", b"x", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/nested".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "find-nested-vm");
+        assert!(stdout.contains("/tmp/nested"), "find should list root, got: {:?}", stdout);
+        assert!(stdout.contains("/tmp/nested/a"), "find should list a, got: {:?}", stdout);
+        assert!(stdout.contains("/tmp/nested/a/b"), "find should list a/b, got: {:?}", stdout);
+        assert!(stdout.contains("/tmp/nested/a/b/leaf.txt"), "find should list leaf, got: {:?}", stdout);
+    }
+
+    /// Bin find: empty directory lists only the root path.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_empty_dir() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 3), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-empty-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/empty_dir", "root").await.unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/empty_dir".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "find-empty-vm");
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 1, "find on empty dir should list only root, got: {:?}", stdout);
+        assert_eq!(lines[0], "/tmp/empty_dir", "only line should be root path, got: {:?}", stdout);
+    }
+
+    /// Bin sed: file without pattern leaves content unchanged.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_sed_pattern_not_found() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 1), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "sed-no-pattern-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/sed_unchanged.txt", b"alpha\nbeta\ngamma\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::SED,
+            vec!["nonexistent".to_string(), "replacement".to_string(), "/tmp/sed_unchanged.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "sed-no-pattern-vm");
+        assert!(stdout.contains("alpha"), "sed should leave content unchanged, got: {:?}", stdout);
+        assert!(stdout.contains("beta"), "sed should leave content unchanged, got: {:?}", stdout);
+        assert!(!stdout.contains("replacement"), "sed should not replace when pattern absent, got: {:?}", stdout);
+    }
+
+    /// Bin grep: pattern at start of line is found.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep_pattern_at_line_start() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 20), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-start-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/start.txt", b"prefix\nstart_here\nsuffix\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec!["start".to_string(), "/tmp/start.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "grep-start-vm");
+        assert!(stdout.contains("/tmp/start.txt:2:start_here"), "grep should find pattern at line start, got: {:?}", stdout);
+    }
+
+    /// Bin grep: pattern at end of line is found.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep_pattern_at_line_end() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 21), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-end-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/end.txt", b"first\nat_end\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec!["end".to_string(), "/tmp/end.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "grep-end-vm");
+        assert!(stdout.contains("/tmp/end.txt:2:at_end"), "grep should find pattern at line end, got: {:?}", stdout);
+    }
+
+    /// Bin grep: search is case-sensitive; "Bar" does not match "bar".
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep_case_sensitive() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 22), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-case-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/case.txt", b"bar\nBar\nBAR\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec!["Bar".to_string(), "/tmp/case.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "grep-case-vm");
+        assert!(stdout.contains("Bar"), "grep should find exact Bar, got: {:?}", stdout);
+        assert_eq!(stdout.matches("Bar").count(), 1, "grep should find only one Bar line, got: {:?}", stdout);
+    }
+
+    /// Bin grep: single file path only (explicit file).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep_single_file_only() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 23), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-single-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/only.txt", b"one\ntwo\nthree\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec!["two".to_string(), "/tmp/only.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "grep-single-vm");
+        assert!(stdout.contains("/tmp/only.txt:2:two"), "grep single file should find line, got: {:?}", stdout);
+    }
+
+    /// Bin grep: nonexistent path does not crash; no output for that path.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep_nonexistent_path() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 24), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-nonexistent-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/real.txt", b"match\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec!["match".to_string(), "/tmp/real.txt".to_string(), "/tmp/nonexistent.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "grep-nonexistent-vm");
+        assert!(stdout.contains("/tmp/real.txt:1:match"), "grep should find in real file, got: {:?}", stdout);
+        assert!(!stdout.contains("nonexistent"), "grep should not output for nonexistent path, got: {:?}", stdout);
+    }
+
+    /// Bin grep: pattern with special characters (literal substring).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep_special_chars_in_pattern() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 25), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-special-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/special.txt", b"a.b.c\nx y z\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec!["a.b".to_string(), "/tmp/special.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "grep-special-vm");
+        assert!(stdout.contains("a.b.c"), "grep should find literal a.b, got: {:?}", stdout);
+    }
+
+    /// Bin find: on a single file path (non-directory) lists only that path.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_single_file_path() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 20), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-file-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.write_file(vm_id, "/tmp/single_file.txt", b"x", None, "root").await.unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/single_file.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "find-file-vm");
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 1, "find on file should list one path, got: {:?}", stdout);
+        assert_eq!(lines[0], "/tmp/single_file.txt", "find should list the file path, got: {:?}", stdout);
+    }
+
+    /// Bin find: no args uses default path "." (current dir).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_default_dot() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 21), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-dot-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/find_dot_dir", "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_dot_dir/f.txt", b"x", None, "root").await.unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        // Run find with no args so root = "."; we must run from a cwd that contains our test dir.
+        // Bin find uses args[1] or "."; we pass "." explicitly to simulate default.
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec![".".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "find-dot-vm");
+        assert!(stdout.contains("."), "find . should list current dir, got: {:?}", stdout);
+    }
+
+    /// Bin find: nonexistent path still prints the path once then returns (no crash).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_nonexistent_path() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 22), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-nonexistent-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/does_not_exist_xyz".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "find-nonexistent-vm");
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 1, "find on nonexistent path should output path once, got: {:?}", stdout);
+        assert!(lines[0].contains("does_not_exist_xyz"), "find should print requested path, got: {:?}", stdout);
+    }
+
+    /// Bin sed: empty replacement string removes pattern from output.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_sed_empty_replacement() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 20), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "sed-empty-repl-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/sed_empty_repl.txt", b"remove_me and rest\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::SED,
+            vec!["remove_me ".to_string(), "".to_string(), "/tmp/sed_empty_repl.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "sed-empty-repl-vm");
+        assert!(stdout.contains("and rest"), "sed empty replacement should remove pattern, got: {:?}", stdout);
+        assert!(!stdout.contains("remove_me"), "sed should not contain original pattern, got: {:?}", stdout);
+    }
+
+    /// Bin sed: multiple lines with pattern on some lines only.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_sed_multiple_lines_partial_match() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 21), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "sed-multi-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/sed_multi.txt", b"line1\nreplace_this\nline3\nno_change\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::SED,
+            vec!["replace_this".to_string(), "done".to_string(), "/tmp/sed_multi.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "sed-multi-vm");
+        assert!(stdout.contains("line1"), "sed should keep line1, got: {:?}", stdout);
+        assert!(stdout.contains("done"), "sed should replace on matching line, got: {:?}", stdout);
+        assert!(stdout.contains("line3"), "sed should keep line3, got: {:?}", stdout);
+        assert!(stdout.contains("no_change"), "sed should keep line without pattern, got: {:?}", stdout);
+    }
+
+    /// Bin sed: file not found prints error and exits.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_sed_file_not_found() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 22), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "sed-notfound-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::SED,
+            vec!["x".to_string(), "y".to_string(), "/tmp/nonexistent_sed_file.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "sed-notfound-vm");
+        assert!(stdout.contains("sed: cannot read"), "sed should print error for missing file, got: {:?}", stdout);
+        assert!(stdout.contains("nonexistent_sed_file"), "sed error should mention path, got: {:?}", stdout);
+    }
+
+    /// Bin sed: pattern at line boundary (start of content).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_sed_pattern_at_boundary() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 23), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "sed-boundary-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/sed_boundary.txt", b"first\nlast\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::SED,
+            vec!["first".to_string(), "1st".to_string(), "/tmp/sed_boundary.txt".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "sed-boundary-vm");
+        assert!(stdout.contains("1st"), "sed should replace at start of content, got: {:?}", stdout);
+        assert!(stdout.contains("last"), "sed should leave other line unchanged, got: {:?}", stdout);
+    }
+
+    // --- Stress tests for grep, find, sed (more ticks allowed) ---
+
+    /// Grep stress: many files (50), pattern in half of them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep_stress_many_files() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 10), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-stress-many-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/grep_stress", "root").await.unwrap();
+        for i in 0..50u32 {
+            let path = format!("/tmp/grep_stress/f{:02}.txt", i);
+            let content = if i % 2 == 0 {
+                format!("line1\nmatch_here\nline3\n")
+            } else {
+                "no match in this file\n".to_string()
+            };
+            fs_service
+                .write_file(vm_id, &path, content.as_bytes(), None, "root")
+                .await
+                .unwrap();
+        }
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec!["match_here".to_string(), "/tmp/grep_stress".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "grep-stress-many-vm", 2000);
+        let match_count = stdout.lines().filter(|l| l.contains("match_here")).count();
+        assert_eq!(match_count, 25, "grep should find 25 files with match_here, got {} lines", match_count);
+    }
+
+    /// Grep stress: one file with many lines (200), pattern on every other line.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep_stress_many_matches() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 11), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-stress-matches-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let mut content = String::new();
+        for i in 0..200 {
+            if i % 2 == 0 {
+                content.push_str("hit\n");
+            } else {
+                content.push_str("miss\n");
+            }
+        }
+        fs_service
+            .write_file(vm_id, "/tmp/many_lines.txt", content.as_bytes(), None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec!["hit".to_string(), "/tmp/many_lines.txt".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "grep-stress-matches-vm", 1500);
+        let hits = stdout.lines().filter(|l| l.ends_with("hit")).count();
+        assert_eq!(hits, 100, "grep should find 100 lines with hit, got {}", hits);
+    }
+
+    /// Grep stress: long line (1500 chars) with pattern in the middle.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep_stress_long_line() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 12), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-stress-long-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let pad = "x".repeat(700);
+        let content = format!("{}needle_in_middle{}\n", pad, pad);
+        fs_service
+            .write_file(vm_id, "/tmp/long_line.txt", content.as_bytes(), None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec!["needle_in_middle".to_string(), "/tmp/long_line.txt".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "grep-stress-long-vm", 8000);
+        assert!(stdout.contains("needle_in_middle"), "grep should find pattern in long line, got: {:?}", stdout);
+    }
+
+    /// Find stress: deep directory tree (15 levels).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_stress_deep_tree() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 10), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-stress-deep-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let mut path = "/tmp/deep".to_string();
+        fs_service.mkdir(vm_id, &path, "root").await.unwrap();
+        for d in 1..=14 {
+            path.push_str(&format!("/d{}", d));
+            fs_service.mkdir(vm_id, &path, "root").await.unwrap();
+        }
+        fs_service
+            .write_file(vm_id, &format!("{}/leaf", path), b"x", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/deep".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "find-stress-deep-vm", 2000);
+        assert!(stdout.contains("/tmp/deep"), "find should list root");
+        assert!(stdout.contains("/tmp/deep/d1"), "find should list d1");
+        assert!(stdout.contains("/tmp/deep/d1/d2/d3"), "find should list deep path");
+        assert!(stdout.contains("leaf"), "find should list leaf file");
+    }
+
+    /// Find stress: wide tree — one dir with 40 subdirs, each with one file.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_stress_wide_tree() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 11), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-stress-wide-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/wide", "root").await.unwrap();
+        for i in 0..40u32 {
+            let dir = format!("/tmp/wide/s{}", i);
+            fs_service.mkdir(vm_id, &dir, "root").await.unwrap();
+            fs_service
+                .write_file(vm_id, &format!("{}/f.txt", dir), b"x", None, "root")
+                .await
+                .unwrap();
+        }
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/wide".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "find-stress-wide-vm", 2000);
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert!(lines.len() >= 81, "find should list root + 40 dirs + 40 files, got {} lines", lines.len());
+        assert!(stdout.contains("/tmp/wide/s0/f.txt") && stdout.contains("/tmp/wide/s39/f.txt"));
+    }
+
+    /// Find stress: many files (60) in a single directory.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_stress_many_files_one_dir() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 12), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-stress-flat-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/flat", "root").await.unwrap();
+        for i in 0..60u32 {
+            fs_service
+                .write_file(vm_id, &format!("/tmp/flat/file_{:02}.txt", i), b"x", None, "root")
+                .await
+                .unwrap();
+        }
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/flat".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "find-stress-flat-vm", 500);
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 61, "find should list 1 dir + 60 files, got {}", lines.len());
+    }
+
+    /// Sed stress: file with 150 lines, replace on every line.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_sed_stress_many_replacements() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 10), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "sed-stress-many-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let content = (0..150).map(|i| format!("replace_me line{}\n", i)).collect::<String>();
+        fs_service
+            .write_file(vm_id, "/tmp/sed_many.txt", content.as_bytes(), None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::SED,
+            vec![
+                "replace_me".to_string(),
+                "DONE".to_string(),
+                "/tmp/sed_many.txt".to_string(),
+            ],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "sed-stress-many-vm", 2000);
+        let done_count = stdout.matches("DONE").count();
+        assert_eq!(done_count, 150, "sed should replace 150 occurrences, got {}", done_count);
+    }
+
+    /// Sed stress: one long line with pattern repeated 80 times.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_sed_stress_long_line_many_matches() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 11), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "sed-stress-long-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let line = "ab".repeat(80);
+        fs_service
+            .write_file(vm_id, "/tmp/sed_long.txt", format!("{}\n", line).as_bytes(), None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::SED,
+            vec!["ab".to_string(), "X".to_string(), "/tmp/sed_long.txt".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "sed-stress-long-vm", 1500);
+        let x_count = stdout.matches("X").count();
+        assert_eq!(x_count, 80, "sed should replace 80 'ab' with 'X', got {}", x_count);
+    }
+
+    /// Sed stress: replacement longer than pattern, many occurrences.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_sed_stress_replacement_longer() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 12), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "sed-stress-long-repl-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let content = "x x x x x x x x x x\n"; // 10 occurrences
+        fs_service
+            .write_file(vm_id, "/tmp/sed_repl.txt", content.as_bytes(), None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::SED,
+            vec![
+                "x".to_string(),
+                "long_replacement".to_string(),
+                "/tmp/sed_repl.txt".to_string(),
+            ],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "sed-stress-long-repl-vm", 500);
+        let count = stdout.matches("long_replacement").count();
+        assert_eq!(count, 10, "sed should replace 10 'x' with longer string, got {}", count);
+    }
+
+    /// Grep stress: empty file and mixed paths (no crash, correct match count).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_grep_stress_empty_file_and_multi_path() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 13), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "grep-stress-empty-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/empty.txt", b"", None, "root")
+            .await
+            .unwrap();
+        fs_service
+            .write_file(vm_id, "/tmp/has.txt", b"needle\n", None, "root")
+            .await
+            .unwrap();
+        fs_service
+            .write_file(vm_id, "/tmp/none.txt", b"nope\n", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::GREP,
+            vec![
+                "needle".to_string(),
+                "/tmp/empty.txt".to_string(),
+                "/tmp/has.txt".to_string(),
+                "/tmp/none.txt".to_string(),
+            ],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "grep-stress-empty-vm", 300);
+        assert!(stdout.contains("/tmp/has.txt:1:needle"), "grep should find in has.txt, got: {:?}", stdout);
+        assert!(!stdout.contains("/tmp/empty.txt"), "empty file should produce no match line");
+        assert!(!stdout.contains("/tmp/none.txt"), "file without pattern should produce no match");
+    }
+
+    /// Find stress: very deep tree (20 levels).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_stress_very_deep() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 13), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-stress-verydeep-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let mut path = "/tmp/vdeep".to_string();
+        fs_service.mkdir(vm_id, &path, "root").await.unwrap();
+        for d in 1..=19 {
+            path.push_str(&format!("/l{}", d));
+            fs_service.mkdir(vm_id, &path, "root").await.unwrap();
+        }
+        fs_service
+            .write_file(vm_id, &format!("{}/end", path), b"ok", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/vdeep".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "find-stress-verydeep-vm", 3000);
+        assert!(stdout.contains("/tmp/vdeep"), "find should list root");
+        assert!(stdout.contains("l10"), "find should list mid-level");
+        assert!(stdout.contains("end"), "find should list leaf file");
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 21, "find should list 1 root + 19 dirs + 1 file = 21, got {}", lines.len());
+    }
+
+    /// Sed stress: empty file (no crash, empty output).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_sed_stress_empty_file() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 13), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "sed-stress-empty-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service
+            .write_file(vm_id, "/tmp/empty_sed.txt", b"", None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::SED,
+            vec!["a".to_string(), "b".to_string(), "/tmp/empty_sed.txt".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "sed-stress-empty-vm", 100);
+        assert!(stdout.is_empty(), "sed on empty file should output nothing, got: {:?}", stdout);
+    }
+
+    /// Sed stress: 200 replacements in one file (more than many_replacements).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_sed_stress_heavy_replacements() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 14), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "sed-stress-heavy-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        let content = (0..200).map(|_| "OLD\n").collect::<String>();
+        fs_service
+            .write_file(vm_id, "/tmp/sed_heavy.txt", content.as_bytes(), None, "root")
+            .await
+            .unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::SED,
+            vec!["OLD".to_string(), "NEW".to_string(), "/tmp/sed_heavy.txt".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "sed-stress-heavy-vm", 3000);
+        let new_count = stdout.matches("NEW").count();
+        assert_eq!(new_count, 200, "sed should replace 200 OLD with NEW, got {}", new_count);
     }
 
     /// Bin touch: creates empty file.

@@ -1,0 +1,159 @@
+# Terminal-style UI
+Container:
+  style:
+    padding: 0
+    backgroundColor: "#0a0a0a"
+    width: 800
+    height: 600
+    borderRadius: 12
+    borderWidth: 2
+    borderColor: "#00ff00"
+    shadow: large
+  children:
+    - Column:
+        gap: 0
+        children:
+          # Terminal header
+          - Row:
+              justify: spaceBetween
+              align: center
+              style:
+                padding: 12
+                backgroundColor: "#1a1a1a"
+                borderBottomWidth: 1
+                borderColor: "#00ff00"
+              children:
+                - Row:
+                    gap: 8
+                    align: center
+                    children:
+                      - Icon:
+                          name: "terminal"
+                          size: 20
+                          style:
+                            color: "#00ff00"
+                      - Text:
+                          text: "NullTrace Terminal v1.0"
+                          style:
+                            fontSize: 14
+                            fontWeight: bold
+                            color: "#00ff00"
+                            fontFamily: monospace
+
+                - Row:
+                    gap: 4
+                    children:
+                      - Container:
+                          style:
+                            width: 12
+                            height: 12
+                            borderRadius: 6
+                            backgroundColor: yellow
+                      - Container:
+                          style:
+                            width: 12
+                            height: 12
+                            borderRadius: 6
+                            backgroundColor: green
+
+          # Terminal content
+          - Container:
+              style:
+                padding: 16
+                flex: 1
+                overflow: scroll
+              children:
+                - Column:
+                    gap: 8
+                    children:
+                      - Text:
+                          text: "> Initializing connection..."
+                          style:
+                            fontFamily: monospace
+                            color: "#00ff00"
+                            fontSize: 14
+
+                      - Text:
+                          text: "> Establishing secure tunnel..."
+                          style:
+                            fontFamily: monospace
+                            color: "#00ff00"
+                            fontSize: 14
+
+                      - Text:
+                          text: "> Connection established!"
+                          style:
+                            fontFamily: monospace
+                            color: "#00ff00"
+                            fontSize: 14
+                            fontWeight: bold
+
+                      - Spacer:
+                          size: 8
+
+                      - Text:
+                          text: "Available commands:"
+                          style:
+                            fontFamily: monospace
+                            color: "#ffff00"
+                            fontSize: 14
+
+                      - Text:
+                          text: "  scan <target>    - Scan target system"
+                          style:
+                            fontFamily: monospace
+                            color: gray
+                            fontSize: 12
+
+                      - Text:
+                          text: "  hack <target>    - Attempt to hack target"
+                          style:
+                            fontFamily: monospace
+                            color: gray
+                            fontSize: 12
+
+                      - Text:
+                          text: "  status           - Show system status"
+                          style:
+                            fontFamily: monospace
+                            color: gray
+                            fontSize: 12
+
+          # Input area
+          - Row:
+              gap: 8
+              align: center
+              style:
+                padding: 12
+                backgroundColor: "#1a1a1a"
+                borderTopWidth: 1
+                borderColor: "#00ff00"
+              children:
+                - Text:
+                    text: ">"
+                    style:
+                      fontSize: 14
+                      fontWeight: bold
+                      color: "#00ff00"
+                      fontFamily: monospace
+
+                - Input:
+                    name: "command"
+                    placeholder: "Enter command..."
+                    type: text
+                    style:
+                      flex: 1
+                      backgroundColor: transparent
+                      color: "#00ff00"
+                      borderWidth: 0
+                      fontFamily: monospace
+
+                - Button:
+                    action: "execute_command"
+                    variant: primary
+                    children:
+                      - Text:
+                          text: "EXECUTE"
+                          style:
+                            fontWeight: bold
+                            fontSize: 12

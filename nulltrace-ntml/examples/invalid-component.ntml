@@ -1,0 +1,3 @@
+# Invalid NTML - unknown component type
+InvalidComponent:
+  text: "This component doesn't exist"

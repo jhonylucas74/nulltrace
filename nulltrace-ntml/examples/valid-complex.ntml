@@ -1,0 +1,61 @@
+# Complex valid NTML example with multiple components
+Container:
+  style:
+    padding: 24
+    backgroundColor: "#0a0a0a"
+    borderRadius: 8
+  children:
+    - Flex:
+        direction: column
+        gap: 16
+        children:
+          - Text:
+              text: "Player Stats"
+              style:
+                fontSize: 32
+                fontWeight: bold
+                color: "#00ff00"
+
+          - Row:
+              gap: 12
+              align: center
+              children:
+                - Icon:
+                    name: "heart"
+                    size: 24
+                    style:
+                      color: red
+
+                - ProgressBar:
+                    value: 75
+                    max: 100
+                    variant: danger
+                    showLabel: true
+                    style:
+                      width: 200
+
+          - Grid:
+              columns: 2
+              gap: 8
+              children:
+                - Badge:
+                    text: "Level 42"
+                    variant: primary
+
+                - Badge:
+                    text: "Elite Hacker"
+                    variant: success
+
+          - Divider:
+              orientation: horizontal
+              style:
+                marginVertical: 12
+
+          - Button:
+              action: "hack_system"
+              variant: primary
+              children:
+                - Text:
+                    text: "HACK THE SYSTEM"
+                    style:
+                      fontWeight: bold

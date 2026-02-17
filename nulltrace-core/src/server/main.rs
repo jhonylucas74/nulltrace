@@ -1,13 +1,13 @@
 use game::game_service_server::{GameService, GameServiceServer};
 use game::{
-    CopyPathRequest, CopyPathResponse, CreateFactionRequest, CreateFactionResponse,
+    CopyPathRequest, CopyPathResponse, CreateFolderRequest, CreateFolderResponse, CreateFactionRequest, CreateFactionResponse,
     GetDiskUsageRequest, GetDiskUsageResponse, GetHomePathRequest, GetHomePathResponse,
     GetPlayerProfileRequest, GetPlayerProfileResponse, GetProcessListRequest, GetProcessListResponse,
     GetRankingRequest, GetRankingResponse, HelloRequest, HelloResponse, LeaveFactionRequest,
     LeaveFactionResponse, ListFsRequest, ListFsResponse, LoginRequest, LoginResponse,
     MovePathRequest, MovePathResponse, PingRequest, PingResponse, ProcessSpyClientMessage,
-    ProcessSpyServerMessage, RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest,
-    RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
+    ProcessSpyServerMessage,     RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest,
+    RenamePathResponse, RunProcessRequest, RunProcessResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
     SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, TerminalClientMessage,
     TerminalServerMessage, WriteFileRequest, WriteFileResponse,
     ReadFileRequest, ReadFileResponse,
@@ -31,11 +31,26 @@ pub struct MyGameService {}
 
 type TerminalStreamStream = ReceiverStream<Result<TerminalServerMessage, Status>>;
 type ProcessSpyStreamStream = ReceiverStream<Result<ProcessSpyServerMessage, Status>>;
+type RunProcessStream = ReceiverStream<Result<RunProcessResponse, Status>>;
 
 #[tonic::async_trait]
 impl GameService for MyGameService {
     type TerminalStreamStream = TerminalStreamStream;
     type ProcessSpyStreamStream = ProcessSpyStreamStream;
+    type RunProcessStream = RunProcessStream;
+
+    async fn run_process(
+        &self,
+        _request: Request<RunProcessRequest>,
+    ) -> Result<Response<Self::RunProcessStream>, Status> {
+        let (_tx, rx) = tokio::sync::mpsc::channel(1);
+        let _ = _tx.try_send(Ok(RunProcessResponse {
+            msg: Some(game::run_process_response::Msg::Finished(game::RunProcessFinished {
+                exit_code: 1,
+            })),
+        }));
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
 
     async fn say_hello(
         &self,
@@ -183,6 +198,16 @@ impl GameService for MyGameService {
         _request: Request<RenamePathRequest>,
     ) -> Result<Response<RenamePathResponse>, Status> {
         Ok(Response::new(RenamePathResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for file operations".to_string(),
+        }))
+    }
+
+    async fn create_folder(
+        &self,
+        _request: Request<CreateFolderRequest>,
+    ) -> Result<Response<CreateFolderResponse>, Status> {
+        Ok(Response::new(CreateFolderResponse {
             success: false,
             error_message: "Use the unified cluster binary for file operations".to_string(),
         }))

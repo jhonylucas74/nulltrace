@@ -1,0 +1,4 @@
+# Run DB-backed tests without migration deadlocks (single thread).
+# Use: cargo test-serial
+[alias]
+test-serial = "test --bin cluster -- --test-threads=1"

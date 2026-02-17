@@ -9,12 +9,13 @@ use game::process_spy_client_message::Msg as ProcessSpyClientMsg;
 use game::process_spy_server_message::Msg as ProcessSpyServerMsg;
 use game::terminal_client_message::Msg as TerminalClientMsg;
 use game::terminal_server_message::Msg as TerminalServerMsg;
+use game::run_process_response::Msg as RunProcessResponseMsg;
 use game::{
-    CopyPathRequest, CreateFactionRequest, GetDiskUsageRequest, GetHomePathRequest,
+    CopyPathRequest, CreateFolderRequest, CreateFactionRequest, GetDiskUsageRequest, GetHomePathRequest,
     GetPlayerProfileRequest, GetProcessListRequest, GetRankingRequest, GetSysinfoRequest,
     InjectStdin, Interrupt, KillProcess, LeaveFactionRequest, ListFsRequest, LoginRequest,
     MovePathRequest, OpenCodeRun, OpenTerminal, PingRequest, ProcessListSnapshot, ProcessSpyClientMessage,
-    ProcessSpyOpened, RenamePathRequest, RestoreDiskRequest, SetPreferredThemeRequest,
+    ProcessSpyOpened, RenamePathRequest, RestoreDiskRequest, RunProcessRequest, SetPreferredThemeRequest,
     SetShortcutsRequest, SpawnLuaScript, StdinData, SubscribePid, TerminalClientMessage,
     TerminalOpened, UnsubscribePid, WriteFileRequest, ReadFileRequest, EmptyTrashRequest,
     GetInstalledStoreAppsRequest, InstallStoreAppRequest, UninstallStoreAppRequest,
@@ -821,6 +822,97 @@ pub struct WriteFileCommandResponse {
     pub error_message: String,
 }
 
+/// Tauri command: Create a folder at the given path. Parent must exist.
+#[tauri::command]
+pub async fn grpc_create_folder(path: String, token: String) -> Result<CreateFolderCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(CreateFolderRequest { path: path.clone() });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .create_folder(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(CreateFolderCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct CreateFolderCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct RunProcessCommandResponse {
+    pub stdout: String,
+    pub exit_code: i32,
+}
+
+/// Tauri command: Run a VM binary with args, collect full stdout and exit code.
+#[tauri::command]
+pub async fn grpc_run_process(
+    bin_name: String,
+    args: Vec<String>,
+    token: String,
+) -> Result<RunProcessCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(RunProcessRequest {
+        bin_name: bin_name.clone(),
+        args: args.clone(),
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let mut stream = client
+        .run_process(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+
+    let mut stdout = String::new();
+    let mut exit_code = 0i32;
+    while let Some(msg) = stream.message().await.map_err(|e| e.to_string())? {
+        match msg.msg {
+            Some(RunProcessResponseMsg::StdoutChunk(data)) => {
+                stdout.push_str(&String::from_utf8_lossy(&data));
+            }
+            Some(RunProcessResponseMsg::Finished(f)) => {
+                exit_code = f.exit_code;
+                break;
+            }
+            None => {}
+        }
+    }
+    Ok(RunProcessCommandResponse { stdout, exit_code })
+}
+
 /// Tauri command: Read file content from the VM. Returns UTF-8 string content.
 #[tauri::command]
 pub async fn grpc_read_file(path: String, token: String) -> Result<ReadFileCommandResponse, String> {
@@ -1415,6 +1507,7 @@ pub async fn process_spy_connect(
                                             "username": p.username,
                                             "status": p.status,
                                             "memory_bytes": p.memory_bytes,
+                                            "args": p.args,
                                         }))
                                         .collect();
                                     let _ = app_emit.emit("process-spy-process-list", serde_json::json!({ "processes": list }));

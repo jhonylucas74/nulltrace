@@ -1,0 +1,275 @@
+# Mission Briefing Screen
+Container:
+  style:
+    padding: 32
+    backgroundColor: "#0a0a0a"
+    minHeight: 600
+  children:
+    - Column:
+        gap: 24
+        children:
+          # Header
+          - Column:
+              gap: 8
+              children:
+                - Text:
+                    text: "MISSION BRIEFING"
+                    style:
+                      fontSize: 36
+                      fontWeight: bold
+                      color: "#00ff00"
+                      textTransform: uppercase
+                      letterSpacing: 2
+
+                - Divider:
+                    orientation: horizontal
+                    style:
+                      borderColor: "#00ff00"
+                      borderWidth: 2
+
+                - Text:
+                    text: "Operation: Silent Breach"
+                    style:
+                      fontSize: 20
+                      color: "#ffff00"
+                      fontStyle: italic
+
+          # Mission details
+          - Grid:
+              columns: 2
+              gap: 16
+              children:
+                # Left column - Mission info
+                - Column:
+                    gap: 16
+                    children:
+                      - Container:
+                          style:
+                            padding: 16
+                            backgroundColor: "#1a1a1a"
+                            borderRadius: 8
+                            borderLeftWidth: 4
+                            borderColor: "#00ff00"
+                          children:
+                            - Column:
+                                gap: 12
+                                children:
+                                  - Text:
+                                      text: "Objective"
+                                      style:
+                                        fontSize: 18
+                                        fontWeight: bold
+                                        color: "#00ff00"
+
+                                  - Text:
+                                      text: "Infiltrate the corporate server and extract classified data without triggering alarms."
+                                      style:
+                                        fontSize: 14
+                                        color: white
+                                        lineHeight: 1.5
+
+                      - Container:
+                          style:
+                            padding: 16
+                            backgroundColor: "#1a1a1a"
+                            borderRadius: 8
+                            borderLeftWidth: 4
+                            borderColor: yellow
+                          children:
+                            - Column:
+                                gap: 12
+                                children:
+                                  - Text:
+                                      text: "Difficulty"
+                                      style:
+                                        fontSize: 18
+                                        fontWeight: bold
+                                        color: yellow
+
+                                  - Row:
+                                      gap: 8
+                                      children:
+                                        - Badge:
+                                            text: "HARD"
+                                            variant: warning
+                                        - Text:
+                                            text: "Recommended Level: 35+"
+                                            style:
+                                              fontSize: 12
+                                              color: gray
+
+                      - Container:
+                          style:
+                            padding: 16
+                            backgroundColor: "#1a1a1a"
+                            borderRadius: 8
+                            borderLeftWidth: 4
+                            borderColor: "#00ffff"
+                          children:
+                            - Column:
+                                gap: 12
+                                children:
+                                  - Text:
+                                      text: "Rewards"
+                                      style:
+                                        fontSize: 18
+                                        fontWeight: bold
+                                        color: "#00ffff"
+
+                                  - Column:
+                                      gap: 4
+                                      children:
+                                        - Text:
+                                            text: "• 5000 Credits"
+                                            style:
+                                              fontSize: 14
+                                              color: white
+                                        - Text:
+                                            text: "• Advanced Encryption Tool"
+                                            style:
+                                              fontSize: 14
+                                              color: white
+                                        - Text:
+                                            text: "• +500 Reputation"
+                                            style:
+                                              fontSize: 14
+                                              color: white
+
+                # Right column - Requirements
+                - Column:
+                    gap: 16
+                    children:
+                      - Container:
+                          style:
+                            padding: 16
+                            backgroundColor: "#1a1a1a"
+                            borderRadius: 8
+                          children:
+                            - Column:
+                                gap: 12
+                                children:
+                                  - Text:
+                                      text: "Required Skills"
+                                      style:
+                                        fontSize: 18
+                                        fontWeight: bold
+                                        color: white
+
+                                  - Column:
+                                      gap: 8
+                                      children:
+                                        - Row:
+                                            gap: 8
+                                            align: center
+                                            children:
+                                              - Text:
+                                                  text: "Stealth"
+                                                  style:
+                                                    fontSize: 14
+                                                    width: 100
+                                                    color: white
+                                              - ProgressBar:
+                                                  value: 75
+                                                  max: 100
+                                                  variant: success
+                                                  style:
+                                                    flex: 1
+
+                                        - Row:
+                                            gap: 8
+                                            align: center
+                                            children:
+                                              - Text:
+                                                  text: "Hacking"
+                                                  style:
+                                                    fontSize: 14
+                                                    width: 100
+                                                    color: white
+                                              - ProgressBar:
+                                                  value: 60
+                                                  max: 100
+                                                  variant: default
+                                                  style:
+                                                    flex: 1
+
+                                        - Row:
+                                            gap: 8
+                                            align: center
+                                            children:
+                                              - Text:
+                                                  text: "Network"
+                                                  style:
+                                                    fontSize: 14
+                                                    width: 100
+                                                    color: white
+                                              - ProgressBar:
+                                                  value: 40
+                                                  max: 100
+                                                  variant: warning
+                                                  style:
+                                                    flex: 1
+
+                      - Container:
+                          style:
+                            padding: 16
+                            backgroundColor: "#1a1a1a"
+                            borderRadius: 8
+                            borderWidth: 2
+                            borderColor: red
+                          children:
+                            - Column:
+                                gap: 8
+                                children:
+                                  - Row:
+                                      gap: 8
+                                      align: center
+                                      children:
+                                        - Icon:
+                                            name: "alert-triangle"
+                                            size: 24
+                                            style:
+                                              color: red
+                                        - Text:
+                                            text: "WARNING"
+                                            style:
+                                              fontSize: 18
+                                              fontWeight: bold
+                                              color: red
+
+                                  - Text:
+                                      text: "This mission is high-risk. Detection will result in immediate countermeasures."
+                                      style:
+                                        fontSize: 14
+                                        color: white
+                                        lineHeight: 1.5
+
+          # Action buttons
+          - Row:
+              gap: 16
+              justify: center
+              children:
+                - Button:
+                    action: "accept_mission"
+                    variant: primary
+                    style:
+                      padding: 16
+                      minWidth: 200
+                    children:
+                      - Text:
+                          text: "ACCEPT MISSION"
+                          style:
+                            fontSize: 16
+                            fontWeight: bold
+
+                - Button:
+                    action: "decline_mission"
+                    variant: secondary
+                    style:
+                      padding: 16
+                      minWidth: 200
+                    children:
+                      - Text:
+                          text: "DECLINE"
+                          style:
+                            fontSize: 16
+                            fontWeight: bold
