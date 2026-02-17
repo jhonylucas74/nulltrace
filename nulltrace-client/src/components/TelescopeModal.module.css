@@ -1,0 +1,312 @@
+/* Telescope-style modal: overlay fills app window; panel is 80% of that (game window, not viewport) */
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 0;
+}
+
+.panel {
+  width: 80%;
+  height: 80%;
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.header {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 120px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.caseSensitiveLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* OS-like checkbox: same as Grid layout (StartupSettingsApp / BackgroundApp) */
+.checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-surface);
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s, background 0.15s;
+  margin: 0;
+}
+
+.checkbox:hover {
+  border-color: var(--text-muted);
+}
+
+.checkbox:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-muted);
+}
+
+.checkbox:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.checkbox:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+  border: solid var(--bg-surface);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.checkbox:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.replaceRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.replaceLabel {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.replaceInput {
+  flex: 1;
+  min-width: 80px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+}
+
+.replaceInput:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.closeBtn {
+  flex-shrink: 0;
+  padding: 0.35rem 0.5rem;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.closeBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.listPane {
+  flex: 0 0 40%;
+  min-width: 180px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.listItem {
+  display: block;
+  width: 100%;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  text-align: left;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.listItem:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.listItemSelected {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.listItemLine {
+  color: var(--text-tertiary);
+  margin-left: 0.25rem;
+}
+
+.previewPane {
+  flex: 1;
+  overflow: auto;
+  padding: 0.5rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  white-space: pre;
+}
+
+.previewLine {
+  min-height: 1.5em;
+}
+
+.previewLineSelected {
+  background: var(--accent-muted);
+  border-left: 3px solid var(--accent);
+  padding-left: 0.25rem;
+  margin-left: -0.25rem;
+}
+
+.previewContent {
+  word-break: break-all;
+}
+
+.previewContent :global(.luau-keyword) {
+  color: var(--syntax-keyword, #c678dd);
+}
+
+.previewContent :global(.luau-string) {
+  color: var(--syntax-string, #98c379);
+}
+
+.previewContent :global(.luau-comment) {
+  color: var(--syntax-comment, #5c6370);
+}
+
+.previewContent :global(.luau-number) {
+  color: var(--syntax-number, #d19a66);
+}
+
+.previewContent :global(.luau-builtin) {
+  color: var(--syntax-builtin, #61afef);
+}
+
+.previewContent :global(.search-highlight) {
+  background: var(--accent-muted);
+  color: var(--accent);
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+.previewEmpty {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.actionBtn {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.actionBtn:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.actionBtnPrimary {
+  color: var(--bg-primary);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.actionBtnPrimary:hover {
+  background: var(--accent-dim);
+}
+
+.loading {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-tertiary);
+}

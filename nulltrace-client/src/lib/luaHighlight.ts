@@ -155,3 +155,24 @@ export function isLuaFile(path: string | null): boolean {
   const lower = path.toLowerCase();
   return lower.endsWith(".lua") || lower.endsWith(".luau");
 }
+
+/** Escape special regex characters so the term is matched literally. */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Wrap occurrences of the search term in already-rendered HTML with a <mark> span.
+ * Use after highlightLua (or on plain escaped HTML).
+ * @param caseInsensitive - when true, matches ignoring case (e.g. "welcome" highlights "Welcome").
+ */
+export function highlightSearchInHtml(html: string, term: string, caseInsensitive = false): string {
+  if (!term.trim()) return html;
+  if (caseInsensitive) {
+    const pattern = escapeRegex(term);
+    const re = new RegExp(pattern, "gi");
+    return html.replace(re, (match) => `<mark class="search-highlight">${match}</mark>`);
+  }
+  const escaped = escapeHtml(term);
+  return html.split(escaped).join(`<mark class="search-highlight">${escaped}</mark>`);
+}

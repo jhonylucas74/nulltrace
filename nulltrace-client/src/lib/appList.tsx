@@ -1,5 +1,5 @@
 import React from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Package, GraduationCap, HardDrive, Terminal } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Package, GraduationCap, HardDrive } from "lucide-react";
 import type { WindowType } from "../contexts/WindowManagerContext";
 
 export interface LaunchableApp {
@@ -143,6 +143,7 @@ export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "settings", label: "Settings", icon: <SettingsIcon /> },
   { type: "traceroute", label: "TraceRoute", icon: <TraceRouteIcon /> },
   { type: "store", label: "Store", icon: <StoreIcon /> },
+  { type: "pixelart", label: "Pixel Art", icon: <PixelArtIcon /> },
   { type: "packet", label: "Packet", icon: <Package size={24} /> },
   { type: "codelab", label: "Codelab", icon: <GraduationCap size={24} /> },
   { type: "diskmanager", label: "Disk Manager", icon: <HardDrive size={24} /> },

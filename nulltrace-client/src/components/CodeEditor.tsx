@@ -19,6 +19,7 @@ import { useClipboard } from "../contexts/ClipboardContext";
 import { highlightLua, isLuaFile } from "../lib/luaHighlight";
 import ContextMenu from "./ContextMenu";
 import Modal from "./Modal";
+import TelescopeModal from "./TelescopeModal";
 import styles from "./CodeEditor.module.css";
 
 interface FsEntry {
@@ -29,6 +30,7 @@ interface FsEntry {
 
 const LINE_HEIGHT = 1.5;
 const EDITOR_FONT_SIZE = "0.9rem";
+const UNDO_MAX = 50;
 
 function joinPath(base: string, name: string): string {
   const b = base.replace(/\/$/, "");
@@ -46,15 +48,16 @@ export default function CodeEditor() {
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [consoleVisible, setConsoleVisible] = useState(true);
-  const [findPanelOpen, setFindPanelOpen] = useState(false);
-  const [findValue, setFindValue] = useState("");
-  const [replaceValue, setReplaceValue] = useState("");
-  const [searchInProject, setSearchInProject] = useState(false);
-  const [searchResults, setSearchResults] = useState<Array<{ path: string; line: number; text: string }>>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const findMatchIndexRef = useRef(0);
-  const findMatchesRef = useRef<number[]>([]);
+  /** Undo/redo: past and future content stacks; cap at UNDO_MAX. */
+  const [undoPast, setUndoPast] = useState<string[]>([]);
+  const [undoFuture, setUndoFuture] = useState<string[]>([]);
+  const editorContentRef = useRef("");
   const pendingGoToLineRef = useRef<{ path: string; line: number } | null>(null);
+  /** Telescope modal: mode and open state; when open, shortcuts (Ctrl+F etc.) are handled by modal. */
+  const [telescopeOpen, setTelescopeOpen] = useState(false);
+  const [telescopeMode, setTelescopeMode] = useState<"search" | "findReplace" | "findFile">("search");
+  /** Initial search query when opening Telescope (e.g. from editor selection). */
+  const [telescopeInitialFind, setTelescopeInitialFind] = useState("");
   const [newFileModalOpen, setNewFileModalOpen] = useState(false);
   const [newFileName, setNewFileName] = useState("");
   const [newFileError, setNewFileError] = useState("");
@@ -151,6 +154,10 @@ export default function CodeEditor() {
       setTreeCache({});
     }
   }, [useGrpc, rootPath, fetchTreeCache]);
+
+  useEffect(() => {
+    editorContentRef.current = editorContent;
+  }, [editorContent]);
 
   useEffect(() => {
     if (!useGrpc || !tauri || !token) return;
@@ -558,10 +565,38 @@ export default function CodeEditor() {
     setNewFileParentOverride(null);
   }
 
+  /** Push current content to undo past, clear future, then set new content. Used for all user edits. */
+  function pushUndoAndSetContent(newContent: string) {
+    setUndoPast((p) => {
+      const next = [...p, editorContentRef.current];
+      return next.slice(-UNDO_MAX);
+    });
+    setUndoFuture([]);
+    setEditorContent(newContent);
+    if (activeFilePath && !useGrpc) setFileContent(activeFilePath, newContent);
+  }
+
+  function handleUndo() {
+    if (undoPast.length === 0) return;
+    const prev = undoPast[undoPast.length - 1];
+    setUndoPast((p) => p.slice(0, -1));
+    setUndoFuture((f) => [...f, editorContent]);
+    setEditorContent(prev);
+    if (activeFilePath && !useGrpc) setFileContent(activeFilePath, prev);
+  }
+
+  function handleRedo() {
+    if (undoFuture.length === 0) return;
+    const next = undoFuture[undoFuture.length - 1];
+    setUndoFuture((f) => f.slice(0, -1));
+    setUndoPast((p) => [...p, editorContent]);
+    setEditorContent(next);
+    if (activeFilePath && !useGrpc) setFileContent(activeFilePath, next);
+  }
+
   function handleEditorChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const value = e.target.value;
-    setEditorContent(value);
-    if (activeFilePath && !useGrpc) setFileContent(activeFilePath, value);
+    pushUndoAndSetContent(value);
   }
 
   /** Insert tab at cursor; prevent default so focus does not leave the textarea. */
@@ -577,8 +612,7 @@ export default function CodeEditor() {
     const after = editorContent.slice(end);
     const nextContent = before + tab + after;
     pendingTabSelectionRef.current = start + tab.length;
-    setEditorContent(nextContent);
-    if (activeFilePath && !useGrpc) setFileContent(activeFilePath, nextContent);
+    pushUndoAndSetContent(nextContent);
   }
 
   function handleCut() {
@@ -588,8 +622,7 @@ export default function CodeEditor() {
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
     const next = editorContent.slice(0, start) + editorContent.slice(end);
-    setEditorContent(next);
-    if (activeFilePath && !useGrpc) setFileContent(activeFilePath, next);
+    pushUndoAndSetContent(next);
   }
 
   function handleCopy() {
@@ -606,16 +639,14 @@ export default function CodeEditor() {
       document.execCommand("paste");
       setTimeout(() => {
         const v = ta.value;
-        setEditorContent(v);
-        if (activeFilePath && !useGrpc) setFileContent(activeFilePath, v);
+        pushUndoAndSetContent(v);
       }, 0);
       return;
     }
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
     const next = editorContent.slice(0, start) + text + editorContent.slice(end);
-    setEditorContent(next);
-    if (activeFilePath && !useGrpc) setFileContent(activeFilePath, next);
+    pushUndoAndSetContent(next);
     pendingTabSelectionRef.current = start + text.length;
   }
 
@@ -625,108 +656,6 @@ export default function CodeEditor() {
     ta.focus();
     ta.setSelectionRange(0, editorContent.length);
   }
-
-  function openFindPanel() {
-    setEditMenuOpen(false);
-    setFindPanelOpen(true);
-    setFindValue("");
-    setReplaceValue("");
-  }
-
-  function openFindReplacePanel() {
-    setEditMenuOpen(false);
-    setFindPanelOpen(true);
-    setFindValue("");
-    setReplaceValue("");
-  }
-
-  function getFindMatches(content: string): number[] {
-    if (!findValue) return [];
-    const indices: number[] = [];
-    let i = 0;
-    const pattern = findValue;
-    while (i <= content.length - pattern.length) {
-      const j = content.indexOf(pattern, i);
-      if (j === -1) break;
-      indices.push(j);
-      i = j + 1;
-    }
-    return indices;
-  }
-
-  function goToFindMatch(direction: "next" | "prev", options?: { content?: string; cursorAfterReplace?: number }) {
-    const ta = editorRef.current;
-    if (!ta || !findValue) return;
-    const content = options?.content ?? editorContent;
-    const matches = getFindMatches(content);
-    if (matches.length === 0) return;
-    findMatchesRef.current = matches;
-    const cursor = options?.cursorAfterReplace ?? ta.selectionStart;
-    const selEnd = options?.cursorAfterReplace !== undefined ? options.cursorAfterReplace : ta.selectionEnd;
-    const afterCursor = direction === "next" ? (cursor >= selEnd ? cursor : cursor + 1) : cursor;
-    let idx = direction === "next"
-      ? matches.findIndex((m) => m >= afterCursor)
-      : [...matches].reverse().findIndex((m) => m + findValue.length <= cursor);
-    if (idx < 0) idx = direction === "next" ? 0 : matches.length - 1;
-    const pos = direction === "next" ? matches[idx] : matches[matches.length - 1 - idx];
-    ta.setSelectionRange(pos, pos + findValue.length);
-    ta.focus();
-    findMatchIndexRef.current = direction === "next" ? idx : matches.length - 1 - idx;
-  }
-
-  function handleReplaceOne() {
-    const ta = editorRef.current;
-    if (!ta || !findValue) return;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const selected = editorContent.slice(start, end);
-    if (selected !== findValue) {
-      goToFindMatch("next");
-      return;
-    }
-    const next = editorContent.slice(0, start) + replaceValue + editorContent.slice(end);
-    setEditorContent(next);
-    if (activeFilePath && !useGrpc) setFileContent(activeFilePath, next);
-    ta.setSelectionRange(start, start + replaceValue.length);
-    goToFindMatch("next", { content: next, cursorAfterReplace: start + replaceValue.length });
-  }
-
-  function handleReplaceAll() {
-    if (!findValue) return;
-    const next = editorContent.split(findValue).join(replaceValue);
-    setEditorContent(next);
-    if (activeFilePath && !useGrpc) setFileContent(activeFilePath, next);
-  }
-
-  const runSearchInProject = useCallback(async () => {
-    if (!findValue.trim() || !token || !tauri || !rootPath) return;
-    setSearchLoading(true);
-    setSearchResults([]);
-    try {
-      const res = await invoke<{ stdout: string; exit_code: number }>("grpc_run_process", {
-        binName: "grep",
-        args: [findValue.trim(), "-r", rootPath],
-        token,
-      });
-      const lines = res.stdout.split("\n").filter((l) => l.trim());
-      const results: Array<{ path: string; line: number; text: string }> = [];
-      for (const line of lines) {
-        const firstColon = line.indexOf(":");
-        const secondColon = line.indexOf(":", firstColon + 1);
-        if (firstColon >= 0 && secondColon >= 0) {
-          const path = line.slice(0, firstColon);
-          const lineNum = parseInt(line.slice(firstColon + 1, secondColon), 10);
-          const text = line.slice(secondColon + 1);
-          if (!Number.isNaN(lineNum)) results.push({ path, line: lineNum, text });
-        }
-      }
-      setSearchResults(results);
-    } catch (e) {
-      setSearchResults([]);
-    } finally {
-      setSearchLoading(false);
-    }
-  }, [findValue, token, tauri, rootPath]);
 
   useEffect(() => {
     runSessionIdRef.current = runSessionId;
@@ -839,6 +768,17 @@ export default function CodeEditor() {
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      const editorFocused = editorRef.current && document.activeElement === editorRef.current;
+      const modalOpen = telescopeOpen;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+        if (editorFocused && !modalOpen) {
+          e.preventDefault();
+          if (e.shiftKey) handleRedo();
+          else handleUndo();
+        }
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === "n") {
         e.preventDefault();
         openNewFileModal();
@@ -851,10 +791,34 @@ export default function CodeEditor() {
         e.preventDefault();
         runScript();
       }
+      if (!modalOpen && (e.ctrlKey || e.metaKey)) {
+        if (e.key === "f") {
+          e.preventDefault();
+          const sel = editorRef.current
+            ? editorContentRef.current.slice(editorRef.current.selectionStart, editorRef.current.selectionEnd)
+            : "";
+          setTelescopeInitialFind(sel);
+          setTelescopeMode("search");
+          setTelescopeOpen(true);
+        } else if (e.key === "h") {
+          e.preventDefault();
+          const sel = editorRef.current
+            ? editorContentRef.current.slice(editorRef.current.selectionStart, editorRef.current.selectionEnd)
+            : "";
+          setTelescopeInitialFind(sel);
+          setTelescopeMode("findReplace");
+          setTelescopeOpen(true);
+        } else if (e.key === "p") {
+          e.preventDefault();
+          setTelescopeInitialFind("");
+          setTelescopeMode("findFile");
+          setTelescopeOpen(true);
+        }
+      }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handleSave, runScript]);
+  }, [handleSave, runScript, telescopeOpen, handleUndo, handleRedo]);
 
   const stopRun = useCallback(() => {
     const sid = runSessionId;
@@ -1042,6 +1006,15 @@ export default function CodeEditor() {
           </button>
           {editMenuOpen && (
             <div className={styles.menuDropdown}>
+              <button type="button" className={styles.menuDropdownItem} onClick={() => { handleUndo(); setEditMenuOpen(false); }} disabled={undoPast.length === 0}>
+                <span className={styles.menuItemLabel}>Undo</span>
+                <span className={styles.menuItemShortcut}>Ctrl+Z</span>
+              </button>
+              <button type="button" className={styles.menuDropdownItem} onClick={() => { handleRedo(); setEditMenuOpen(false); }} disabled={undoFuture.length === 0}>
+                <span className={styles.menuItemLabel}>Redo</span>
+                <span className={styles.menuItemShortcut}>Ctrl+Shift+Z</span>
+              </button>
+              <div className={styles.menuDropdownSep} />
               <button type="button" className={styles.menuDropdownItem} onClick={() => { handleCut(); setEditMenuOpen(false); }}>
                 <span className={styles.menuItemLabel}>Cut</span>
                 <span className={styles.menuItemShortcut}>Ctrl+X</span>
@@ -1055,13 +1028,17 @@ export default function CodeEditor() {
                 <span className={styles.menuItemShortcut}>Ctrl+V</span>
               </button>
               <div className={styles.menuDropdownSep} />
-              <button type="button" className={styles.menuDropdownItem} onClick={openFindPanel}>
+              <button type="button" className={styles.menuDropdownItem} onClick={() => { setTelescopeInitialFind(editorRef.current ? editorContent.slice(editorRef.current.selectionStart, editorRef.current.selectionEnd) : ""); setTelescopeMode("search"); setTelescopeOpen(true); setEditMenuOpen(false); }}>
                 <span className={styles.menuItemLabel}>Find</span>
                 <span className={styles.menuItemShortcut}>Ctrl+F</span>
               </button>
-              <button type="button" className={styles.menuDropdownItem} onClick={openFindReplacePanel}>
+              <button type="button" className={styles.menuDropdownItem} onClick={() => { setTelescopeInitialFind(editorRef.current ? editorContent.slice(editorRef.current.selectionStart, editorRef.current.selectionEnd) : ""); setTelescopeMode("findReplace"); setTelescopeOpen(true); setEditMenuOpen(false); }}>
                 <span className={styles.menuItemLabel}>Find and Replace</span>
                 <span className={styles.menuItemShortcut}>Ctrl+H</span>
+              </button>
+              <button type="button" className={styles.menuDropdownItem} onClick={() => { setTelescopeInitialFind(""); setTelescopeMode("findFile"); setTelescopeOpen(true); setEditMenuOpen(false); }}>
+                <span className={styles.menuItemLabel}>Find File</span>
+                <span className={styles.menuItemShortcut}>Ctrl+P</span>
               </button>
             </div>
           )}
@@ -1122,86 +1099,19 @@ export default function CodeEditor() {
         </div>
       </div>
 
-      {findPanelOpen && (
-        <div className={styles.findPanel}>
-          <div className={styles.findBar}>
-            <input
-              type="text"
-              className={styles.findInput}
-              placeholder="Find"
-              value={findValue}
-              onChange={(e) => setFindValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") goToFindMatch(e.shiftKey ? "prev" : "next");
-              }}
-              aria-label="Find"
-            />
-            <button type="button" className={styles.findBtn} onClick={() => goToFindMatch("next")}>
-              Next
-            </button>
-            <button type="button" className={styles.findBtn} onClick={() => goToFindMatch("prev")}>
-              Previous
-            </button>
-            <input
-              type="text"
-              className={styles.findInput}
-              placeholder="Replace"
-              value={replaceValue}
-              onChange={(e) => setReplaceValue(e.target.value)}
-              aria-label="Replace"
-            />
-            <button type="button" className={styles.findBtn} onClick={handleReplaceOne}>
-              Replace
-            </button>
-            <button type="button" className={styles.findBtn} onClick={handleReplaceAll}>
-              Replace All
-            </button>
-            {useGrpc && rootPath && (
-              <>
-                <label className={styles.findCheckbox}>
-                  <input
-                    type="checkbox"
-                    checked={searchInProject}
-                    onChange={(e) => setSearchInProject(e.target.checked)}
-                  />
-                  In project
-                </label>
-                <button
-                  type="button"
-                  className={styles.findBtn}
-                  onClick={runSearchInProject}
-                  disabled={searchLoading || !findValue.trim()}
-                >
-                  {searchLoading ? "Searching…" : "Search"}
-                </button>
-              </>
-            )}
-            <button type="button" className={styles.findCloseBtn} onClick={() => setFindPanelOpen(false)} aria-label="Close find">
-              ×
-            </button>
-          </div>
-          {searchInProject && searchResults.length > 0 && (
-            <div className={styles.searchResults}>
-              {searchResults.map((r, i) => (
-                <button
-                  key={`${r.path}:${r.line}:${i}`}
-                  type="button"
-                  className={styles.searchResultItem}
-                  onClick={() => {
-                    setActiveFilePath(r.path);
-                    pendingGoToLineRef.current = { path: r.path, line: r.line };
-                    setFindPanelOpen(false);
-                  }}
-                >
-                  <span className={styles.searchResultPath}>{r.path}</span>
-                  <span className={styles.searchResultLine}>:{r.line}</span>
-                  <span className={styles.searchResultText}>{r.text}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <TelescopeModal
+        open={telescopeOpen}
+        onClose={() => setTelescopeOpen(false)}
+        mode={telescopeMode}
+        rootPath={rootPath}
+        token={token}
+        initialFindValue={telescopeInitialFind}
+        onOpenInEditor={(path, line) => {
+          setActiveFilePath(path);
+          if (line != null) pendingGoToLineRef.current = { path, line };
+          setTelescopeOpen(false);
+        }}
+      />
 
       <div className={styles.body}>
         {sidebarVisible && (
