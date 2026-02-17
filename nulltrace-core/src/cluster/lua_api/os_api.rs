@@ -252,6 +252,74 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>, fs_service: Arc<FsSer
         })?,
     )?;
 
+    // os.get_work_dir() -> string. Current process's working directory (absolute path). Default "/" if not set.
+    os.set(
+        "get_work_dir",
+        lua.create_function(|lua, ()| {
+            let ctx = lua
+                .app_data_ref::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            let cwd = ctx
+                .process_cwd
+                .get(&ctx.current_pid)
+                .cloned()
+                .unwrap_or_else(|| "/".to_string());
+            Ok(cwd)
+        })?,
+    )?;
+
+    // os.chdir(path) -> (). Change current process's working directory. path is resolved against current cwd. Errors if not a directory.
+    {
+        let fs_svc = fs_service.clone();
+        os.set(
+            "chdir",
+            lua.create_function(move |lua, path: String| {
+                let ctx = lua
+                    .app_data_ref::<VmContext>()
+                    .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+                let vm_id = ctx.vm_id;
+                let current_pid = ctx.current_pid;
+                let cwd = ctx
+                    .process_cwd
+                    .get(&current_pid)
+                    .cloned()
+                    .unwrap_or_else(|| "/".to_string());
+                let resolved = path_util::resolve_relative(&cwd, &path);
+                drop(ctx);
+
+                let fs_svc = fs_svc.clone();
+                let node_type = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        fs_svc.node_type_at(vm_id, &resolved).await
+                    })
+                })
+                .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+
+                match node_type.as_deref() {
+                    Some("directory") => {}
+                    Some(_) => {
+                        return Err(mlua::Error::runtime(format!(
+                            "chdir: not a directory: {}",
+                            path
+                        )));
+                    }
+                    None => {
+                        return Err(mlua::Error::runtime(format!(
+                            "chdir: no such file or directory: {}",
+                            path
+                        )));
+                    }
+                }
+
+                let mut ctx = lua
+                    .app_data_mut::<VmContext>()
+                    .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+                ctx.process_cwd.insert(current_pid, resolved);
+                Ok(())
+            })?,
+        )?;
+    }
+
     // os.get_args() -> table of strings (Lua-indexed 1..n)
     os.set(
         "get_args",

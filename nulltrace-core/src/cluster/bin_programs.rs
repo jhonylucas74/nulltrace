@@ -12,11 +12,14 @@ io.write(table.concat(out, " ") .. "\n")
 "#;
 
 /// Cat: reads each file path from args and writes content to stdout.
-/// Prints an error message when the path is not found or is a directory.
+/// Resolves relative paths with os.get_work_dir.
 pub const CAT: &str = r#"
 local args = os.get_args()
 for i = 1, #args do
     local path = args[i]
+    if path:sub(1, 1) ~= "/" then
+      path = os.path_resolve(os.get_work_dir(), path)
+    end
     local st = fs.stat(path)
     if not st then
         io.write("<red>cat: " .. path .. ": No such file or directory</red>\n")
@@ -33,11 +36,14 @@ for i = 1, #args do
 end
 "#;
 
-/// Ls: lists directory entries. Args: path (default ".")
-/// Columns are aligned by computing max widths from all entries, then padding each field.
+/// Ls: lists directory entries. Args: path (default current work dir).
+/// Resolves relative paths with os.get_work_dir. Output is written in one go.
 pub const LS: &str = r#"
 local args = os.get_args()
-local path = (#args >= 1) and args[1] or "."
+local path = (#args >= 1) and args[1] or os.get_work_dir()
+if path:sub(1, 1) ~= "/" then
+  path = os.path_resolve(os.get_work_dir(), path)
+end
 local entries = fs.ls(path)
 
 if #entries == 0 then
@@ -64,28 +70,38 @@ local function pad_left(s, width)
   return string.rep(" ", math.max(0, width - #s)) .. s
 end
 
+local lines = {}
 for i = 1, #entries do
   local e = entries[i]
   local name_padded = pad_right(e.name, w_name)
   local type_padded = pad_right(e.type, w_type)
   local size_padded = pad_left(tostring(e.size), w_size)
-  io.write(name_padded .. "  " .. type_padded .. "  " .. size_padded .. "  " .. e.owner .. "\n")
+  lines[#lines + 1] = name_padded .. "  " .. type_padded .. "  " .. size_padded .. "  " .. e.owner
 end
+io.write(table.concat(lines, "\n") .. "\n")
 "#;
 
-/// Touch: creates empty file at each path in args.
+/// Touch: creates empty file at each path in args. Resolves relative paths with os.get_work_dir.
 pub const TOUCH: &str = r#"
 local args = os.get_args()
 for i = 1, #args do
-    fs.write(args[i], "", nil)
+    local path = args[i]
+    if path:sub(1, 1) ~= "/" then
+      path = os.path_resolve(os.get_work_dir(), path)
+    end
+    fs.write(path, "", nil)
 end
 "#;
 
-/// Rm: removes each path in args.
+/// Rm: removes each path in args. Resolves relative paths with os.get_work_dir.
 pub const RM: &str = r#"
 local args = os.get_args()
 for i = 1, #args do
-    fs.rm(args[i])
+    local path = args[i]
+    if path:sub(1, 1) ~= "/" then
+      path = os.path_resolve(os.get_work_dir(), path)
+    end
+    fs.rm(path)
 end
 "#;
 
@@ -149,14 +165,14 @@ while true do
 end
 "#;
 
-/// Shell: reads stdin, parses as bin command (no spawn_path). Maintains cwd; cd and pwd are builtins.
-/// Commands ls, touch, cat, rm get path args resolved against cwd. Unknown commands print "<red>Command not found</red>".
+/// Shell: reads stdin, parses as bin command (no spawn_path). Maintains cwd via os.chdir / os.get_work_dir; cd and pwd are builtins.
+/// Child programs receive raw args and resolve paths themselves with os.get_work_dir + os.path_resolve.
 pub const SH: &str = r#"
 local child_pid = nil
 local last_program = nil
 local last_not_found_pid = nil
 local child_ever_ran = false
-local cwd = os.get_home() or "/"
+os.chdir(os.get_home() or "/")
 while true do
   if child_pid then
     local st = os.process_status(child_pid)
@@ -210,7 +226,7 @@ while true do
       end
       local is_tab = (line == "\x09") or line_has_tab(line)
       if is_tab then
-        local ok, replacement = pcall(function() return os.autocomplete(line, cwd) end)
+        local ok, replacement = pcall(function() return os.autocomplete(line, os.get_work_dir()) end)
         if ok and replacement and type(replacement) == "string" and replacement ~= "" then
           io.write("\x01TABCOMPLETE\t" .. replacement .. "\n")
         end
@@ -222,35 +238,24 @@ while true do
         local prog = t.program
         local args = t.args or {}
         if prog == "pwd" then
-          io.write(cwd .. "\n")
+          io.write(os.get_work_dir() .. "\n")
         elseif prog == "cd" then
           if #args < 1 then
-            cwd = os.get_home() or "/"
+            os.chdir(os.get_home() or "/")
           else
             local arg1 = args[1]
-            local resolved = os.path_resolve(cwd, arg1)
+            local resolved = os.path_resolve(os.get_work_dir(), arg1)
             local st = fs.stat(resolved)
             if not st then
               io.write("<red>cd: no such file or directory: " .. arg1 .. "</red>\n")
             elseif st.type ~= "directory" then
               io.write("<red>cd: not a directory: " .. arg1 .. "</red>\n")
             else
-              cwd = resolved
+              os.chdir(resolved)
             end
           end
         else
           local spawn_args = args
-          if prog == "ls" or prog == "touch" or prog == "cat" or prog == "rm" or prog == "lua" then
-            spawn_args = {}
-            if prog == "ls" and #args < 1 then
-              spawn_args[1] = cwd
-            else
-              for i = 1, #args do
-                local p = args[i]
-                spawn_args[i] = (p:sub(1, 1) == "/") and p or os.path_resolve(cwd, p)
-              end
-            end
-          end
           last_program = prog
           last_not_found_pid = nil
           child_ever_ran = false
@@ -280,10 +285,12 @@ if args[1] == "-help" or args[1] == "--help" or args[1] == "-d" then
 end
 if #args >= 2 and args[#args] == "-d" then
   local path = args[1]
+  if path:sub(1, 1) ~= "/" then path = os.path_resolve(os.get_work_dir(), path) end
   os.spawn_path(path, {}, { forward_stdout = false })
   return
 end
 local path = args[1]
+if path:sub(1, 1) ~= "/" then path = os.path_resolve(os.get_work_dir(), path) end
 local content = fs.read(path)
 if not content then
   io.write("lua: cannot read file: " .. path .. "\n")
@@ -376,8 +383,7 @@ while true do
 end
 "#;
 
-/// Grep: search for pattern in files. Args: pattern, then optional paths (default: "."). -r = recursive.
-/// Output: path:line_number:line for each match. Uses plain substring search.
+/// Grep: search for pattern in files. Args: pattern, then optional paths (default: work dir). Resolves relative paths.
 pub const GREP: &str = r#"
 local args = os.get_args()
 if not args or #args < 1 then
@@ -387,9 +393,13 @@ end
 local pattern = args[1]
 local paths = {}
 if #args >= 2 then
-  for i = 2, #args do paths[#paths + 1] = args[i] end
+  for i = 2, #args do
+    local p = args[i]
+    if p:sub(1, 1) ~= "/" then p = os.path_resolve(os.get_work_dir(), p) end
+    paths[#paths + 1] = p
+  end
 else
-  paths[#paths + 1] = "."
+  paths[#paths + 1] = os.get_work_dir()
 end
 local function grep_file(path)
   local st = fs.stat(path)
@@ -435,26 +445,157 @@ for i = 1, #paths do
 end
 "#;
 
-/// Find: list files and dirs recursively. Args: path (default "."). One path per line.
+/// Find: list files and dirs recursively. Args: path (default work dir). Resolves relative paths.
+/// Find: find [path] [-name "pattern"] [-iname "pattern"] [-type f|d] [-size +n|-n|n] [-user name] [-mtime n].
+/// Path defaults to current work dir. Only paths matching all given predicates are printed.
 pub const FIND: &str = r#"
 local args = os.get_args()
-local root = (#args >= 1) and args[1] or "."
-local function visit(path)
-  io.write(path .. "\n")
-  local st = fs.stat(path)
-  if not st or st.type ~= "directory" then return end
-  local entries = fs.ls(path)
+local path = nil
+local name_pattern = nil
+local iname_pattern = nil
+local type_filter = nil
+local size_spec = nil
+local user_filter = nil
+local mtime_days = nil
+local i = 1
+while i <= #args do
+  local a = args[i]
+  if a == "-name" then
+    if i + 1 <= #args then name_pattern = args[i + 1]; i = i + 2 else i = i + 1 end
+  elseif a == "-iname" then
+    if i + 1 <= #args then iname_pattern = args[i + 1]; i = i + 2 else i = i + 1 end
+  elseif a == "-type" then
+    if i + 1 <= #args then type_filter = args[i + 1]; i = i + 2 else i = i + 1 end
+  elseif a == "-size" then
+    if i + 1 <= #args then size_spec = args[i + 1]; i = i + 2 else i = i + 1 end
+  elseif a == "-user" then
+    if i + 1 <= #args then user_filter = args[i + 1]; i = i + 2 else i = i + 1 end
+  elseif a == "-mtime" then
+    if i + 1 <= #args then mtime_days = tonumber(args[i + 1]); i = i + 2 else i = i + 1 end
+  else
+    if not path then path = a end
+    i = i + 1
+  end
+end
+if not path then path = os.get_work_dir() end
+if path:sub(1, 1) ~= "/" then
+  path = os.path_resolve(os.get_work_dir(), path)
+end
+
+local function glob_to_lua(pat)
+  local r = {}
+  for j = 1, #pat do
+    local c = pat:sub(j, j)
+    if c == "*" then r[#r + 1] = ".*"
+    elseif c == "%" or c == "." or c == "+" or c == "-" or c == "?" or c == "[" or c == "]" or c == "(" or c == ")" then
+      r[#r + 1] = "%" .. c
+    else r[#r + 1] = c end
+  end
+  return table.concat(r)
+end
+
+local function basename(p)
+  local idx = 0
+  for j = 1, #p do if p:sub(j, j) == "/" then idx = j end end
+  if idx == 0 then return p end
+  return p:sub(idx + 1)
+end
+
+-- Pure Lua glob match (no C string.match) to avoid yield-across-C-boundary. Pattern from glob_to_lua: ^ .* %c literal $.
+local function glob_match(s, lua_pat)
+  local n, pn = #s, #lua_pat
+  local si, pi = 1, 1
+  while pi <= pn do
+    local c = lua_pat:sub(pi, pi)
+    if c == "^" then
+      pi = pi + 1
+    elseif c == "$" then
+      return (pi >= pn) and (si > n)
+    elseif c == "." and lua_pat:sub(pi + 1, pi + 1) == "*" then
+      pi = pi + 2
+      if pi > pn then return true end
+      local rest = lua_pat:sub(pi)
+      for k = si, n + 1 do
+        if glob_match(s:sub(k), rest) then return true end
+      end
+      return false
+    elseif c == "%" then
+      local lit = lua_pat:sub(pi + 1, pi + 1)
+      pi = pi + 2
+      if si > n or s:sub(si, si) ~= lit then return false end
+      si = si + 1
+    else
+      if si > n or s:sub(si, si) ~= c then return false end
+      si = si + 1
+      pi = pi + 1
+    end
+  end
+  return si > n
+end
+
+local function name_matches(basename_str, pattern, case_insensitive)
+  local b = basename_str
+  local pat = pattern
+  if case_insensitive then b = b:lower(); pat = pat:lower() end
+  local lua_pat = "^" .. glob_to_lua(pat) .. "$"
+  -- Use glob_match (pure Lua) to avoid yield across C boundary from string.match/find
+  return glob_match(b, lua_pat)
+end
+
+local function size_matches(st_size, spec)
+  if not spec then return true end
+  local s = spec
+  local sign = 0
+  if s:sub(1, 1) == "+" then sign = 1; s = s:sub(2)
+  elseif s:sub(1, 1) == "-" then sign = -1; s = s:sub(2) end
+  local mult = 1
+  if s:sub(-1) == "K" then mult = 1024; s = s:sub(1, -2)
+  elseif s:sub(-1) == "M" then mult = 1024 * 1024; s = s:sub(1, -2)
+  elseif s:sub(-1) == "G" then mult = 1024 * 1024 * 1024; s = s:sub(1, -2) end
+  local n = (tonumber(s) or 0) * mult
+  if sign == 1 then return st_size > n end
+  if sign == -1 then return st_size < n end
+  return st_size == n
+end
+
+local function mtime_matches(st_mtime, days)
+  if days == nil then return true end
+  local now_secs = os.time and os.time() or 0
+  if not st_mtime or st_mtime == 0 then return false end
+  local age_days = (now_secs - st_mtime) / 86400
+  if days < 0 then return age_days <= math.abs(days) end
+  if days > 0 then return age_days >= days end
+  return age_days < 1
+end
+
+local function matches(st, p)
+  if name_pattern and not name_matches(basename(p), name_pattern, false) then return false end
+  if iname_pattern and not name_matches(basename(p), iname_pattern, true) then return false end
+  if type_filter == "f" and st.type ~= "file" then return false end
+  if type_filter == "d" and st.type ~= "directory" then return false end
+  if size_spec and not size_matches(st.size, size_spec) then return false end
+  if user_filter and st.owner ~= user_filter then return false end
+  if mtime_days ~= nil and not mtime_matches(st.mtime, mtime_days) then return false end
+  return true
+end
+
+local function visit(root)
+  local st = fs.stat(root)
+  if not st then return end
+  if matches(st, root) then io.write(root .. "\n") end
+  if st.type ~= "directory" then return end
+  local entries = fs.ls(root)
   for i = 1, #entries do
     local name = entries[i].name
-    local ends_slash = #path >= 1 and path:sub(-1) == "/"
-    local full = (path == "" or ends_slash) and (path .. name) or (path .. "/" .. name)
+    local ends_slash = #root >= 1 and root:sub(-1) == "/"
+    local full = (root == "" or ends_slash) and (root .. name) or (root .. "/" .. name)
     visit(full)
   end
 end
-visit(root)
+visit(path)
 "#;
 
-/// Sed: substitute pattern with replacement. Args: pattern, replacement, [file]. If no file, read stdin.
+/// Sed: substitute pattern with replacement. Args: pattern, replacement, [file]. Resolves relative file path.
 pub const SED: &str = r#"
 local args = os.get_args()
 if not args or #args < 2 then
@@ -478,6 +619,9 @@ local function do_sed(content)
 end
 if #args >= 3 then
   local path = args[3]
+  if path:sub(1, 1) ~= "/" then
+    path = os.path_resolve(os.get_work_dir(), path)
+  end
   local content = fs.read(path)
   if not content then
     io.write("sed: cannot read " .. path .. "\n")

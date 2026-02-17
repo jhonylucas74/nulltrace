@@ -10,7 +10,7 @@ use std::sync::Arc;
 pub fn register(lua: &Lua, fs_service: Arc<FsService>) -> Result<()> {
     let fs = lua.create_table()?;
 
-    // fs.stat(path) -> { type = "file"|"directory" } or nil if path does not exist
+    // fs.stat(path) -> { type, size, owner, mtime } or nil if path does not exist. mtime = seconds since epoch.
     {
         let svc = fs_service.clone();
         fs.set(
@@ -23,17 +23,20 @@ pub fn register(lua: &Lua, fs_service: Arc<FsService>) -> Result<()> {
                 drop(ctx);
 
                 let svc = svc.clone();
-                let node_type = tokio::task::block_in_place(|| {
+                let stat = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(async {
-                        svc.node_type_at(vm_id, &path).await
+                        svc.stat_at(vm_id, &path).await
                     })
                 })
                 .map_err(|e| mlua::Error::runtime(e.to_string()))?;
 
-                match node_type {
-                    Some(t) => {
+                match stat {
+                    Some(s) => {
                         let result = lua.create_table()?;
-                        result.set("type", t.as_str())?;
+                        result.set("type", s.node_type.as_str())?;
+                        result.set("size", s.size_bytes)?;
+                        result.set("owner", s.owner.as_str())?;
+                        result.set("mtime", s.updated_at.timestamp())?;
                         Ok(mlua::Value::Table(result))
                     }
                     None => Ok(mlua::Value::Nil),

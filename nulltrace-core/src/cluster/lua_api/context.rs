@@ -89,6 +89,9 @@ pub struct VmContext {
 
     /// PIDs the shell (or any process) requested to kill this tick. Drained by game loop after tick; applied via kill_process_and_descendants.
     pub requested_kills: Vec<u64>,
+
+    /// Current working directory per process (pid -> absolute path). Set when process is created; updated by os.chdir. Not cleared in set_vm.
+    pub process_cwd: HashMap<u64, String>,
 }
 
 impl VmContext {
@@ -123,6 +126,7 @@ impl VmContext {
             last_stdout_of_finished: HashMap::new(),
             shell_foreground_pid: HashMap::new(),
             requested_kills: Vec::new(),
+            process_cwd: HashMap::new(),
         }
     }
 

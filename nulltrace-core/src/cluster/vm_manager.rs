@@ -605,6 +605,9 @@ impl VmManager {
                         None,
                         Some("sh".to_string()),
                     );
+                    if let Some(mut ctx) = vm.lua.app_data_mut::<VmContext>() {
+                        ctx.process_cwd.insert(pid, "/".to_string());
+                    }
                     let (stdout_tx, stdout_rx) = mpsc::channel(32);
                     let (stdin_tx, stdin_rx) = mpsc::channel(32);
                     let (error_tx, error_rx) = mpsc::channel(4);
@@ -915,6 +918,13 @@ impl VmManager {
                         if *vm_id != vm.id {
                             continue;
                         }
+                        let parent_cwd = {
+                            let ctx = vm.lua.app_data_ref::<VmContext>().unwrap();
+                            ctx.process_cwd
+                                .get(parent_id)
+                                .cloned()
+                                .unwrap_or_else(|| "/".to_string())
+                        };
                         let path = match &spec {
                             SpawnSpec::Bin(name) => format!("/bin/{}", name),
                             SpawnSpec::Path(p) => p.clone(),
@@ -951,6 +961,9 @@ impl VmManager {
                                     forward_stdout_to,
                                     Some(argv0),
                                 );
+                                if let Some(mut ctx) = vm.lua.app_data_mut::<VmContext>() {
+                                    ctx.process_cwd.insert(*pid, parent_cwd);
+                                }
                             }
                         }
                     }
@@ -1447,6 +1460,9 @@ impl VmManager {
                         None,
                         Some("sh".to_string()),
                     );
+                    if let Some(mut ctx) = vm.lua.app_data_mut::<VmContext>() {
+                        ctx.process_cwd.insert(pid, "/".to_string());
+                    }
                     let (stdout_tx, stdout_rx) = mpsc::channel(32);
                     let (stdin_tx, stdin_rx) = mpsc::channel(32);
                     let (error_tx, error_rx) = mpsc::channel(4);
@@ -1642,6 +1658,13 @@ impl VmManager {
                     drop(ctx);
 
                     for (pid, parent_id, spec, args, uid, username, forward_stdout) in spawn_queue {
+                        let parent_cwd = {
+                            let ctx = vm.lua.app_data_ref::<VmContext>().unwrap();
+                            ctx.process_cwd
+                                .get(&parent_id)
+                                .cloned()
+                                .unwrap_or_else(|| "/".to_string())
+                        };
                         let path = match &spec {
                             SpawnSpec::Bin(name) => format!("/bin/{}", name),
                             SpawnSpec::Path(p) => p.clone(),
@@ -1677,6 +1700,9 @@ impl VmManager {
                                     forward_stdout_to,
                                     Some(argv0),
                                 );
+                                if let Some(mut ctx) = vm.lua.app_data_mut::<VmContext>() {
+                                    ctx.process_cwd.insert(pid, parent_cwd);
+                                }
                             }
                         }
                     }
@@ -2107,6 +2133,13 @@ end
             std::mem::take(&mut ctx.spawn_queue)
         };
         for (pid, parent_id, spec, args, uid, username, forward_stdout) in spawn_queue {
+            let parent_cwd = {
+                let ctx = vm.lua.app_data_ref::<VmContext>().unwrap();
+                ctx.process_cwd
+                    .get(&parent_id)
+                    .cloned()
+                    .unwrap_or_else(|| "/".to_string())
+            };
             let path = match &spec {
                 SpawnSpec::Bin(name) => format!("/bin/{}", name),
                 SpawnSpec::Path(p) => p.clone(),
@@ -2139,6 +2172,9 @@ end
                         forward_stdout_to,
                         Some(argv0),
                     );
+                    if let Some(mut ctx) = vm.lua.app_data_mut::<VmContext>() {
+                        ctx.process_cwd.insert(pid, parent_cwd);
+                    }
                 }
             }
         }
@@ -2322,6 +2358,13 @@ end
                 };
                 let vm_id = vm.id;
                 for (pid, parent_id, spec, args, uid, username, forward_stdout) in spawn_queue {
+                    let parent_cwd = {
+                        let ctx = vm.lua.app_data_ref::<VmContext>().unwrap();
+                        ctx.process_cwd
+                            .get(&parent_id)
+                            .cloned()
+                            .unwrap_or_else(|| "/".to_string())
+                    };
                     let path = match &spec {
                         SpawnSpec::Bin(name) => format!("/bin/{}", name),
                         SpawnSpec::Path(p) => p.clone(),
@@ -2354,6 +2397,9 @@ end
                                 forward_stdout_to,
                                 Some(argv0),
                             );
+                            if let Some(mut ctx) = vm.lua.app_data_mut::<VmContext>() {
+                                ctx.process_cwd.insert(pid, parent_cwd);
+                            }
                         }
                     }
                 }
@@ -2521,6 +2567,13 @@ end
         };
         let vm_id = vm.id;
         for (pid, parent_id, spec, args, uid, username, forward_stdout) in spawn_queue {
+            let parent_cwd = {
+                let ctx = vm.lua.app_data_ref::<VmContext>().unwrap();
+                ctx.process_cwd
+                    .get(&parent_id)
+                    .cloned()
+                    .unwrap_or_else(|| "/".to_string())
+            };
             let path = match &spec {
                 SpawnSpec::Bin(name) => format!("/bin/{}", name),
                 SpawnSpec::Path(p) => p.clone(),
@@ -2553,6 +2606,9 @@ end
                         forward_stdout_to,
                         Some(argv0),
                     );
+                    if let Some(mut ctx) = vm.lua.app_data_mut::<VmContext>() {
+                        ctx.process_cwd.insert(pid, parent_cwd);
+                    }
                 }
             }
         }
@@ -3544,20 +3600,20 @@ end
         let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
-        // Run find with no args so root = "."; we must run from a cwd that contains our test dir.
-        // Bin find uses args[1] or "."; we pass "." explicitly to simulate default.
+        // Run find with explicit path (same as would be cwd). Find resolves relative paths; without filters we list all.
         vm.os.spawn_process(
             &vm.lua,
             bin_programs::FIND,
-            vec![".".to_string()],
+            vec!["/tmp/find_dot_dir".to_string()],
             0,
             "root",
         );
         let stdout = run_tick_until_done(&mut vm, vm_id, "find-dot-vm");
-        assert!(stdout.contains("."), "find . should list current dir, got: {:?}", stdout);
+        assert!(stdout.contains("/tmp/find_dot_dir"), "find should list dir, got: {:?}", stdout);
+        assert!(stdout.contains("/tmp/find_dot_dir/f.txt"), "find should list file, got: {:?}", stdout);
     }
 
-    /// Bin find: nonexistent path still prints the path once then returns (no crash).
+    /// Bin find: nonexistent path produces no output (no crash).
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bin_find_nonexistent_path() {
         let pool = db::test_pool().await;
@@ -3599,8 +3655,399 @@ end
         );
         let stdout = run_tick_until_done(&mut vm, vm_id, "find-nonexistent-vm");
         let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
-        assert_eq!(lines.len(), 1, "find on nonexistent path should output path once, got: {:?}", stdout);
-        assert!(lines[0].contains("does_not_exist_xyz"), "find should print requested path, got: {:?}", stdout);
+        assert_eq!(lines.len(), 0, "find on nonexistent path should output nothing, got: {:?}", stdout);
+    }
+
+    /// Bin find -name: only path whose basename matches is printed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_name() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-name-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/find_name_dir", "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_name_dir/morango", b"x", None, "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_name_dir/banana", b"y", None, "root").await.unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/find_name_dir".to_string(), "-name".to_string(), "morango".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "find-name-vm", 500);
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 1, "find -name morango should output one path, got: {:?}", stdout);
+        assert!(lines[0].ends_with("morango"), "path should end with morango, got: {:?}", lines[0]);
+    }
+
+    /// Bin find -name with glob: only paths matching *.lua.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_name_glob() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 1), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-glob-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/find_glob_dir", "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_glob_dir/a.lua", b"x", None, "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_glob_dir/b.txt", b"y", None, "root").await.unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/find_glob_dir".to_string(), "-name".to_string(), "*.lua".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "find-glob-vm", 500);
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 1, "find -name '*.lua' should output one path, got: {:?}", stdout);
+        assert!(lines[0].ends_with("a.lua"), "path should end with a.lua, got: {:?}", lines[0]);
+    }
+
+    /// Bin find -type f: only files.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_type_f() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 2), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-type-f-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/find_type_dir", "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_type_dir/file.txt", b"x", None, "root").await.unwrap();
+        fs_service.mkdir(vm_id, "/tmp/find_type_dir/subdir", "root").await.unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/find_type_dir".to_string(), "-type".to_string(), "f".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "find-type-f-vm");
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 1, "find -type f should output one file path, got: {:?}", stdout);
+        assert!(lines[0].ends_with("file.txt"), "path should be the file, got: {:?}", lines[0]);
+    }
+
+    /// Bin find -type d: only directories.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_type_d() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 3), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-type-d-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/find_typed_dir", "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_typed_dir/f.txt", b"x", None, "root").await.unwrap();
+        fs_service.mkdir(vm_id, "/tmp/find_typed_dir/sub", "root").await.unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/find_typed_dir".to_string(), "-type".to_string(), "d".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "find-type-d-vm");
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 2, "find -type d should output root dir and sub, got: {:?}", stdout);
+        assert!(lines.iter().any(|l| l.ends_with("find_typed_dir")), "should list root dir");
+        assert!(lines.iter().any(|l| l.ends_with("sub")), "should list sub dir");
+    }
+
+    /// Bin find -user: only paths owned by given user.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_user() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 4), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-user-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/find_user_dir", "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_user_dir/root_file", b"a", None, "root").await.unwrap();
+        fs_service.mkdir(vm_id, "/tmp/find_user_dir/alice_dir", "alice").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_user_dir/alice_dir/alice_file", b"b", None, "alice").await.unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/find_user_dir".to_string(), "-user".to_string(), "alice".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "find-user-vm");
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 2, "find -user alice should output alice_dir and alice_file, got: {:?}", stdout);
+        assert!(lines.iter().any(|l| l.ends_with("alice_dir")), "should list alice dir");
+        assert!(lines.iter().any(|l| l.ends_with("alice_file")), "should list alice file");
+    }
+
+    /// Bin find -size: filter by file size (e.g. -size +0 for non-empty).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_size() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 5), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-size-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/find_size_dir", "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_size_dir/empty", b"", None, "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_size_dir/has123", b"123", None, "root").await.unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/find_size_dir".to_string(), "-type".to_string(), "f".to_string(), "-size".to_string(), "+0".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "find-size-vm");
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 1, "find -type f -size +0 should output only file with size > 0, got: {:?}", stdout);
+        assert!(lines[0].ends_with("has123"), "path should be has123 (3 bytes), got: {:?}", lines[0]);
+    }
+
+    /// Bin find -name with no match: empty output.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_no_match() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 6), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-no-match-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/find_nomatch_dir", "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_nomatch_dir/something", b"x", None, "root").await.unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/find_nomatch_dir".to_string(), "-name".to_string(), "nonexistent".to_string()],
+            0,
+            "root",
+        );
+        let stdout = run_tick_until_done(&mut vm, vm_id, "find-no-match-vm");
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 0, "find -name nonexistent should output nothing, got: {:?}", stdout);
+    }
+
+    /// Bin find -iname: case-insensitive name match.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_bin_find_iname() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 7), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "find-iname-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (record, nic) = manager.create_vm(config).await.unwrap();
+        let vm_id = record.id;
+        fs_service.mkdir(vm_id, "/tmp/find_iname_dir", "root").await.unwrap();
+        fs_service.write_file(vm_id, "/tmp/find_iname_dir/Morango", b"x", None, "root").await.unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, vm_id);
+        vm.attach_nic(nic);
+        vm.os.spawn_process(
+            &vm.lua,
+            bin_programs::FIND,
+            vec!["/tmp/find_iname_dir".to_string(), "-iname".to_string(), "morango".to_string()],
+            0,
+            "root",
+        );
+        let (stdout, _) = run_tick_until_done_with_limit(&mut vm, vm_id, "find-iname-vm", 500);
+        let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 1, "find -iname morango should match Morango, got: {:?}", stdout);
+        assert!(lines[0].ends_with("Morango"), "path should end with Morango, got: {:?}", lines[0]);
     }
 
     /// Bin sed: empty replacement string removes pattern from output.
@@ -6033,8 +6480,11 @@ local pid = os.spawn("sh", {})
 os.write_stdin(pid, "ls /")
 "#;
         vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
+        if let Some(mut ctx) = vm.lua.app_data_mut::<VmContext>() {
+            ctx.process_cwd.insert(1, "/root".to_string());
+        }
 
-        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-ls-vm", 50).await;
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-ls-vm", 150).await;
 
         let shell_stdout = vm
             .os
@@ -6324,7 +6774,10 @@ local pid = os.spawn("sh", {})
 os.write_stdin(pid, "ls")
 "#;
         vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
-        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-ls-cwd-vm", 50).await;
+        if let Some(mut ctx) = vm.lua.app_data_mut::<VmContext>() {
+            ctx.process_cwd.insert(1, "/root".to_string());
+        }
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-ls-cwd-vm", 150).await;
 
         let shell_stdout = vm
             .os
@@ -6383,7 +6836,10 @@ os.write_stdin(pid, "cd /tmp")
 os.write_stdin(pid, "pwd")
 "#;
         vm.os.spawn_process(&vm.lua,driver_script, vec![], 0, "root");
-        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-pwd-vm", 50).await;
+        if let Some(mut ctx) = vm.lua.app_data_mut::<VmContext>() {
+            ctx.process_cwd.insert(1, "/root".to_string());
+        }
+        run_n_ticks_with_spawn(&mut vm, &manager, vm_id, "shell-pwd-vm", 150).await;
 
         let shell_stdout = vm
             .os

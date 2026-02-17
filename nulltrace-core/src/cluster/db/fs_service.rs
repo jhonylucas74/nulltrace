@@ -1,8 +1,18 @@
 #![allow(dead_code)]
 
+use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
+
+/// Full stat for a path (used by find and fs.stat Lua API).
+#[derive(Debug, Clone, FromRow)]
+pub struct FsStat {
+    pub node_type: String,
+    pub size_bytes: i64,
+    pub owner: String,
+    pub updated_at: DateTime<Utc>,
+}
 
 /// SHA-256 hash of content as hex string (64 chars).
 fn hash_content(data: &[u8]) -> String {
@@ -85,6 +95,21 @@ impl FsService {
             .fetch_optional(&self.pool)
             .await?;
         Ok(row.map(|r| r.0))
+    }
+
+    /// Returns full stat (type, size, owner, updated_at) for path, or None if not found.
+    pub async fn stat_at(&self, vm_id: Uuid, path: &str) -> Result<Option<FsStat>, sqlx::Error> {
+        let node_id = match self.resolve_path(vm_id, path).await? {
+            Some(id) => id,
+            None => return Ok(None),
+        };
+        let row = sqlx::query_as::<_, FsStat>(
+            "SELECT node_type, size_bytes, owner, updated_at FROM fs_nodes WHERE id = $1",
+        )
+        .bind(node_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
     }
 
     /// List entries in a directory.
