@@ -103,7 +103,7 @@ function renderLineContent(content: string, _lineType: "output" | "error") {
 
 interface TerminalOutputPayload {
   sessionId: string;
-  type: "stdout" | "closed" | "error";
+  type: "stdout" | "closed" | "error" | "prompt_ready";
   data?: string;
 }
 
@@ -192,7 +192,9 @@ export default function Terminal({ username, windowId }: TerminalProps) {
   const [cursorPosition, setCursorPosition] = useState(0);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [waitingForPrompt, setWaitingForPrompt] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRowRef = useRef<HTMLDivElement>(null);
   const hiddenInputRef = useRef<HTMLInputElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   sessionIdRef.current = sessionId;
@@ -200,9 +202,41 @@ export default function Terminal({ username, windowId }: TerminalProps) {
   // Effect "generation": only the latest mount's deferred connect runs (avoids double shell in React Strict Mode).
   const connectGenerationRef = useRef(0);
 
+  // Auto-scroll to bottom when content changes or when prompt reappears after command (waitingForPrompt -> false).
+  // When the prompt row reappears, layout updates asynchronously; we scroll in multiple passes so the view stays at bottom.
   useEffect(() => {
-    scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
-  }, [lines, input]);
+    const scrollToBottom = () => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    };
+    const bringInputRowIntoView = () => {
+      inputRowRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+    };
+    scrollToBottom();
+    bringInputRowIntoView();
+    const raf1 = requestAnimationFrame(() => {
+      scrollToBottom();
+      bringInputRowIntoView();
+    });
+    const raf2 = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scrollToBottom();
+        bringInputRowIntoView();
+      });
+    });
+    const t1 = setTimeout(scrollToBottom, 0);
+    const t2 = setTimeout(() => {
+      scrollToBottom();
+      bringInputRowIntoView();
+    }, 80);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [lines, input, waitingForPrompt]);
 
   // Cursor blink effect
   useEffect(() => {
@@ -303,6 +337,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
         sessionIdRef.current = sid;
         setSessionId(sid);
         setSessionEnded(false);
+        setWaitingForPrompt(false);
         setLines([]);
 
         unlisten = await listen<TerminalOutputPayload>("terminal-output", (event) => {
@@ -326,8 +361,11 @@ export default function Terminal({ username, windowId }: TerminalProps) {
                   .map((content) => ({ type: "output" as const, content: normalizeOutputLine(content) })),
               ])
             );
+          } else if (payload.type === "prompt_ready") {
+            setWaitingForPrompt(false);
           } else if (payload.type === "closed") {
             setSessionEnded(true);
+            setWaitingForPrompt(false);
             setLines((prev) => trimToLast([...prev, { type: "output", content: "Session ended." }]));
             sessionIdRef.current = null;
             setSessionId(null);
@@ -337,6 +375,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
             setSessionEnded(true);
             sessionIdRef.current = null;
             setSessionId(null);
+            setWaitingForPrompt(false);
             if (msg.toLowerCase().includes("memory limit")) {
               setMemoryLimitModalOpen(true);
             }
@@ -487,8 +526,10 @@ export default function Terminal({ username, windowId }: TerminalProps) {
       setLines((prev) => trimToLast([...prev, { type: "prompt", content: prompt + cmd }]));
 
       if (sessionId && !sessionEnded) {
+        setWaitingForPrompt(true);
         invoke("terminal_send_stdin", { sessionId, data: cmd + "\n" }).catch((err) => {
           setLines((prev) => trimToLast([...prev, { type: "error", content: String(err) }]));
+          setWaitingForPrompt(false);
         });
       } else {
         const output = runMockCommand(cmd, username);
@@ -585,10 +626,10 @@ export default function Terminal({ username, windowId }: TerminalProps) {
             )}
           </div>
         ))}
-        <div className={styles.inputRow}>
-          <span className={styles.promptText}>{prompt}</span>
+        <div className={styles.inputRow} ref={inputRowRef}>
+          {!waitingForPrompt && <span className={styles.promptText}>{prompt}</span>}
           <div className={styles.inputContainer}>
-            {/* Hidden input for keyboard capture */}
+            {/* Hidden input for keyboard capture; disabled while waiting for prompt (command running) */}
             <input
               ref={hiddenInputRef}
               type="text"
@@ -602,16 +643,21 @@ export default function Terminal({ username, windowId }: TerminalProps) {
               autoCapitalize="off"
               autoFocus
               aria-label="Command input"
+              readOnly={waitingForPrompt}
+              tabIndex={waitingForPrompt ? -1 : 0}
             />
-            {/* Visual text display with cursor in the middle */}
-            <span className={styles.inputText}>{input.slice(0, cursorPosition)}</span>
-            {/* Block cursor */}
-            <span
-              className={`${styles.cursor} ${cursorVisible ? styles.cursorVisible : styles.cursorHidden}`}
-            >
-              {input[cursorPosition] || "\u00A0"}
-            </span>
-            <span className={styles.inputText}>{input.slice(cursorPosition + 1)}</span>
+            {/* Visual text display with cursor in the middle; hide when waiting for prompt */}
+            {!waitingForPrompt && (
+              <>
+                <span className={styles.inputText}>{input.slice(0, cursorPosition)}</span>
+                <span
+                  className={`${styles.cursor} ${cursorVisible ? styles.cursorVisible : styles.cursorHidden}`}
+                >
+                  {input[cursorPosition] || "\u00A0"}
+                </span>
+                <span className={styles.inputText}>{input.slice(cursorPosition + 1)}</span>
+              </>
+            )}
           </div>
         </div>
       </div>

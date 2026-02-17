@@ -19,6 +19,8 @@ pub struct SessionReady {
     pub stdin_tx: mpsc::Sender<String>,
     /// gRPC task receives error messages (e.g. memory limit, process terminated) from this.
     pub error_rx: mpsc::Receiver<String>,
+    /// gRPC task receives prompt_ready when the shell is ready for the next command.
+    pub prompt_ready_rx: mpsc::Receiver<()>,
 }
 
 /// Per-session state held by the hub; game loop uses this to bridge process I/O.
@@ -31,6 +33,8 @@ pub struct TerminalSession {
     pub stdin_rx: mpsc::Receiver<String>,
     /// Game loop sends error messages (e.g. memory limit, process terminated) before closing.
     pub error_tx: mpsc::Sender<String>,
+    /// Game loop sends () when the shell called os.prompt_ready() (ready for next command).
+    pub prompt_ready_tx: mpsc::Sender<()>,
     /// Number of characters already sent on stdout_tx (process.stdout grows; we send suffix).
     pub last_stdout_len: usize,
 }

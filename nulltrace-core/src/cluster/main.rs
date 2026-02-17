@@ -1,6 +1,7 @@
 mod auth;
 mod bench_scripts;
 mod bin_programs;
+mod file_search;
 mod path_util;
 mod process;
 mod process_parser;

@@ -2,8 +2,67 @@
 
 use super::context::VmContext;
 use crate::db::fs_service::FsService;
-use mlua::{Lua, Result};
+use crate::file_search::{
+    search_files, search_files_content, SearchContentOptions, SearchFilesOptions,
+};
+use mlua::{Lua, Result, Value};
 use std::sync::Arc;
+
+fn opts_to_search_files_options(opts: Option<mlua::Table>) -> Result<SearchFilesOptions> {
+    let mut options = SearchFilesOptions::default();
+    let Some(t) = opts else {
+        return Ok(options);
+    };
+    if let Ok(v) = t.get::<String>("name") {
+        options.name = Some(v);
+    }
+    if let Ok(v) = t.get::<String>("iname") {
+        options.iname = Some(v);
+    }
+    if let Ok(v) = t.get::<String>("type") {
+        options.type_filter = Some(v);
+    }
+    if let Ok(v) = t.get::<String>("size") {
+        options.size_spec = Some(v);
+    }
+    if let Ok(v) = t.get::<String>("user") {
+        options.user = Some(v);
+    }
+    if let Ok(v) = t.get::<mlua::Integer>("mtime") {
+        options.mtime_days = Some(v as i64);
+    }
+    Ok(options)
+}
+
+fn opts_to_search_content_options(opts: Option<mlua::Table>) -> Result<SearchContentOptions> {
+    let mut options = SearchContentOptions::default();
+    let Some(t) = opts else {
+        return Ok(options);
+    };
+    if let Ok(v) = t.get::<bool>("regex") {
+        options.regex = v;
+    }
+    if let Ok(v) = t.get::<bool>("case_insensitive") {
+        options.case_insensitive = v;
+    }
+    Ok(options)
+}
+
+fn value_to_path_list(v: &Value) -> Result<Vec<String>> {
+    match v {
+        Value::String(s) => Ok(vec![s.to_str()?.to_string()]),
+        Value::Table(t) => {
+            let mut paths = Vec::new();
+            for pair in t.sequence_values::<String>() {
+                paths.push(pair?);
+            }
+            Ok(paths)
+        }
+        _ => Err(mlua::Error::runtime(
+            "search_files_content: paths must be string or table of strings",
+        )),
+    }
+}
 
 /// Register the `fs` table on the Lua state.
 /// Functions use `lua.app_data()` to get the current VM context (vm_id + pool).
@@ -76,6 +135,35 @@ pub fn register(lua: &Lua, fs_service: Arc<FsService>) -> Result<()> {
                     result.set(i + 1, t)?;
                 }
                 Ok(result)
+            })?,
+        )?;
+    }
+
+    // fs.ls_formatted(path) -> table of preformatted line strings (faster: one DB call, simple return).
+    {
+        let svc = fs_service.clone();
+        fs.set(
+            "ls_formatted",
+            lua.create_function(move |lua, path: String| {
+                let ctx = lua
+                    .app_data_ref::<VmContext>()
+                    .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+                let vm_id = ctx.vm_id;
+                drop(ctx);
+
+                let svc = svc.clone();
+                let lines = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        svc.ls_formatted(vm_id, &path).await
+                    })
+                })
+                .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+
+                let result = lua.create_table()?;
+                for (i, line) in lines.iter().enumerate() {
+                    result.set(i + 1, line.as_str())?;
+                }
+                Ok(Value::Table(result))
             })?,
         )?;
     }
@@ -218,6 +306,73 @@ pub fn register(lua: &Lua, fs_service: Arc<FsService>) -> Result<()> {
 
                 Ok(deleted)
             })?,
+        )?;
+    }
+
+    // fs.search_files(path, opts) -> table of path strings. opts: name, iname, type, size, user, mtime (all optional).
+    {
+        let svc = fs_service.clone();
+        fs.set(
+            "search_files",
+            lua.create_function(move |lua, (path, opts): (String, Option<mlua::Table>)| {
+                let ctx = lua
+                    .app_data_ref::<VmContext>()
+                    .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+                let vm_id = ctx.vm_id;
+                drop(ctx);
+
+                let options = opts_to_search_files_options(opts)?;
+                let svc = svc.clone();
+                let paths = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        search_files(&svc, vm_id, &path, &options).await
+                    })
+                })
+                .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+
+                let result = lua.create_table()?;
+                for (i, p) in paths.iter().enumerate() {
+                    result.set(i + 1, p.as_str())?;
+                }
+                Ok(Value::Table(result))
+            })?,
+        )?;
+    }
+
+    // fs.search_files_content(paths, pattern, opts) -> table of { path, line_num, line }. paths: string or table of strings. opts: regex?, case_insensitive?
+    {
+        let svc = fs_service.clone();
+        fs.set(
+            "search_files_content",
+            lua.create_function(
+                move |lua, (paths_arg, pattern, opts): (Value, String, Option<mlua::Table>)| {
+                    let ctx = lua
+                        .app_data_ref::<VmContext>()
+                        .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+                    let vm_id = ctx.vm_id;
+                    drop(ctx);
+
+                    let paths = value_to_path_list(&paths_arg)?;
+                    let content_opts = opts_to_search_content_options(opts)?;
+                    let svc = svc.clone();
+                    let matches = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            search_files_content(&svc, vm_id, &paths, &pattern, &content_opts).await
+                        })
+                    })
+                    .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+
+                    let result = lua.create_table()?;
+                    for (i, m) in matches.iter().enumerate() {
+                        let row = lua.create_table()?;
+                        row.set("path", m.path.as_str())?;
+                        row.set("line_num", m.line_num)?;
+                        row.set("line", m.line.as_str())?;
+                        result.set(i + 1, row)?;
+                    }
+                    Ok(Value::Table(result))
+                },
+            )?,
         )?;
     }
 

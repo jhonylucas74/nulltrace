@@ -1201,6 +1201,10 @@ pub async fn terminal_connect(
                                     }));
                                     break;
                                 }
+                                Some(TerminalServerMsg::PromptReady(_)) => Ok(serde_json::json!({
+                                    "sessionId": session_id_task,
+                                    "type": "prompt_ready",
+                                })),
                                 _ => continue,
                             };
                             if let Ok(p) = payload {
@@ -1324,6 +1328,10 @@ pub async fn code_run_connect(
                                     }));
                                     break;
                                 }
+                                Some(TerminalServerMsg::PromptReady(_)) => Ok(serde_json::json!({
+                                    "sessionId": session_id_task,
+                                    "type": "prompt_ready",
+                                })),
                                 _ => continue,
                             };
                             if let Ok(p) = payload {

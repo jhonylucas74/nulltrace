@@ -458,6 +458,19 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>, fs_service: Arc<FsSer
         })?,
     )?;
 
+    // os.prompt_ready() -> signal that shell is ready for next input (prompt can be shown). Called by shell after builtin or when foreground child exits.
+    os.set(
+        "prompt_ready",
+        lua.create_function(|lua, ()| {
+            let mut ctx = lua
+                .app_data_mut::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            let key = (ctx.vm_id, ctx.current_pid);
+            ctx.shell_prompt_ready_pending.insert(key);
+            Ok(())
+        })?,
+    )?;
+
     // os.request_kill(pid) -> request kill of process and descendants; applied by game loop after tick
     os.set(
         "request_kill",

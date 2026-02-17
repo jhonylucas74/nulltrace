@@ -165,6 +165,7 @@ impl VmManager {
             .map_err(|e| format!("DB error bootstrapping users: {}", e))?;
 
         // If VM has an owner (player), create an admin vm_user with same username/password and is_root
+        let mut owner_documents: Option<(String, String)> = None;
         if let Some(owner_id) = record.owner_id {
             let player = self
                 .player_service
@@ -173,6 +174,10 @@ impl VmManager {
                 .map_err(|e| format!("DB error loading owner player: {}", e))?
                 .ok_or_else(|| "Owner player not found".to_string())?;
             let owner_home = format!("/home/{}", player.username);
+            owner_documents = Some((
+                format!("{}/Documents", owner_home),
+                player.username.clone(),
+            ));
             let owner_user = self
                 .user_service
                 .create_user(
@@ -201,6 +206,14 @@ impl VmManager {
                 .ensure_standard_home_subdirs(id, &user.home_dir, &user.username)
                 .await
                 .map_err(|e| format!("DB error creating home subdirs: {}", e))?;
+        }
+
+        // Seed default files in owner's Documents (for testing find, grep, cat, lua)
+        if let Some((documents_path, owner_name)) = &owner_documents {
+            self.fs_service
+                .seed_default_documents(id, documents_path, owner_name)
+                .await
+                .map_err(|e| format!("DB error seeding Documents: {}", e))?;
         }
 
         // Write /etc/passwd
@@ -611,6 +624,7 @@ impl VmManager {
                     let (stdout_tx, stdout_rx) = mpsc::channel(32);
                     let (stdin_tx, stdin_rx) = mpsc::channel(32);
                     let (error_tx, error_rx) = mpsc::channel(4);
+                    let (prompt_ready_tx, prompt_ready_rx) = mpsc::channel(16);
                     let session_id = Uuid::new_v4();
                     let session = TerminalSession {
                         vm_id,
@@ -618,6 +632,7 @@ impl VmManager {
                         stdout_tx,
                         stdin_rx,
                         error_tx,
+                        prompt_ready_tx,
                         last_stdout_len: 0,
                     };
                     let ready = SessionReady {
@@ -627,6 +642,7 @@ impl VmManager {
                         stdout_rx,
                         stdin_tx,
                         error_rx,
+                        prompt_ready_rx,
                     };
                     {
                         let mut hub = terminal_hub.lock().unwrap();
@@ -691,6 +707,7 @@ impl VmManager {
                     let (stdout_tx, stdout_rx) = mpsc::channel(32);
                     let (stdin_tx, stdin_rx) = mpsc::channel(32);
                     let (error_tx, error_rx) = mpsc::channel(4);
+                    let (prompt_ready_tx, prompt_ready_rx) = mpsc::channel(16);
                     let session_id = Uuid::new_v4();
                     let session = TerminalSession {
                         vm_id,
@@ -698,6 +715,7 @@ impl VmManager {
                         stdout_tx,
                         stdin_rx,
                         error_tx,
+                        prompt_ready_tx,
                         last_stdout_len: 0,
                     };
                     let ready = SessionReady {
@@ -707,6 +725,7 @@ impl VmManager {
                         stdout_rx,
                         stdin_tx,
                         error_rx,
+                        prompt_ready_rx,
                     };
                     {
                         let mut hub = terminal_hub.lock().unwrap();
@@ -1145,6 +1164,12 @@ impl VmManager {
                         to_remove.push(*session_id);
                         continue;
                     };
+                    // If shell called os.prompt_ready(), notify the client so it can show the prompt again.
+                    if let Some(mut ctx) = vm.lua.app_data_mut::<VmContext>() {
+                        if ctx.shell_prompt_ready_pending.remove(&(session.vm_id, session.pid)) {
+                            let _ = session.prompt_ready_tx.try_send(());
+                        }
+                    }
                     // Drain stdin_rx and push into process stdin (non-blocking try_recv loop)
                     while let Ok(line) = session.stdin_rx.try_recv() {
                         if let Some(p) = vm.os.processes.iter_mut().find(|pr| pr.id == session.pid) {
@@ -1466,6 +1491,7 @@ impl VmManager {
                     let (stdout_tx, stdout_rx) = mpsc::channel(32);
                     let (stdin_tx, stdin_rx) = mpsc::channel(32);
                     let (error_tx, error_rx) = mpsc::channel(4);
+                    let (prompt_ready_tx, prompt_ready_rx) = mpsc::channel(16);
                     let session_id = Uuid::new_v4();
                     let session = TerminalSession {
                         vm_id,
@@ -1473,6 +1499,7 @@ impl VmManager {
                         stdout_tx,
                         stdin_rx,
                         error_tx,
+                        prompt_ready_tx,
                         last_stdout_len: 0,
                     };
                     let ready = SessionReady {
@@ -1482,6 +1509,7 @@ impl VmManager {
                         stdout_rx,
                         stdin_tx,
                         error_rx,
+                        prompt_ready_rx,
                     };
                     {
                         let mut hub = terminal_hub.lock().unwrap();

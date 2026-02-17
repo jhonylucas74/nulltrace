@@ -30,6 +30,21 @@ pub struct FsEntry {
     pub owner: String,
 }
 
+/// Default README for Documents (seed and restore disk).
+const DEFAULT_README_MD: &[u8] = b"# Documents\n\nThis folder contains sample files for testing terminal commands.\n\n- Use `find .` to list files recursively.\n- Use `grep pattern file` to search inside files.\n- Use `cat filename` to print file contents.\n- Use `lua hello.lua` to run the sample script.\n";
+
+/// Default notes file (plain text with a phrase).
+const DEFAULT_NOTES_TXT: &[u8] = b"The quick brown fox jumps over the lazy dog.\n\nWelcome to your VM. Edit this file or add new ones.\n";
+
+/// Sample Lua script runnable with: lua hello.lua
+const DEFAULT_HELLO_LUA: &[u8] = b"-- Sample script for testing.\nprint(\"Hello from Lua!\")\nprint(\"Current time: \" .. (os.date and os.date() or \"N/A\"))\n";
+
+/// Default todo list (for grep/find tests).
+const DEFAULT_TODO_TXT: &[u8] = b"TODO:\n- Try: find Documents -name '*.txt'\n- Try: grep hello Documents\n- Try: cat README.md\n";
+
+/// Sample log file (multi-line, for grep tests).
+const DEFAULT_SAMPLE_LOG: &[u8] = b"[INFO] Application started\n[DEBUG] Loading config\n[INFO] Ready\n[WARN] Low disk space\n[ERROR] Connection timeout\n";
+
 pub struct FsService {
     pool: PgPool,
 }
@@ -132,6 +147,50 @@ impl FsService {
         .await?;
 
         Ok(rows)
+    }
+
+    /// List directory entries as preformatted lines (name, type, size, owner columns).
+    /// Returns a simple Vec<String> so the Lua side only has to print; avoids building a nested table.
+    pub async fn ls_formatted(&self, vm_id: Uuid, path: &str) -> Result<Vec<String>, sqlx::Error> {
+        let entries = self.ls(vm_id, path).await?;
+        if entries.is_empty() {
+            return Ok(vec![]);
+        }
+        const MIN_NAME: usize = 8;
+        const MIN_TYPE: usize = 9;
+        const MIN_SIZE: usize = 6;
+        const MIN_OWNER: usize = 4;
+        let mut w_name = MIN_NAME;
+        let mut w_type = MIN_TYPE;
+        let mut w_size = MIN_SIZE;
+        let mut w_owner = MIN_OWNER;
+        for e in &entries {
+            w_name = w_name.max(e.name.len());
+            w_type = w_type.max(e.node_type.len());
+            w_size = w_size.max(e.size_bytes.to_string().len());
+            w_owner = w_owner.max(e.owner.len());
+        }
+        fn pad_right(s: &str, w: usize) -> String {
+            let n = s.len();
+            format!("{}{}", s, " ".repeat(if n >= w { 0 } else { w - n }))
+        }
+        fn pad_left(s: &str, w: usize) -> String {
+            let n = s.len();
+            format!("{}{}", " ".repeat(if n >= w { 0 } else { w - n }), s)
+        }
+        let lines: Vec<String> = entries
+            .iter()
+            .map(|e| {
+                format!(
+                    "{}  {}  {}  {}",
+                    pad_right(&e.name, w_name),
+                    pad_right(&e.node_type, w_type),
+                    pad_left(&e.size_bytes.to_string(), w_size),
+                    pad_right(&e.owner, w_owner),
+                )
+            })
+            .collect();
+        Ok(lines)
     }
 
     /// Read file content as bytes + mime_type.
@@ -276,6 +335,33 @@ impl FsService {
             if self.resolve_path(vm_id, &subdir).await?.is_none() {
                 self.mkdir(vm_id, &subdir, owner).await?;
             }
+        }
+        Ok(())
+    }
+
+    /// Default files created in the owner's Documents folder (VM seed and restore disk).
+    /// Used so the user can test find, grep, cat, etc.
+    pub async fn seed_default_documents(
+        &self,
+        vm_id: Uuid,
+        documents_path: &str,
+        owner: &str,
+    ) -> Result<(), sqlx::Error> {
+        let files: &[(&str, &[u8], Option<&str>)] = &[
+            ("README.md", DEFAULT_README_MD, Some("text/markdown")),
+            ("notes.txt", DEFAULT_NOTES_TXT, Some("text/plain")),
+            ("hello.lua", DEFAULT_HELLO_LUA, Some("application/x-nulltrace-lua")),
+            ("todo.txt", DEFAULT_TODO_TXT, Some("text/plain")),
+            ("sample.log", DEFAULT_SAMPLE_LOG, Some("text/plain")),
+        ];
+        for (name, content, mime) in files {
+            let path = if documents_path.ends_with('/') {
+                format!("{documents_path}{name}")
+            } else {
+                format!("{documents_path}/{name}")
+            };
+            self.write_file(vm_id, &path, content, *mime, owner)
+                .await?;
         }
         Ok(())
     }

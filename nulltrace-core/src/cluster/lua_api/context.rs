@@ -5,7 +5,7 @@ use crate::net::ip::Ipv4Addr;
 use crate::net::nic::NIC;
 use crate::net::packet::Packet;
 use sqlx::PgPool;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
@@ -92,6 +92,9 @@ pub struct VmContext {
 
     /// Current working directory per process (pid -> absolute path). Set when process is created; updated by os.chdir. Not cleared in set_vm.
     pub process_cwd: HashMap<u64, String>,
+
+    /// (vm_id, shell_pid) that called os.prompt_ready() this tick. Drained by game loop to send prompt_ready to terminal clients.
+    pub shell_prompt_ready_pending: HashSet<(Uuid, u64)>,
 }
 
 impl VmContext {
@@ -127,6 +130,7 @@ impl VmContext {
             shell_foreground_pid: HashMap::new(),
             requested_kills: Vec::new(),
             process_cwd: HashMap::new(),
+            shell_prompt_ready_pending: HashSet::new(),
         }
     }
 

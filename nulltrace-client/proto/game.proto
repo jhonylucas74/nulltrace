@@ -98,8 +98,12 @@ message TerminalServerMessage {
     StdoutData stdout = 2;
     TerminalClosed terminal_closed = 3;
     TerminalError terminal_error = 4;
+    PromptReady prompt_ready = 5;
   }
 }
+
+// Sent when the shell is ready for the next command (foreground process finished or builtin completed).
+message PromptReady {}
 
 message TerminalOpened {
   string session_id = 1;

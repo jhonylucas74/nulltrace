@@ -41,7 +41,7 @@ use game::{
     SpawnLuaScript,
     CreateFolderRequest, CreateFolderResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
     SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, StdinChunk, StdinData,
-    StdoutData, SubscribePid, TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened,
+    PromptReady, StdoutData, SubscribePid, TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened,
     TerminalServerMessage, UnsubscribePid, WriteFileRequest, WriteFileResponse,
     ReadFileRequest, ReadFileResponse,
     EmptyTrashRequest, EmptyTrashResponse,
@@ -392,6 +392,7 @@ impl GameService for ClusterGameService {
 
         let mut stdout_rx = ready.stdout_rx;
         let mut error_rx = ready.error_rx;
+        let mut prompt_ready_rx = ready.prompt_ready_rx;
         tokio::spawn(async move {
             let mut send_closed = true;
             loop {
@@ -422,6 +423,13 @@ impl GameService for ClusterGameService {
                                 break;
                             }
                         }
+                    }
+                    _ = prompt_ready_rx.recv() => {
+                        let _ = tx
+                            .send(Ok(TerminalServerMessage {
+                                msg: Some(TerminalServerMsg::PromptReady(PromptReady {})),
+                            }))
+                            .await;
                     }
                     err = error_rx.recv() => {
                         if let Some(msg) = err {
@@ -841,6 +849,17 @@ impl GameService for ClusterGameService {
                 .ensure_standard_home_subdirs(vm_id, &user.home_dir, &user.username)
                 .await
                 .map_err(|e| Status::internal(format!("ensure_standard_home_subdirs: {}", e)))?;
+        }
+
+        // Seed default files in owner's Documents (same as create_vm; for testing find, grep, cat, lua)
+        if let Some(owner_id) = record.owner_id {
+            if let Ok(Some(player)) = self.player_service.get_by_id(owner_id).await {
+                let documents_path = format!("/home/{}/Documents", player.username);
+                self.fs_service
+                    .seed_default_documents(vm_id, &documents_path, &player.username)
+                    .await
+                    .map_err(|e| Status::internal(format!("seed_default_documents: {}", e)))?;
+            }
         }
 
         let passwd_content: String = users
