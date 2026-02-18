@@ -1,0 +1,212 @@
+# Exemplo: Página completa demonstrando todas as features v0.2.0
+# Demonstra: head com fonts + scripts + imports, componentes reutilizáveis,
+#            IDs para Lua, interpolação de props, scripting dinâmico
+
+head:
+  title: "Terminal de Missão"
+  description: "Interface completa de missão com suporte a Lua e componentes"
+  author: "NullTrace"
+
+  fonts:
+    - family: "Share Tech Mono"
+      weights: [400]
+
+  scripts:
+    - src: "scripts/main.lua"
+
+  imports:
+    - src: "components/nav-bar.ntml"
+      as: "NavBar"
+
+body:
+  Stack:
+    style:
+      backgroundColor: "#050505"
+      minHeight: 720
+
+    children:
+      # Barra de navegação (componente importado)
+      - NavBar:
+          title: "TERMINAL DE MISSÃO"
+          accentColor: "#ff6600"
+
+      # Conteúdo principal
+      - Column:
+          style:
+            padding: 24
+            gap: 20
+            marginTop: 48
+
+          children:
+            # Cabeçalho da missão
+            - Container:
+                style:
+                  padding: 16
+                  borderWidth: 1
+                  borderColor: "#ff6600"
+                  borderRadius: 4
+                  backgroundColor: "#0f0800"
+                children:
+                  - Row:
+                      align: center
+                      gap: 12
+                      children:
+                        - Icon:
+                            name: "target"
+                            size: 20
+                            style:
+                              color: "#ff6600"
+                        - Column:
+                            gap: 2
+                            children:
+                              - Text:
+                                  text: "MISSÃO ATIVA"
+                                  style:
+                                    fontFamily: "Share Tech Mono"
+                                    fontSize: 10
+                                    color: "#ff6600"
+                                    textTransform: uppercase
+                                    letterSpacing: 3
+                              - Text:
+                                  id: "missao-titulo"
+                                  text: "Infiltrar servidor corp-7"
+                                  style:
+                                    fontFamily: "Share Tech Mono"
+                                    fontSize: 18
+                                    color: white
+                        - Badge:
+                            id: "missao-status"
+                            text: "EM ANDAMENTO"
+                            variant: warning
+
+            # Grid de status
+            - Grid:
+                columns: 3
+                gap: 12
+                children:
+                  - Container:
+                      style:
+                        padding: 12
+                        borderWidth: 1
+                        borderColor: "#1a1a1a"
+                        borderRadius: 4
+                        backgroundColor: "#0d0d0d"
+                      children:
+                        - Column:
+                            gap: 4
+                            children:
+                              - Text:
+                                  text: "TEMPO"
+                                  style:
+                                    fontSize: 10
+                                    color: gray
+                                    textTransform: uppercase
+                              - Text:
+                                  id: "tempo-restante"
+                                  text: "00:00"
+                                  style:
+                                    fontFamily: "Share Tech Mono"
+                                    fontSize: 28
+                                    fontWeight: bold
+                                    color: "#00ff00"
+
+                  - Container:
+                      style:
+                        padding: 12
+                        borderWidth: 1
+                        borderColor: "#1a1a1a"
+                        borderRadius: 4
+                        backgroundColor: "#0d0d0d"
+                      children:
+                        - Column:
+                            gap: 4
+                            children:
+                              - Text:
+                                  text: "PROGRESSO"
+                                  style:
+                                    fontSize: 10
+                                    color: gray
+                                    textTransform: uppercase
+                              - ProgressBar:
+                                  id: "progresso-barra"
+                                  value: 0
+                                  max: 100
+                                  variant: success
+                                  showLabel: true
+
+                  - Container:
+                      style:
+                        padding: 12
+                        borderWidth: 1
+                        borderColor: "#1a1a1a"
+                        borderRadius: 4
+                        backgroundColor: "#0d0d0d"
+                      children:
+                        - Column:
+                            gap: 4
+                            children:
+                              - Text:
+                                  text: "DETECÇÃO"
+                                  style:
+                                    fontSize: 10
+                                    color: gray
+                                    textTransform: uppercase
+                              - ProgressBar:
+                                  id: "deteccao-barra"
+                                  value: 0
+                                  max: 100
+                                  variant: danger
+                                  showLabel: true
+
+            # Área de input e ação
+            - Container:
+                style:
+                  padding: 16
+                  borderWidth: 1
+                  borderColor: "#1a1a1a"
+                  borderRadius: 4
+                  backgroundColor: "#0a0a0a"
+                children:
+                  - Column:
+                      gap: 12
+                      children:
+                        - Text:
+                            text: "COMANDO"
+                            style:
+                              fontSize: 10
+                              color: gray
+                              textTransform: uppercase
+                              letterSpacing: 2
+
+                        - Row:
+                            gap: 8
+                            children:
+                              - Input:
+                                  name: "comando"
+                                  placeholder: "> insira o comando..."
+                                  type: text
+                                  style:
+                                    flex: 1
+                                    fontFamily: "Share Tech Mono"
+                                    backgroundColor: "#050505"
+                                    color: "#00ff00"
+                                    borderColor: "#222222"
+
+                              - Button:
+                                  id: "btn-executar"
+                                  action: "executarComando"
+                                  variant: primary
+                                  children:
+                                    - Text:
+                                        text: "EXECUTAR"
+                                        style:
+                                          fontFamily: "Share Tech Mono"
+
+                        - Text:
+                            id: "output-texto"
+                            text: ""
+                            style:
+                              fontFamily: "Share Tech Mono"
+                              fontSize: 12
+                              color: "#00ff00"
+                              display: none

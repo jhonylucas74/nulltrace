@@ -17,6 +17,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useFilePicker } from "../contexts/FilePickerContext";
 import { useClipboard } from "../contexts/ClipboardContext";
 import { highlightLua, isLuaFile } from "../lib/luaHighlight";
+import { getRecentFolders, addRecentFolder } from "../lib/codeEditorRecentFolders";
 import ContextMenu from "./ContextMenu";
 import Modal from "./Modal";
 import TelescopeModal from "./TelescopeModal";
@@ -71,7 +72,9 @@ export default function CodeEditor() {
   const [consoleInputValue, setConsoleInputValue] = useState("");
   const consoleEndRef = useRef<HTMLDivElement | null>(null);
   const pendingTabSelectionRef = useRef<number | null>(null);
-  const { token } = useAuth();
+  const { token, playerId } = useAuth();
+  /** Recent folders for the current user (localStorage), shown on welcome screen. */
+  const [recentFolders, setRecentFolders] = useState<string[]>(() => getRecentFolders(playerId));
   const { openFilePicker } = useFilePicker();
   const { setClipboard, getClipboard, clearClipboard, hasItems: clipboardHasItems } = useClipboard();
   const tauri = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
@@ -147,17 +150,22 @@ export default function CodeEditor() {
     }
   }, [token, tauri, rootPath, expandedFolders]);
 
+  /** Fetch tree when we have token, tauri and rootPath so we don't miss a fetch if token loads after user opened a folder. */
   useEffect(() => {
-    if (useGrpc && rootPath) {
+    if (token && tauri && rootPath) {
       fetchTreeCache();
-    } else {
+    } else if (!rootPath) {
       setTreeCache({});
     }
-  }, [useGrpc, rootPath, fetchTreeCache]);
+  }, [token, tauri, rootPath, fetchTreeCache]);
 
   useEffect(() => {
     editorContentRef.current = editorContent;
   }, [editorContent]);
+
+  useEffect(() => {
+    setRecentFolders(getRecentFolders(playerId));
+  }, [playerId]);
 
   useEffect(() => {
     if (!useGrpc || !tauri || !token) return;
@@ -249,6 +257,7 @@ export default function CodeEditor() {
     setRootPath(path);
     setFileMenuOpen(false);
     setExpandedFolders((prev) => [...prev, path]);
+    addRecentFolder(playerId, path);
   }
 
   function openFolderPicker() {
@@ -1210,6 +1219,24 @@ export default function CodeEditor() {
                 Welcome. This editor supports only the <strong>Lua / Luau</strong> programming language.
                 Open a folder to browse files and start coding.
               </p>
+              {recentFolders.length > 0 && (
+                <div className={styles.welcomeRecent}>
+                  <span className={styles.welcomeRecentLabel}>Reopen folder:</span>
+                  <div className={styles.welcomeRecentList}>
+                    {recentFolders.map((path) => (
+                      <button
+                        key={path}
+                        type="button"
+                        className={styles.welcomeRecentBtn}
+                        onClick={() => handleOpenFolder(path)}
+                        title={path}
+                      >
+                        {path.split("/").filter(Boolean).pop() || path || "/"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <button
                 type="button"
                 className={styles.welcomeBtn}

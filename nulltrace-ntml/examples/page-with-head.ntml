@@ -1,0 +1,111 @@
+# Exemplo: Página simples com seção head (v0.2.0)
+# Demonstra: metadados, importação de font, script Lua e import de componente
+
+head:
+  title: "Painel do Jogador"
+  description: "HUD básico com informações do jogador"
+  author: "Player1"
+
+  fonts:
+    - family: "Roboto Mono"
+      weights: [400, 700]
+
+  scripts:
+    - src: "scripts/main.lua"
+
+  imports:
+    - src: "components/nav-bar.ntml"
+      as: "NavBar"
+
+body:
+  Column:
+    style:
+      backgroundColor: "#0a0a0a"
+      minHeight: 600
+    children:
+      - NavBar:
+          title: "Painel do Jogador"
+          accentColor: "#00ff00"
+
+      - Container:
+          style:
+            padding: 24
+            flex: 1
+          children:
+            - Column:
+                gap: 16
+                children:
+                  - Text:
+                      text: "STATUS DO SISTEMA"
+                      style:
+                        fontFamily: "Roboto Mono"
+                        fontSize: 20
+                        fontWeight: bold
+                        color: "#00ff00"
+                        letterSpacing: 2
+
+                  - Divider: {}
+
+                  - Row:
+                      align: center
+                      gap: 12
+                      children:
+                        - Icon:
+                            name: "cpu"
+                            size: 16
+                            style:
+                              color: gray
+                        - Text:
+                            text: "CPU"
+                            style:
+                              color: gray
+                              fontSize: 12
+                              width: 40
+                        - ProgressBar:
+                            id: "cpu-bar"
+                            value: 0
+                            max: 100
+                            variant: success
+                            showLabel: true
+                            style:
+                              flex: 1
+
+                  - Row:
+                      align: center
+                      gap: 12
+                      children:
+                        - Icon:
+                            name: "memory"
+                            size: 16
+                            style:
+                              color: gray
+                        - Text:
+                            text: "RAM"
+                            style:
+                              color: gray
+                              fontSize: 12
+                              width: 40
+                        - ProgressBar:
+                            id: "ram-bar"
+                            value: 0
+                            max: 100
+                            variant: warning
+                            showLabel: true
+                            style:
+                              flex: 1
+
+                  - Row:
+                      gap: 12
+                      children:
+                        - Button:
+                            action: "atualizarStatus"
+                            variant: primary
+                            children:
+                              - Text:
+                                  text: "ATUALIZAR"
+                        - Text:
+                            id: "ultima-atualizacao"
+                            text: "Nunca atualizado"
+                            style:
+                              color: gray
+                              fontSize: 12

@@ -8,7 +8,7 @@ export const INSTALLABLE_STORE_TYPES: WindowType[] = ["sound", "network", "mines
 
 interface InstalledAppsContextValue {
   installedAppTypes: WindowType[];
-  install: (type: WindowType) => void;
+  install: (type: WindowType) => Promise<boolean>;
   uninstall: (type: WindowType) => void;
   isInstalled: (type: WindowType) => boolean;
 }
@@ -45,10 +45,10 @@ export function InstalledAppsProvider({ children }: { children: React.ReactNode 
   }, [playerId, token]);
 
   const install = useCallback(
-    (type: WindowType) => {
-      if (!INSTALLABLE_STORE_TYPES.includes(type)) return;
-      if (!playerId || !token) return;
-      invoke<{ success: boolean; error_message: string }>("grpc_install_store_app", {
+    (type: WindowType): Promise<boolean> => {
+      if (!INSTALLABLE_STORE_TYPES.includes(type)) return Promise.resolve(false);
+      if (!playerId || !token) return Promise.resolve(false);
+      return invoke<{ success: boolean; error_message: string }>("grpc_install_store_app", {
         appType: type,
         token,
       })
@@ -58,9 +58,11 @@ export function InstalledAppsProvider({ children }: { children: React.ReactNode 
           } else if (res.error_message) {
             console.error("[InstalledApps] Install failed:", res.error_message);
           }
+          return res.success;
         })
         .catch((e) => {
           console.error("[InstalledApps] Install error:", e);
+          return false;
         });
     },
     [playerId, token]

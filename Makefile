@@ -1,10 +1,11 @@
-.PHONY: dev test test-ntml client core stress help
+.PHONY: dev debug test test-ntml client client-debug core stress help
 
 help:
 	@echo "Nulltrace - Makefile"
 	@echo ""
 	@echo "Available commands:"
 	@echo "  make dev       - Run frontend and backend in parallel"
+	@echo "  make debug     - Like make dev but with Tauri DevTools open"
 	@echo "  make test      - Run all tests (core + ntml)"
 	@echo "  make test-ntml - Run NTML parser tests only"
 	@echo "  make client    - Run frontend only"
@@ -15,9 +16,17 @@ dev:
 	@echo "Starting frontend and backend..."
 	@$(MAKE) -j2 client core
 
+debug:
+	@echo "Starting frontend (with DevTools) and backend..."
+	@$(MAKE) -j2 client-debug core
+
 client:
 	@echo "Starting frontend (nulltrace-client)..."
 	@cd nulltrace-client && npm run tauri dev
+
+client-debug:
+	@echo "Starting frontend with DevTools (nulltrace-client)..."
+	@cd nulltrace-client && TAURI_OPEN_DEVTOOLS=1 npm run tauri dev
 
 core:
 	@echo "Starting backend (nulltrace-core) in GAME MODE..."

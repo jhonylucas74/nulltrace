@@ -110,7 +110,14 @@ pub fn run() {
             grpc::process_spy_kill_process,
             grpc::process_spy_disconnect,
         ])
-        .setup(|_app| Ok(()))
+        .setup(|app| {
+            if std::env::var_os("TAURI_OPEN_DEVTOOLS").is_some() {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.open_devtools();
+                }
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

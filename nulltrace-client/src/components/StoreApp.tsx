@@ -68,7 +68,9 @@ export default function StoreApp() {
   };
 
   const handleInstall = (type: (typeof STORE_CATALOG)[number]["type"]) => {
-    install(type);
+    install(type).then((success) => {
+      if (success) openApp(type, { title: getAppTitle(type, username) });
+    });
   };
 
   return (

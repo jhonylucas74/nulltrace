@@ -1,0 +1,47 @@
+# Exemplo: Componente reutilizável NavBar (v0.2.0)
+# Demonstra: arquivo de componente com props tipadas e interpolação
+
+component: NavBar
+
+props:
+  - name: title
+    type: string
+    default: "Navigation"
+  - name: accentColor
+    type: color
+    default: "#00ff00"
+  - name: showBack
+    type: boolean
+    default: false
+
+body:
+  Row:
+    align: center
+    gap: 12
+    style:
+      padding: 12
+      paddingHorizontal: 16
+      backgroundColor: "#111111"
+      borderBottomWidth: 1
+      borderColor: "#222222"
+    children:
+      - Text:
+          text: ">"
+          style:
+            color: gray
+            fontSize: 14
+            display: none   # controlado por {props.showBack} — interpolação booleana em display não suportada diretamente; use Lua para lógica condicional
+
+      - Text:
+          text: "{props.title}"
+          style:
+            fontSize: 16
+            fontWeight: bold
+            color: "{props.accentColor}"
+            flex: 1
+
+      - Badge:
+          text: "NTML"
+          variant: default
+          style:
+            opacity: 0.4
