@@ -7,17 +7,29 @@ use crate::net::packet::Packet;
 use mlua::{Lua, Result};
 use std::collections::VecDeque;
 
+/// Resolve host string to IP. "localhost" and "127.0.0.1" (and any 127.x.x.x) map to loopback.
+fn resolve_host(host: &str) -> Option<Ipv4Addr> {
+    let s = host.trim();
+    if s.eq_ignore_ascii_case("localhost") {
+        return Some(Ipv4Addr::new(127, 0, 0, 1));
+    }
+    if let Some(ip) = Ipv4Addr::parse(s) {
+        return Some(ip);
+    }
+    None
+}
+
 /// Register the `net` table on the Lua state.
 /// Network operations are in-memory (NIC buffers), no DB calls needed.
 pub fn register(lua: &Lua) -> Result<()> {
     let net = lua.create_table()?;
 
-    // net.send(ip, port, data) — queue a TCP packet to the outbound buffer
+    // net.send(ip, port, data) — queue a TCP packet to the outbound buffer. Accepts "localhost" and 127.x.x.x for loopback.
     net.set(
         "send",
         lua.create_function(|lua, (dst_ip_str, dst_port, data): (String, u16, String)| {
-            let dst_ip = Ipv4Addr::parse(&dst_ip_str)
-                .ok_or_else(|| mlua::Error::runtime(format!("Invalid IP: {}", dst_ip_str)))?;
+            let dst_ip = resolve_host(&dst_ip_str)
+                .ok_or_else(|| mlua::Error::runtime(format!("Invalid IP/host: {}", dst_ip_str)))?;
 
             let mut ctx = lua
                 .app_data_mut::<VmContext>()
@@ -100,11 +112,11 @@ pub fn register(lua: &Lua) -> Result<()> {
         })?,
     )?;
 
-    // net.connect(host, port) -> connection table (conn:send, conn:recv, conn:close). Uses ephemeral port; no net.listen(0) needed.
+    // net.connect(host, port) -> connection table (conn:send, conn:recv, conn:close). Uses ephemeral port; no net.listen(0) needed. Accepts "localhost" and 127.x.x.x for loopback.
     net.set(
         "connect",
         lua.create_function(|lua, (host_str, remote_port): (String, u16)| {
-            let remote_ip = Ipv4Addr::parse(&host_str)
+            let remote_ip = resolve_host(&host_str)
                 .ok_or_else(|| mlua::Error::runtime(format!("Invalid IP/host: {}", host_str)))?;
 
             let mut ctx = lua

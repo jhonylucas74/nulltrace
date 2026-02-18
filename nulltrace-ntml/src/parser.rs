@@ -1,30 +1,88 @@
 use crate::components::*;
+use crate::document::NtmlDocument;
 use crate::error::{NtmlError, NtmlResult};
+use crate::head::{ComponentImport, FontImport, Head, ScriptImport};
 use crate::theme::Theme;
-use crate::validator::validate_component;
+use crate::validator::{validate_component_with_context, validate_head};
 use serde_yaml::Value;
 
-/// Parse an NTML document from YAML string
+/// Parse an NTML document from YAML string (classic format only, backward compat)
 pub fn parse_ntml(yaml: &str) -> NtmlResult<Component> {
     parse_ntml_with_theme(yaml, Theme::default())
 }
 
-/// Parse an NTML document with a custom theme
+/// Parse an NTML document with a custom theme (classic format only, backward compat)
 pub fn parse_ntml_with_theme(yaml: &str, _theme: Theme) -> NtmlResult<Component> {
-    // Parse YAML into generic Value
     let value: Value = serde_yaml::from_str(yaml)?;
 
-    // Extract root component
-    let component = parse_component(&value)?;
+    let obj = value.as_mapping().ok_or_else(|| {
+        NtmlError::ValidationError("Document must be a YAML object".to_string())
+    })?;
 
-    // Validate the component tree
-    validate_component(&component)?;
+    // Reject full format when classic parse function is used
+    if obj.contains_key(&Value::String("head".to_string())) {
+        return Err(NtmlError::ValidationError(
+            "This document uses the v0.2.0 full format (head/body). Use parse_document() instead of parse_ntml()".to_string(),
+        ));
+    }
 
+    let component = parse_component_value(&value)?;
+    validate_component_with_context(&component, &[])?;
     Ok(component)
 }
 
-/// Parse a YAML value into a Component
-fn parse_component(value: &Value) -> NtmlResult<Component> {
+/// Parse an NTML document — supports both classic (v0.1.0) and full (v0.2.0) formats
+pub fn parse_document(yaml: &str) -> NtmlResult<NtmlDocument> {
+    parse_document_with_theme(yaml, Theme::default())
+}
+
+/// Parse an NTML document with a custom theme
+pub fn parse_document_with_theme(yaml: &str, _theme: Theme) -> NtmlResult<NtmlDocument> {
+    let value: Value = serde_yaml::from_str(yaml)?;
+
+    let obj = value.as_mapping().ok_or_else(|| {
+        NtmlError::ValidationError("Document must be a YAML object".to_string())
+    })?;
+
+    if obj.contains_key(&Value::String("head".to_string())) {
+        // --- Full format (v0.2.0) ---
+        let head_value = obj
+            .get(&Value::String("head".to_string()))
+            .ok_or_else(|| NtmlError::MissingTitle)?;
+        let head = parse_head(head_value)?;
+
+        // Build list of import aliases for body parsing
+        let import_aliases: Vec<String> = head
+            .imports
+            .as_ref()
+            .map(|imports| imports.iter().map(|i| i.alias.clone()).collect())
+            .unwrap_or_default();
+
+        let body_value = obj
+            .get(&Value::String("body".to_string()))
+            .ok_or(NtmlError::MissingBody)?;
+        let body = parse_component_value_ctx(body_value, &import_aliases)?;
+
+        let font_families = head.font_families();
+        validate_head(&head)?;
+        validate_component_with_context(&body, &font_families)?;
+
+        Ok(NtmlDocument::Full { head, body })
+    } else {
+        // --- Classic format (v0.1.0) ---
+        let component = parse_component_value(&value)?;
+        validate_component_with_context(&component, &[])?;
+        Ok(NtmlDocument::Classic(component))
+    }
+}
+
+/// Parse a YAML value into a Component — public so component_file.rs can use it
+pub fn parse_component_value(value: &Value) -> NtmlResult<Component> {
+    parse_component_value_ctx(value, &[])
+}
+
+/// Parse a YAML value into a Component with optional import alias context
+pub fn parse_component_value_ctx(value: &Value, import_aliases: &[String]) -> NtmlResult<Component> {
     let obj = value
         .as_mapping()
         .ok_or_else(|| NtmlError::ValidationError("Component must be an object".to_string()))?;
@@ -37,30 +95,26 @@ fn parse_component(value: &Value) -> NtmlResult<Component> {
         return Err(NtmlError::MultipleRootComponents);
     }
 
-    // Get the single key-value pair (component type and its properties)
     let (component_type, component_props) = obj
         .iter()
         .next()
         .ok_or_else(|| NtmlError::EmptyDocument)?;
 
-    let component_name = component_type
-        .as_str()
-        .ok_or_else(|| {
-            NtmlError::ValidationError("Component type must be a string".to_string())
-        })?;
+    let component_name = component_type.as_str().ok_or_else(|| {
+        NtmlError::ValidationError("Component type must be a string".to_string())
+    })?;
 
-    // Parse based on component type
     match component_name {
-        "Container" => parse_container(component_props).map(Component::Container),
-        "Flex" => parse_flex(component_props).map(Component::Flex),
-        "Grid" => parse_grid(component_props).map(Component::Grid),
-        "Stack" => parse_stack(component_props).map(Component::Stack),
-        "Row" => parse_row(component_props).map(Component::Row),
-        "Column" => parse_column(component_props).map(Component::Column),
+        "Container" => parse_container(component_props, import_aliases).map(Component::Container),
+        "Flex" => parse_flex(component_props, import_aliases).map(Component::Flex),
+        "Grid" => parse_grid(component_props, import_aliases).map(Component::Grid),
+        "Stack" => parse_stack(component_props, import_aliases).map(Component::Stack),
+        "Row" => parse_row(component_props, import_aliases).map(Component::Row),
+        "Column" => parse_column(component_props, import_aliases).map(Component::Column),
         "Text" => parse_text(component_props).map(Component::Text),
         "Image" => parse_image(component_props).map(Component::Image),
         "Icon" => parse_icon(component_props).map(Component::Icon),
-        "Button" => parse_button(component_props).map(Component::Button),
+        "Button" => parse_button(component_props, import_aliases).map(Component::Button),
         "Input" => parse_input(component_props).map(Component::Input),
         "Checkbox" => parse_checkbox(component_props).map(Component::Checkbox),
         "Radio" => parse_radio(component_props).map(Component::Radio),
@@ -69,41 +123,283 @@ fn parse_component(value: &Value) -> NtmlResult<Component> {
         "Badge" => parse_badge(component_props).map(Component::Badge),
         "Divider" => parse_divider(component_props).map(Component::Divider),
         "Spacer" => parse_spacer(component_props).map(Component::Spacer),
-        _ => Err(NtmlError::InvalidComponent {
-            component: component_name.to_string(),
-            reason: format!("Unknown component type '{}'", component_name),
-        }),
+        other => {
+            if import_aliases.iter().any(|a| a == other) {
+                parse_imported_component(other, component_props).map(Component::ImportedComponent)
+            } else {
+                Err(NtmlError::InvalidComponent {
+                    component: other.to_string(),
+                    reason: format!("Unknown component type '{}'. If this is an imported component, declare it in head.imports.", other),
+                })
+            }
+        }
     }
 }
 
 /// Parse children array into Vec<Component>
-fn parse_children(value: &Value) -> NtmlResult<Option<Vec<Component>>> {
+fn parse_children(value: &Value, import_aliases: &[String]) -> NtmlResult<Option<Vec<Component>>> {
     if value.is_null() {
         return Ok(None);
     }
 
-    let children_array = value.as_sequence().ok_or_else(|| {
-        NtmlError::ValidationError("children must be an array".to_string())
-    })?;
+    let children_array = value
+        .as_sequence()
+        .ok_or_else(|| NtmlError::ValidationError("children must be an array".to_string()))?;
 
     let mut children = Vec::new();
     for child_value in children_array {
-        let component = parse_component(child_value)?;
+        let component = parse_component_value_ctx(child_value, import_aliases)?;
         children.push(component);
     }
 
     Ok(Some(children))
 }
 
-// Individual component parsers
+/// Parse an imported component instance
+fn parse_imported_component(
+    name: &str,
+    value: &Value,
+) -> NtmlResult<ImportedComponentInstance> {
+    use std::collections::HashMap;
 
-fn parse_container(value: &Value) -> NtmlResult<Container> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Container".to_string(),
-            reason: "properties must be an object".to_string(),
+    let id;
+    let mut props = HashMap::new();
+
+    if value.is_null() {
+        id = None;
+    } else if let Some(obj) = value.as_mapping() {
+        id = parse_id(obj);
+        for (key, val) in obj {
+            if let Some(key_str) = key.as_str() {
+                if key_str != "id" {
+                    props.insert(key_str.to_string(), val.clone());
+                }
+            }
         }
+    } else {
+        id = None;
+    }
+
+    Ok(ImportedComponentInstance {
+        id,
+        name: name.to_string(),
+        props,
+    })
+}
+
+/// Read optional id field from a component properties mapping
+fn parse_id(obj: &serde_yaml::Mapping) -> Option<String> {
+    obj.get(&Value::String("id".to_string()))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+/// Extract all data-* fields from a component properties mapping
+fn parse_data_attributes(
+    obj: &serde_yaml::Mapping,
+) -> crate::error::NtmlResult<std::collections::HashMap<String, String>> {
+    let mut data = std::collections::HashMap::new();
+    for (key, val) in obj {
+        if let Some(key_str) = key.as_str() {
+            if key_str.starts_with("data-") {
+                let value = val.as_str().ok_or_else(|| NtmlError::InvalidDataAttribute {
+                    key: key_str.to_string(),
+                    reason: "value must be a string".to_string(),
+                })?;
+                data.insert(key_str.to_string(), value.to_string());
+            }
+        }
+    }
+    Ok(data)
+}
+
+/// Parse the head section of a v0.2.0 document
+fn parse_head(value: &Value) -> NtmlResult<Head> {
+    let obj = value.as_mapping().ok_or_else(|| {
+        NtmlError::ValidationError("'head' must be an object".to_string())
     })?;
+
+    let title = obj
+        .get(&Value::String("title".to_string()))
+        .and_then(|v| v.as_str())
+        .ok_or(NtmlError::MissingTitle)?
+        .to_string();
+
+    let description = obj
+        .get(&Value::String("description".to_string()))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let author = obj
+        .get(&Value::String("author".to_string()))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let tags = if let Some(tags_value) = obj.get(&Value::String("tags".to_string())) {
+        Some(parse_tags(tags_value)?)
+    } else {
+        None
+    };
+
+    let fonts = if let Some(fonts_value) = obj.get(&Value::String("fonts".to_string())) {
+        Some(parse_fonts(fonts_value)?)
+    } else {
+        None
+    };
+
+    let scripts = if let Some(scripts_value) = obj.get(&Value::String("scripts".to_string())) {
+        Some(parse_scripts(scripts_value)?)
+    } else {
+        None
+    };
+
+    let imports = if let Some(imports_value) = obj.get(&Value::String("imports".to_string())) {
+        Some(parse_imports(imports_value)?)
+    } else {
+        None
+    };
+
+    Ok(Head {
+        title,
+        description,
+        author,
+        tags,
+        fonts,
+        scripts,
+        imports,
+    })
+}
+
+fn parse_tags(value: &Value) -> NtmlResult<Vec<String>> {
+    let arr = value
+        .as_sequence()
+        .ok_or_else(|| NtmlError::ValidationError("'tags' must be an array".to_string()))?;
+
+    arr.iter()
+        .map(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| NtmlError::ValidationError("Each tag must be a string".to_string()))
+        })
+        .collect()
+}
+
+fn parse_fonts(value: &Value) -> NtmlResult<Vec<FontImport>> {
+    let arr = value
+        .as_sequence()
+        .ok_or_else(|| NtmlError::ValidationError("'fonts' must be an array".to_string()))?;
+
+    arr.iter()
+        .map(|item| {
+            let obj = item.as_mapping().ok_or_else(|| {
+                NtmlError::ValidationError("Each font must be an object".to_string())
+            })?;
+
+            let family = obj
+                .get(&Value::String("family".to_string()))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    NtmlError::ValidationError("Font must have a 'family' field".to_string())
+                })?
+                .to_string();
+
+            let weights_value = obj
+                .get(&Value::String("weights".to_string()))
+                .ok_or_else(|| {
+                    NtmlError::ValidationError("Font must have a 'weights' field".to_string())
+                })?;
+
+            let weights_arr = weights_value.as_sequence().ok_or_else(|| {
+                NtmlError::ValidationError("Font 'weights' must be an array".to_string())
+            })?;
+
+            let weights: Result<Vec<u16>, _> = weights_arr
+                .iter()
+                .map(|w| {
+                    w.as_u64()
+                        .and_then(|n| u16::try_from(n).ok())
+                        .ok_or_else(|| {
+                            NtmlError::ValidationError(
+                                "Font weight must be a positive integer".to_string(),
+                            )
+                        })
+                })
+                .collect();
+
+            Ok(FontImport {
+                family,
+                weights: weights?,
+            })
+        })
+        .collect()
+}
+
+fn parse_scripts(value: &Value) -> NtmlResult<Vec<ScriptImport>> {
+    let arr = value
+        .as_sequence()
+        .ok_or_else(|| NtmlError::ValidationError("'scripts' must be an array".to_string()))?;
+
+    arr.iter()
+        .map(|item| {
+            let obj = item.as_mapping().ok_or_else(|| {
+                NtmlError::ValidationError("Each script must be an object".to_string())
+            })?;
+
+            let src = obj
+                .get(&Value::String("src".to_string()))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    NtmlError::ValidationError("Script must have a 'src' field".to_string())
+                })?
+                .to_string();
+
+            Ok(ScriptImport { src })
+        })
+        .collect()
+}
+
+fn parse_imports(value: &Value) -> NtmlResult<Vec<ComponentImport>> {
+    let arr = value
+        .as_sequence()
+        .ok_or_else(|| NtmlError::ValidationError("'imports' must be an array".to_string()))?;
+
+    arr.iter()
+        .map(|item| {
+            let obj = item.as_mapping().ok_or_else(|| {
+                NtmlError::ValidationError("Each import must be an object".to_string())
+            })?;
+
+            let src = obj
+                .get(&Value::String("src".to_string()))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    NtmlError::ValidationError("Import must have a 'src' field".to_string())
+                })?
+                .to_string();
+
+            let alias = obj
+                .get(&Value::String("as".to_string()))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    NtmlError::ValidationError("Import must have an 'as' field".to_string())
+                })?
+                .to_string();
+
+            Ok(ComponentImport { src, alias })
+        })
+        .collect()
+}
+
+// --- Individual component parsers ---
+
+fn parse_container(value: &Value, import_aliases: &[String]) -> NtmlResult<Container> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Container".to_string(),
+        reason: "properties must be an object".to_string(),
+    })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let style = if let Some(style_value) = obj.get(&Value::String("style".to_string())) {
         Some(serde_yaml::from_value(style_value.clone())?)
@@ -112,21 +408,22 @@ fn parse_container(value: &Value) -> NtmlResult<Container> {
     };
 
     let children = if let Some(children_value) = obj.get(&Value::String("children".to_string())) {
-        parse_children(children_value)?
+        parse_children(children_value, import_aliases)?
     } else {
         None
     };
 
-    Ok(Container { style, children })
+    Ok(Container { id, style, children, data })
 }
 
-fn parse_flex(value: &Value) -> NtmlResult<Flex> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Flex".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+fn parse_flex(value: &Value, import_aliases: &[String]) -> NtmlResult<Flex> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Flex".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let direction = if let Some(dir_value) = obj.get(&Value::String("direction".to_string())) {
         Some(serde_yaml::from_value(dir_value.clone())?)
@@ -147,26 +444,20 @@ fn parse_flex(value: &Value) -> NtmlResult<Flex> {
     };
 
     let gap = if let Some(gap_value) = obj.get(&Value::String("gap".to_string())) {
-        Some(
-            gap_value
-                .as_f64()
-                .ok_or_else(|| NtmlError::InvalidProperty {
-                    component: "Flex".to_string(),
-                    property: "gap".to_string(),
-                    reason: "must be a number".to_string(),
-                })?,
-        )
+        Some(gap_value.as_f64().ok_or_else(|| NtmlError::InvalidProperty {
+            component: "Flex".to_string(),
+            property: "gap".to_string(),
+            reason: "must be a number".to_string(),
+        })?)
     } else {
         None
     };
 
     let wrap = if let Some(wrap_value) = obj.get(&Value::String("wrap".to_string())) {
-        Some(wrap_value.as_bool().ok_or_else(|| {
-            NtmlError::InvalidProperty {
-                component: "Flex".to_string(),
-                property: "wrap".to_string(),
-                reason: "must be a boolean".to_string(),
-            }
+        Some(wrap_value.as_bool().ok_or_else(|| NtmlError::InvalidProperty {
+            component: "Flex".to_string(),
+            property: "wrap".to_string(),
+            reason: "must be a boolean".to_string(),
         })?)
     } else {
         None
@@ -179,29 +470,22 @@ fn parse_flex(value: &Value) -> NtmlResult<Flex> {
     };
 
     let children = if let Some(children_value) = obj.get(&Value::String("children".to_string())) {
-        parse_children(children_value)?
+        parse_children(children_value, import_aliases)?
     } else {
         None
     };
 
-    Ok(Flex {
-        direction,
-        justify,
-        align,
-        gap,
-        wrap,
-        style,
-        children,
-    })
+    Ok(Flex { id, direction, justify, align, gap, wrap, style, children, data })
 }
 
-fn parse_grid(value: &Value) -> NtmlResult<Grid> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Grid".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+fn parse_grid(value: &Value, import_aliases: &[String]) -> NtmlResult<Grid> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Grid".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let columns_value = obj
         .get(&Value::String("columns".to_string()))
@@ -230,27 +514,22 @@ fn parse_grid(value: &Value) -> NtmlResult<Grid> {
     };
 
     let children = if let Some(children_value) = obj.get(&Value::String("children".to_string())) {
-        parse_children(children_value)?
+        parse_children(children_value, import_aliases)?
     } else {
         None
     };
 
-    Ok(Grid {
-        columns,
-        rows,
-        gap,
-        style,
-        children,
-    })
+    Ok(Grid { id, columns, rows, gap, style, children, data })
 }
 
-fn parse_stack(value: &Value) -> NtmlResult<Stack> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Stack".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+fn parse_stack(value: &Value, import_aliases: &[String]) -> NtmlResult<Stack> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Stack".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let alignment = if let Some(align_value) = obj.get(&Value::String("alignment".to_string())) {
         Some(serde_yaml::from_value(align_value.clone())?)
@@ -265,57 +544,50 @@ fn parse_stack(value: &Value) -> NtmlResult<Stack> {
     };
 
     let children = if let Some(children_value) = obj.get(&Value::String("children".to_string())) {
-        parse_children(children_value)?
+        parse_children(children_value, import_aliases)?
     } else {
         None
     };
 
-    Ok(Stack {
-        alignment,
-        style,
-        children,
-    })
+    Ok(Stack { id, alignment, style, children, data })
 }
 
-fn parse_row(value: &Value) -> NtmlResult<Row> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
+fn parse_row(value: &Value, import_aliases: &[String]) -> NtmlResult<Row> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Row".to_string(),
+        reason: "properties must be an object".to_string(),
+    })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
+
+    let justify = if let Some(just_value) = obj.get(&Value::String("justify".to_string())) {
+        Some(serde_yaml::from_value(just_value.clone())?)
+    } else {
+        None
+    };
+
+    let align = if let Some(align_value) = obj.get(&Value::String("align".to_string())) {
+        Some(serde_yaml::from_value(align_value.clone())?)
+    } else {
+        None
+    };
+
+    let gap = if let Some(gap_value) = obj.get(&Value::String("gap".to_string())) {
+        Some(gap_value.as_f64().ok_or_else(|| NtmlError::InvalidProperty {
             component: "Row".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
-    })?;
-
-    let justify = if let Some(just_value) = obj.get(&Value::String("justify".to_string())) {
-        Some(serde_yaml::from_value(just_value.clone())?)
-    } else {
-        None
-    };
-
-    let align = if let Some(align_value) = obj.get(&Value::String("align".to_string())) {
-        Some(serde_yaml::from_value(align_value.clone())?)
-    } else {
-        None
-    };
-
-    let gap = if let Some(gap_value) = obj.get(&Value::String("gap".to_string())) {
-        Some(gap_value.as_f64().ok_or_else(|| {
-            NtmlError::InvalidProperty {
-                component: "Row".to_string(),
-                property: "gap".to_string(),
-                reason: "must be a number".to_string(),
-            }
+            property: "gap".to_string(),
+            reason: "must be a number".to_string(),
         })?)
     } else {
         None
     };
 
     let wrap = if let Some(wrap_value) = obj.get(&Value::String("wrap".to_string())) {
-        Some(wrap_value.as_bool().ok_or_else(|| {
-            NtmlError::InvalidProperty {
-                component: "Row".to_string(),
-                property: "wrap".to_string(),
-                reason: "must be a boolean".to_string(),
-            }
+        Some(wrap_value.as_bool().ok_or_else(|| NtmlError::InvalidProperty {
+            component: "Row".to_string(),
+            property: "wrap".to_string(),
+            reason: "must be a boolean".to_string(),
         })?)
     } else {
         None
@@ -328,28 +600,22 @@ fn parse_row(value: &Value) -> NtmlResult<Row> {
     };
 
     let children = if let Some(children_value) = obj.get(&Value::String("children".to_string())) {
-        parse_children(children_value)?
+        parse_children(children_value, import_aliases)?
     } else {
         None
     };
 
-    Ok(Row {
-        justify,
-        align,
-        gap,
-        wrap,
-        style,
-        children,
-    })
+    Ok(Row { id, justify, align, gap, wrap, style, children, data })
 }
 
-fn parse_column(value: &Value) -> NtmlResult<Column> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Column".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+fn parse_column(value: &Value, import_aliases: &[String]) -> NtmlResult<Column> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Column".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let justify = if let Some(just_value) = obj.get(&Value::String("justify".to_string())) {
         Some(serde_yaml::from_value(just_value.clone())?)
@@ -364,24 +630,20 @@ fn parse_column(value: &Value) -> NtmlResult<Column> {
     };
 
     let gap = if let Some(gap_value) = obj.get(&Value::String("gap".to_string())) {
-        Some(gap_value.as_f64().ok_or_else(|| {
-            NtmlError::InvalidProperty {
-                component: "Column".to_string(),
-                property: "gap".to_string(),
-                reason: "must be a number".to_string(),
-            }
+        Some(gap_value.as_f64().ok_or_else(|| NtmlError::InvalidProperty {
+            component: "Column".to_string(),
+            property: "gap".to_string(),
+            reason: "must be a number".to_string(),
         })?)
     } else {
         None
     };
 
     let wrap = if let Some(wrap_value) = obj.get(&Value::String("wrap".to_string())) {
-        Some(wrap_value.as_bool().ok_or_else(|| {
-            NtmlError::InvalidProperty {
-                component: "Column".to_string(),
-                property: "wrap".to_string(),
-                reason: "must be a boolean".to_string(),
-            }
+        Some(wrap_value.as_bool().ok_or_else(|| NtmlError::InvalidProperty {
+            component: "Column".to_string(),
+            property: "wrap".to_string(),
+            reason: "must be a boolean".to_string(),
         })?)
     } else {
         None
@@ -394,28 +656,22 @@ fn parse_column(value: &Value) -> NtmlResult<Column> {
     };
 
     let children = if let Some(children_value) = obj.get(&Value::String("children".to_string())) {
-        parse_children(children_value)?
+        parse_children(children_value, import_aliases)?
     } else {
         None
     };
 
-    Ok(Column {
-        justify,
-        align,
-        gap,
-        wrap,
-        style,
-        children,
-    })
+    Ok(Column { id, justify, align, gap, wrap, style, children, data })
 }
 
 fn parse_text(value: &Value) -> NtmlResult<Text> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Text".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Text".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let text = obj
         .get(&Value::String("text".to_string()))
@@ -432,16 +688,17 @@ fn parse_text(value: &Value) -> NtmlResult<Text> {
         None
     };
 
-    Ok(Text { text, style })
+    Ok(Text { id, text, style, data })
 }
 
 fn parse_image(value: &Value) -> NtmlResult<Image> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Image".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Image".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let src = obj
         .get(&Value::String("src".to_string()))
@@ -469,21 +726,17 @@ fn parse_image(value: &Value) -> NtmlResult<Image> {
         None
     };
 
-    Ok(Image {
-        src,
-        alt,
-        fit,
-        style,
-    })
+    Ok(Image { id, src, alt, fit, style, data })
 }
 
 fn parse_icon(value: &Value) -> NtmlResult<Icon> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Icon".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Icon".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let name = obj
         .get(&Value::String("name".to_string()))
@@ -504,16 +757,17 @@ fn parse_icon(value: &Value) -> NtmlResult<Icon> {
         None
     };
 
-    Ok(Icon { name, size, style })
+    Ok(Icon { id, name, size, style, data })
 }
 
-fn parse_button(value: &Value) -> NtmlResult<Button> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Button".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+fn parse_button(value: &Value, import_aliases: &[String]) -> NtmlResult<Button> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Button".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let action = obj
         .get(&Value::String("action".to_string()))
@@ -541,27 +795,22 @@ fn parse_button(value: &Value) -> NtmlResult<Button> {
     };
 
     let children = if let Some(children_value) = obj.get(&Value::String("children".to_string())) {
-        parse_children(children_value)?
+        parse_children(children_value, import_aliases)?
     } else {
         None
     };
 
-    Ok(Button {
-        action,
-        variant,
-        disabled,
-        style,
-        children,
-    })
+    Ok(Button { id, action, variant, disabled, style, children, data })
 }
 
 fn parse_input(value: &Value) -> NtmlResult<Input> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Input".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Input".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let name = obj
         .get(&Value::String("name".to_string()))
@@ -603,24 +852,17 @@ fn parse_input(value: &Value) -> NtmlResult<Input> {
         None
     };
 
-    Ok(Input {
-        name,
-        placeholder,
-        value: value_str,
-        input_type,
-        max_length,
-        disabled,
-        style,
-    })
+    Ok(Input { id, name, placeholder, value: value_str, input_type, max_length, disabled, style, data })
 }
 
 fn parse_checkbox(value: &Value) -> NtmlResult<Checkbox> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Checkbox".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Checkbox".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let name = obj
         .get(&Value::String("name".to_string()))
@@ -650,22 +892,17 @@ fn parse_checkbox(value: &Value) -> NtmlResult<Checkbox> {
         None
     };
 
-    Ok(Checkbox {
-        name,
-        label,
-        checked,
-        disabled,
-        style,
-    })
+    Ok(Checkbox { id, name, label, checked, disabled, style, data })
 }
 
 fn parse_radio(value: &Value) -> NtmlResult<Radio> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Radio".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Radio".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let name = obj
         .get(&Value::String("name".to_string()))
@@ -704,23 +941,17 @@ fn parse_radio(value: &Value) -> NtmlResult<Radio> {
         None
     };
 
-    Ok(Radio {
-        name,
-        value: value_str,
-        label,
-        checked,
-        disabled,
-        style,
-    })
+    Ok(Radio { id, name, value: value_str, label, checked, disabled, style, data })
 }
 
 fn parse_select(value: &Value) -> NtmlResult<Select> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Select".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Select".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let name = obj
         .get(&Value::String("name".to_string()))
@@ -754,22 +985,17 @@ fn parse_select(value: &Value) -> NtmlResult<Select> {
         None
     };
 
-    Ok(Select {
-        name,
-        options,
-        value: value_str,
-        disabled,
-        style,
-    })
+    Ok(Select { id, name, options, value: value_str, disabled, style, data })
 }
 
 fn parse_progress_bar(value: &Value) -> NtmlResult<ProgressBar> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "ProgressBar".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "ProgressBar".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let value_num = obj
         .get(&Value::String("value".to_string()))
@@ -799,22 +1025,17 @@ fn parse_progress_bar(value: &Value) -> NtmlResult<ProgressBar> {
         None
     };
 
-    Ok(ProgressBar {
-        value: value_num,
-        max,
-        variant,
-        show_label,
-        style,
-    })
+    Ok(ProgressBar { id, value: value_num, max, variant, show_label, style, data })
 }
 
 fn parse_badge(value: &Value) -> NtmlResult<Badge> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Badge".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Badge".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
 
     let text = obj
         .get(&Value::String("text".to_string()))
@@ -837,27 +1058,24 @@ fn parse_badge(value: &Value) -> NtmlResult<Badge> {
         None
     };
 
-    Ok(Badge {
-        text,
-        variant,
-        style,
-    })
+    Ok(Badge { id, text, variant, style, data })
 }
 
 fn parse_divider(value: &Value) -> NtmlResult<Divider> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Divider".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Divider".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
 
-    let orientation = if let Some(orient_value) = obj.get(&Value::String("orientation".to_string()))
-    {
-        Some(serde_yaml::from_value(orient_value.clone())?)
-    } else {
-        None
-    };
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
+
+    let orientation =
+        if let Some(orient_value) = obj.get(&Value::String("orientation".to_string())) {
+            Some(serde_yaml::from_value(orient_value.clone())?)
+        } else {
+            None
+        };
 
     let style = if let Some(style_value) = obj.get(&Value::String("style".to_string())) {
         Some(serde_yaml::from_value(style_value.clone())?)
@@ -865,16 +1083,16 @@ fn parse_divider(value: &Value) -> NtmlResult<Divider> {
         None
     };
 
-    Ok(Divider { orientation, style })
+    Ok(Divider { id, orientation, style, data })
 }
 
 fn parse_spacer(value: &Value) -> NtmlResult<Spacer> {
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::InvalidComponent {
-            component: "Spacer".to_string(),
-            reason: "properties must be an object".to_string(),
-        }
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Spacer".to_string(),
+        reason: "properties must be an object".to_string(),
     })?;
+
+    let data = parse_data_attributes(obj)?;
 
     let size_value = obj
         .get(&Value::String("size".to_string()))
@@ -903,7 +1121,7 @@ fn parse_spacer(value: &Value) -> NtmlResult<Spacer> {
         });
     };
 
-    Ok(Spacer { size })
+    Ok(Spacer { size, data })
 }
 
 #[cfg(test)]
@@ -918,6 +1136,22 @@ Text:
 "#;
         let result = parse_ntml(yaml);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_parse_text_with_id() {
+        let yaml = r#"
+Text:
+  id: "my-text"
+  text: "Hello World"
+"#;
+        let result = parse_ntml(yaml);
+        assert!(result.is_ok());
+        if let Component::Text(t) = result.unwrap() {
+            assert_eq!(t.id, Some("my-text".to_string()));
+        } else {
+            panic!("Expected Text component");
+        }
     }
 
     #[test]
@@ -974,5 +1208,74 @@ Button:
 "#;
         let result = parse_ntml(yaml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_document_classic() {
+        let yaml = r#"
+Text:
+  text: "Hello"
+"#;
+        let result = parse_document(yaml);
+        assert!(result.is_ok());
+        assert!(matches!(result.unwrap(), NtmlDocument::Classic(_)));
+    }
+
+    #[test]
+    fn test_parse_document_full() {
+        let yaml = r#"
+head:
+  title: "My Page"
+  description: "A test page"
+  tags: [test, ntml]
+
+body:
+  Text:
+    text: "Hello from v0.2.0"
+"#;
+        let result = parse_document(yaml);
+        assert!(result.is_ok(), "Failed: {:?}", result.err());
+        if let NtmlDocument::Full { head, .. } = result.unwrap() {
+            assert_eq!(head.title, "My Page");
+            assert_eq!(head.description, Some("A test page".to_string()));
+        } else {
+            panic!("Expected Full document");
+        }
+    }
+
+    #[test]
+    fn test_parse_ntml_rejects_full_format() {
+        let yaml = r#"
+head:
+  title: "My Page"
+body:
+  Text:
+    text: "Hello"
+"#;
+        let result = parse_ntml(yaml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_full_format_requires_body() {
+        let yaml = r#"
+head:
+  title: "My Page"
+"#;
+        let result = parse_document(yaml);
+        assert!(matches!(result, Err(NtmlError::MissingBody)));
+    }
+
+    #[test]
+    fn test_full_format_requires_title() {
+        let yaml = r#"
+head:
+  description: "No title here"
+body:
+  Text:
+    text: "Hello"
+"#;
+        let result = parse_document(yaml);
+        assert!(matches!(result, Err(NtmlError::MissingTitle)));
     }
 }

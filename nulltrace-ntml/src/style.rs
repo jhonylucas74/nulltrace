@@ -137,8 +137,17 @@ pub enum FontWeightNamed {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(untagged)]
 pub enum FontFamily {
+    /// Built-in font families (sans, serif, monospace, game)
+    Named(FontFamilyNamed),
+    /// Custom font family declared in head.fonts (e.g., "Roboto Mono")
+    Custom(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FontFamilyNamed {
     Sans,
     Serif,
     Monospace,

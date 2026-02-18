@@ -79,6 +79,83 @@ pub enum NtmlError {
         value: String,
         range: String,
     },
+
+    // --- v0.2.0 head errors ---
+
+    #[error("Document has a 'head' section but is missing a 'body' section")]
+    MissingBody,
+
+    #[error("Document head is missing required field 'title'")]
+    MissingTitle,
+
+    #[error("Invalid font family name '{family}': must be a non-empty string")]
+    InvalidFontFamily { family: String },
+
+    #[error("Too many scripts: maximum {max} scripts per document")]
+    ScriptLimitExceeded { max: usize },
+
+    #[error("Too many imports: maximum {max} imports per document")]
+    ImportLimitExceeded { max: usize },
+
+    #[error("Too many fonts: maximum {max} fonts per document")]
+    FontLimitExceeded { max: usize },
+
+    #[error("Invalid import alias '{alias}': must be PascalCase and not conflict with built-in component names")]
+    InvalidImportAlias { alias: String },
+
+    #[error("Invalid tag '{tag}': tags must be non-empty, lowercase, and contain no spaces")]
+    InvalidTag { tag: String },
+
+    #[error("Too many tags: maximum {max} tags per document")]
+    TagLimitExceeded { max: usize },
+
+    // --- v0.2.0 importable component errors ---
+
+    #[error("Unknown imported component '{name}': not declared in head.imports")]
+    UnknownImportedComponent { name: String },
+
+    #[error("Missing required prop '{prop}' for component '{component}'")]
+    MissingRequiredProp { component: String, prop: String },
+
+    #[error("Invalid type for prop '{prop}' in component '{component}': expected {expected}")]
+    InvalidPropType {
+        component: String,
+        prop: String,
+        expected: String,
+    },
+
+    #[error("Unknown prop '{prop}' for component '{component}'")]
+    UnknownProp { component: String, prop: String },
+
+    #[error("Circular component import detected: '{path}'")]
+    CircularComponentImport { path: String },
+
+    #[error("Component file '{path}' cannot have a 'head' section")]
+    ComponentFileHasHead { path: String },
+
+    // --- v0.2.0 Lua errors ---
+
+    #[error("Script '{src}' exceeds maximum line limit of {max_lines} lines")]
+    LuaScriptTooLong { src: String, max_lines: usize },
+
+    #[error("Lua handler '{handler}' timed out after {timeout_ms}ms")]
+    LuaHandlerTimeout { handler: String, timeout_ms: u64 },
+
+    #[error("Lua runtime error in '{src}': {message}")]
+    LuaRuntimeError { src: String, message: String },
+
+    #[error("Lua function '{action}' not found: button action references a function that is not defined in any imported script")]
+    LuaFunctionNotFound { action: String },
+
+    // --- v0.2.0 ID errors ---
+
+    #[error("Duplicate id '{id}': component ids must be unique within the document")]
+    DuplicateId { id: String },
+
+    // --- data-* attribute errors ---
+
+    #[error("Invalid data attribute '{key}': {reason}")]
+    InvalidDataAttribute { key: String, reason: String },
 }
 
 impl From<serde_yaml::Error> for NtmlError {

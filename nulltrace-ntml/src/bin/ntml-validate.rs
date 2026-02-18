@@ -1,4 +1,4 @@
-use nulltrace_ntml::{parse_ntml, NtmlError};
+use nulltrace_ntml::{parse_component_file, parse_document, NtmlError};
 use std::env;
 use std::fs;
 use std::process;
@@ -38,7 +38,13 @@ fn validate_file(path: &str) -> Result<(), NtmlError> {
     let content = fs::read_to_string(path)
         .map_err(|e| NtmlError::ValidationError(format!("Failed to read file: {}", e)))?;
 
-    parse_ntml(&content)?;
+    // Component files (with "component:" key) use parse_component_file
+    // Full format (with "head:") and classic use parse_document
+    if content.lines().any(|l| l.trim_start().starts_with("component:")) {
+        parse_component_file(&content)?;
+    } else {
+        parse_document(&content)?;
+    }
     Ok(())
 }
 
@@ -136,6 +142,10 @@ fn print_error(error: &NtmlError) {
             eprintln!("  Value out of range for '{}':", property);
             eprintln!("    Value: {}", value);
             eprintln!("    Expected range: {}", range);
+        }
+        // v0.2.0 errors — all displayed via their Display impl
+        e => {
+            eprintln!("  {}", e);
         }
     }
 }

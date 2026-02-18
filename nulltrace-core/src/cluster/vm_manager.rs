@@ -370,15 +370,39 @@ impl VmManager {
     pub fn network_tick(&mut self, vms: &mut [VirtualMachine]) {
         // 1. Drain outbound from all NICs
         let mut packets_to_route = Vec::new();
+        let mut loopback_packets = Vec::new();
         for vm in vms.iter_mut() {
             if let Some(nic) = &mut vm.nic {
                 for pkt in nic.drain_outbound() {
-                    packets_to_route.push(pkt);
+                    if pkt.dst_ip.is_loopback() {
+                        loopback_packets.push(pkt);
+                    } else {
+                        packets_to_route.push(pkt);
+                    }
                 }
             }
         }
 
-        // 2. Route each packet
+        // 2a. Deliver loopback packets to the sender VM (127.x.x.x → same machine)
+        for pkt in loopback_packets {
+            let src_ip = pkt.src_ip;
+            let dst_port = pkt.dst_port;
+            for vm in vms.iter_mut() {
+                if let Some(nic) = &mut vm.nic {
+                    if nic.ip != src_ip {
+                        continue;
+                    }
+                    if nic.is_listening(dst_port) {
+                        nic.deliver(pkt);
+                    } else if nic.has_ephemeral(dst_port) {
+                        nic.deliver_to_ephemeral(dst_port, pkt);
+                    }
+                    break;
+                }
+            }
+        }
+
+        // 2b. Route each non-loopback packet
         for pkt in packets_to_route {
             match self.router.route_packet(pkt) {
                 RouteResult::Deliver { packet, .. } => {
@@ -7526,6 +7550,237 @@ while true do end
             a_stdout.contains("pong"),
             "VM A (connection API client) should receive 'pong'; got stdout: {:?}",
             a_stdout
+        );
+    }
+
+    /// HTTP protocol: VM B runs HTTP server on port 80, VM A sends GET / and receives "Hello NTML" response.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_protocol_two_vms() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 98, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config_a = super::super::db::vm_service::VmConfig {
+            hostname: "http-client".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_a, nic_a) = manager.create_vm(config_a).await.unwrap();
+        let config_b = super::super::db::vm_service::VmConfig {
+            hostname: "http-server".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
+        let ip_b = nic_b.ip.to_string();
+
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
+        vm_a.attach_nic(nic_a);
+        let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
+        vm_b.attach_nic(nic_b);
+
+        const PORT: u16 = 80;
+        vm_b.os.spawn_process(
+            &vm_b.lua,
+            r#"
+net.listen(80)
+while true do
+  local r = net.recv()
+  if r then
+    local req = http.parse_request(r.data)
+    if req and req.path == "/" then
+      local res = http.build_response(200, "Hello NTML")
+      net.send(r.src_ip, r.src_port, res)
+    end
+  end
+end
+"#,
+            vec![],
+            0,
+            "root",
+        );
+        vm_a.os.spawn_process(
+            &vm_a.lua,
+            &format!(
+                r#"
+local req = http.build_request("GET", "/", nil)
+local conn = net.connect("{}", {})
+conn:send(req)
+while true do
+  local r = conn:recv()
+  if r then
+    local res = http.parse_response(r.data)
+    if res and res.status == 200 then
+      io.write(res.body)
+    end
+    conn:close()
+    break
+  end
+end
+while true do end
+"#,
+                ip_b,
+                PORT
+            ),
+            vec![],
+            0,
+            "root",
+        );
+
+        let mut vms = vec![vm_a, vm_b];
+        run_n_ticks_vms_network(&mut manager, &mut vms, 500).await;
+
+        let a_stdout = vms[0]
+            .os
+            .processes
+            .iter()
+            .next()
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+        assert!(
+            a_stdout.contains("Hello NTML"),
+            "VM A (HTTP client) should receive 'Hello NTML'; got stdout: {:?}",
+            a_stdout
+        );
+    }
+
+    /// HTTP protocol over loopback: VM runs server on port 80 and client connects to localhost (127.0.0.1).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_http_protocol_loopback() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 97, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config = super::super::db::vm_service::VmConfig {
+            hostname: "loopback-vm".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec, nic) = manager.create_vm(config).await.unwrap();
+
+        let config_dummy = super::super::db::vm_service::VmConfig {
+            hostname: "dummy".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_dummy, nic_dummy) = manager.create_vm(config_dummy).await.unwrap();
+
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_dummy = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm = VirtualMachine::with_id(lua, _rec.id);
+        vm.attach_nic(nic);
+        let mut vm_dummy = VirtualMachine::with_id(lua_dummy, _rec_dummy.id);
+        vm_dummy.attach_nic(nic_dummy);
+        vm_dummy.os.spawn_process(&vm_dummy.lua, "while true do end", vec![], 0, "root");
+
+        // Process 1: HTTP server on port 80
+        vm.os.spawn_process(
+            &vm.lua,
+            r#"
+net.listen(80)
+while true do
+  local r = net.recv()
+  if r then
+    local req = http.parse_request(r.data)
+    if req and req.path == "/" then
+      local res = http.build_response(200, "Hello loopback")
+      net.send(r.src_ip, r.src_port, res)
+    end
+  end
+end
+"#,
+            vec![],
+            0,
+            "root",
+        );
+        // Process 2: HTTP client connecting to localhost:80
+        vm.os.spawn_process(
+            &vm.lua,
+            r#"
+local req = http.build_request("GET", "/", nil)
+local conn = net.connect("localhost", 80)
+conn:send(req)
+while true do
+  local r = conn:recv()
+  if r then
+    local res = http.parse_response(r.data)
+    if res and res.status == 200 then
+      io.write(res.body)
+    end
+    conn:close()
+    break
+  end
+end
+while true do end
+"#,
+            vec![],
+            0,
+            "root",
+        );
+
+        let mut vms = vec![vm, vm_dummy];
+        run_n_ticks_vms_network(&mut manager, &mut vms, 500).await;
+
+        // First process is server, second is client. Client writes "Hello loopback" to stdout.
+        let client_stdout = vms[0]
+            .os
+            .processes
+            .iter()
+            .nth(1)
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+        assert!(
+            client_stdout.contains("Hello loopback"),
+            "HTTP client over loopback should receive 'Hello loopback'; got stdout: {:?}",
+            client_stdout
         );
     }
 

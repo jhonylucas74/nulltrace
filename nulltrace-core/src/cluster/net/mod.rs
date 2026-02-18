@@ -5,4 +5,5 @@ pub mod nic;
 pub mod router;
 pub mod nat;
 pub mod dns;
+pub mod http_proto;
 pub mod net_manager;

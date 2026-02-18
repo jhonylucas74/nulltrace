@@ -1,17 +1,198 @@
+use crate::component_file::{is_pascal_case, ComponentFile, BUILTIN_COMPONENTS};
 use crate::components::*;
 use crate::error::{NtmlError, NtmlResult};
+use crate::head::Head;
 use crate::style::*;
 use regex::Regex;
+use std::collections::HashSet;
 use std::sync::OnceLock;
 
 const MAX_NESTING_DEPTH: usize = 20;
+const MAX_TAGS: usize = 10;
+const MAX_FONTS: usize = 10;
+const MAX_SCRIPTS: usize = 5;
+const MAX_IMPORTS: usize = 10;
 
-/// Validate a component tree
+/// Validate a component tree (no custom font families)
 pub fn validate_component(component: &Component) -> NtmlResult<()> {
-    validate_component_recursive(component, 0)
+    validate_component_with_context(component, &[])
 }
 
-fn validate_component_recursive(component: &Component, depth: usize) -> NtmlResult<()> {
+/// Validate a component tree with the list of declared font families from head
+pub fn validate_component_with_context(
+    component: &Component,
+    font_families: &[String],
+) -> NtmlResult<()> {
+    validate_id_uniqueness(component)?;
+    validate_component_recursive(component, 0, font_families)
+}
+
+/// Validate a head section
+pub fn validate_head(head: &Head) -> NtmlResult<()> {
+    // Title must be non-empty
+    if head.title.is_empty() {
+        return Err(NtmlError::MissingTitle);
+    }
+
+    // Tags validation
+    if let Some(ref tags) = head.tags {
+        if tags.len() > MAX_TAGS {
+            return Err(NtmlError::TagLimitExceeded { max: MAX_TAGS });
+        }
+        for tag in tags {
+            validate_tag(tag)?;
+        }
+    }
+
+    // Fonts validation
+    if let Some(ref fonts) = head.fonts {
+        if fonts.len() > MAX_FONTS {
+            return Err(NtmlError::FontLimitExceeded { max: MAX_FONTS });
+        }
+        for font in fonts {
+            if font.family.is_empty() {
+                return Err(NtmlError::InvalidFontFamily {
+                    family: font.family.clone(),
+                });
+            }
+            if font.weights.is_empty() {
+                return Err(NtmlError::ValidationError(format!(
+                    "Font '{}' must have at least one weight",
+                    font.family
+                )));
+            }
+            for &weight in &font.weights {
+                if weight < 100 || weight > 900 || weight % 100 != 0 {
+                    return Err(NtmlError::InvalidStyle {
+                        property: format!("fonts[{}].weights", font.family),
+                        reason: format!(
+                            "weight {} is invalid: must be 100-900 in increments of 100",
+                            weight
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    // Scripts validation
+    if let Some(ref scripts) = head.scripts {
+        if scripts.len() > MAX_SCRIPTS {
+            return Err(NtmlError::ScriptLimitExceeded { max: MAX_SCRIPTS });
+        }
+        for script in scripts {
+            if !script.src.ends_with(".lua") {
+                return Err(NtmlError::ValidationError(format!(
+                    "Script src '{}' must have a .lua extension",
+                    script.src
+                )));
+            }
+        }
+    }
+
+    // Imports validation
+    if let Some(ref imports) = head.imports {
+        if imports.len() > MAX_IMPORTS {
+            return Err(NtmlError::ImportLimitExceeded { max: MAX_IMPORTS });
+        }
+        for import in imports {
+            // Alias must be PascalCase
+            if !is_pascal_case(&import.alias) {
+                return Err(NtmlError::InvalidImportAlias {
+                    alias: import.alias.clone(),
+                });
+            }
+            // Alias must not conflict with built-in components
+            if BUILTIN_COMPONENTS.contains(&import.alias.as_str()) {
+                return Err(NtmlError::InvalidImportAlias {
+                    alias: import.alias.clone(),
+                });
+            }
+            // Source must be a .ntml file
+            if !import.src.ends_with(".ntml") {
+                return Err(NtmlError::ValidationError(format!(
+                    "Import src '{}' must have a .ntml extension",
+                    import.src
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate that a tag is lowercase, non-empty, and has no spaces
+fn validate_tag(tag: &str) -> NtmlResult<()> {
+    if tag.is_empty() || tag.contains(' ') || tag != tag.to_lowercase() {
+        return Err(NtmlError::InvalidTag { tag: tag.to_string() });
+    }
+    Ok(())
+}
+
+/// Validate ID uniqueness across the whole component tree
+pub fn validate_id_uniqueness(component: &Component) -> NtmlResult<()> {
+    let mut seen_ids = HashSet::new();
+    collect_ids(component, &mut seen_ids)
+}
+
+fn collect_ids(component: &Component, seen: &mut HashSet<String>) -> NtmlResult<()> {
+    let id = get_component_id(component);
+    if let Some(id_str) = id {
+        if !seen.insert(id_str.clone()) {
+            return Err(NtmlError::DuplicateId { id: id_str });
+        }
+    }
+    // Recurse into children
+    if let Some(children) = get_component_children(component) {
+        for child in children {
+            collect_ids(child, seen)?;
+        }
+    }
+    Ok(())
+}
+
+fn get_component_id(component: &Component) -> Option<String> {
+    match component {
+        Component::Container(c) => c.id.clone(),
+        Component::Flex(c) => c.id.clone(),
+        Component::Grid(c) => c.id.clone(),
+        Component::Stack(c) => c.id.clone(),
+        Component::Row(c) => c.id.clone(),
+        Component::Column(c) => c.id.clone(),
+        Component::Text(c) => c.id.clone(),
+        Component::Image(c) => c.id.clone(),
+        Component::Icon(c) => c.id.clone(),
+        Component::Button(c) => c.id.clone(),
+        Component::Input(c) => c.id.clone(),
+        Component::Checkbox(c) => c.id.clone(),
+        Component::Radio(c) => c.id.clone(),
+        Component::Select(c) => c.id.clone(),
+        Component::ProgressBar(c) => c.id.clone(),
+        Component::Badge(c) => c.id.clone(),
+        Component::Divider(c) => c.id.clone(),
+        Component::Spacer(_) => None,
+        Component::ImportedComponent(c) => c.id.clone(),
+    }
+}
+
+fn get_component_children(component: &Component) -> Option<&Vec<Component>> {
+    match component {
+        Component::Container(c) => c.children.as_ref(),
+        Component::Flex(c) => c.children.as_ref(),
+        Component::Grid(c) => c.children.as_ref(),
+        Component::Stack(c) => c.children.as_ref(),
+        Component::Row(c) => c.children.as_ref(),
+        Component::Column(c) => c.children.as_ref(),
+        Component::Button(c) => c.children.as_ref(),
+        _ => None,
+    }
+}
+
+fn validate_component_recursive(
+    component: &Component,
+    depth: usize,
+    font_families: &[String],
+) -> NtmlResult<()> {
     if depth > MAX_NESTING_DEPTH {
         return Err(NtmlError::MaxNestingDepthExceeded {
             max_depth: MAX_NESTING_DEPTH,
@@ -19,37 +200,42 @@ fn validate_component_recursive(component: &Component, depth: usize) -> NtmlResu
     }
 
     match component {
-        Component::Container(c) => validate_container(c, depth),
-        Component::Flex(c) => validate_flex(c, depth),
-        Component::Grid(c) => validate_grid(c, depth),
-        Component::Stack(c) => validate_stack(c, depth),
-        Component::Row(c) => validate_row(c, depth),
-        Component::Column(c) => validate_column(c, depth),
-        Component::Text(c) => validate_text(c),
-        Component::Image(c) => validate_image(c),
-        Component::Icon(c) => validate_icon(c),
-        Component::Button(c) => validate_button(c, depth),
-        Component::Input(c) => validate_input(c),
-        Component::Checkbox(c) => validate_checkbox(c),
-        Component::Radio(c) => validate_radio(c),
-        Component::Select(c) => validate_select(c),
-        Component::ProgressBar(c) => validate_progress_bar(c),
-        Component::Badge(c) => validate_badge(c),
-        Component::Divider(c) => validate_divider(c),
+        Component::Container(c) => validate_container(c, depth, font_families),
+        Component::Flex(c) => validate_flex(c, depth, font_families),
+        Component::Grid(c) => validate_grid(c, depth, font_families),
+        Component::Stack(c) => validate_stack(c, depth, font_families),
+        Component::Row(c) => validate_row(c, depth, font_families),
+        Component::Column(c) => validate_column(c, depth, font_families),
+        Component::Text(c) => validate_text(c, font_families),
+        Component::Image(c) => validate_image(c, font_families),
+        Component::Icon(c) => validate_icon(c, font_families),
+        Component::Button(c) => validate_button(c, depth, font_families),
+        Component::Input(c) => validate_input(c, font_families),
+        Component::Checkbox(c) => validate_checkbox(c, font_families),
+        Component::Radio(c) => validate_radio(c, font_families),
+        Component::Select(c) => validate_select(c, font_families),
+        Component::ProgressBar(c) => validate_progress_bar(c, font_families),
+        Component::Badge(c) => validate_badge(c, font_families),
+        Component::Divider(c) => validate_divider(c, font_families),
         Component::Spacer(c) => validate_spacer(c),
+        Component::ImportedComponent(_) => Ok(()), // props validated at runtime
     }
 }
 
-fn validate_children(children: &Option<Vec<Component>>, depth: usize) -> NtmlResult<()> {
+fn validate_children(
+    children: &Option<Vec<Component>>,
+    depth: usize,
+    font_families: &[String],
+) -> NtmlResult<()> {
     if let Some(children) = children {
         for child in children {
-            validate_component_recursive(child, depth + 1)?;
+            validate_component_recursive(child, depth + 1, font_families)?;
         }
     }
     Ok(())
 }
 
-fn validate_style(style: &Option<Style>) -> NtmlResult<()> {
+fn validate_style(style: &Option<Style>, font_families: &[String]) -> NtmlResult<()> {
     if let Some(style) = style {
         // Validate colors
         if let Some(ref color) = style.color {
@@ -79,6 +265,21 @@ fn validate_style(style: &Option<Style>) -> NtmlResult<()> {
             }
         }
 
+        // Validate fontFamily — custom strings must be declared in head.fonts
+        if let Some(ref font_family) = style.font_family {
+            if let FontFamily::Custom(ref name) = font_family {
+                if !font_families.iter().any(|f| f == name) {
+                    return Err(NtmlError::InvalidStyle {
+                        property: "fontFamily".to_string(),
+                        reason: format!(
+                            "custom font family '{}' is not declared in head.fonts",
+                            name
+                        ),
+                    });
+                }
+            }
+        }
+
         // Validate line height
         if let Some(line_height) = style.line_height {
             if line_height < 0.0 {
@@ -102,7 +303,7 @@ fn validate_style(style: &Option<Style>) -> NtmlResult<()> {
     Ok(())
 }
 
-fn validate_color(color: &str, _property: &str) -> NtmlResult<()> {
+pub fn validate_color(color: &str, _property: &str) -> NtmlResult<()> {
     static HEX_COLOR_REGEX: OnceLock<Regex> = OnceLock::new();
     let hex_regex = HEX_COLOR_REGEX.get_or_init(|| Regex::new(r"^#[0-9a-fA-F]{6}$").unwrap());
 
@@ -136,14 +337,75 @@ fn validate_range(value: f64, min: f64, max: f64, property: &str) -> NtmlResult<
     }
 }
 
-// Component validators
+/// Validate a component file definition
+pub fn validate_component_file(file: &ComponentFile) -> NtmlResult<()> {
+    if !is_pascal_case(&file.component) {
+        return Err(NtmlError::InvalidComponent {
+            component: file.component.clone(),
+            reason: "component name must be PascalCase".to_string(),
+        });
+    }
+    if BUILTIN_COMPONENTS.contains(&file.component.as_str()) {
+        return Err(NtmlError::InvalidComponent {
+            component: file.component.clone(),
+            reason: format!(
+                "'{}' conflicts with a built-in component name",
+                file.component
+            ),
+        });
+    }
 
-fn validate_container(container: &Container, depth: usize) -> NtmlResult<()> {
-    validate_style(&container.style)?;
-    validate_children(&container.children, depth)
+    // Validate prop names are unique and camelCase
+    let mut seen_props = HashSet::new();
+    for prop in &file.props {
+        if prop.name.is_empty() {
+            return Err(NtmlError::ValidationError(
+                "Prop name must not be empty".to_string(),
+            ));
+        }
+        if !seen_props.insert(prop.name.clone()) {
+            return Err(NtmlError::ValidationError(format!(
+                "Duplicate prop name '{}'",
+                prop.name
+            )));
+        }
+    }
+
+    // Validate the body component tree (no custom fonts in component files)
+    validate_component_with_context(&file.body, &[])
 }
 
-fn validate_flex(flex: &Flex, depth: usize) -> NtmlResult<()> {
+/// Validate data-* attribute key names (values are unconstrained strings)
+fn validate_data_attributes(data: &std::collections::HashMap<String, String>) -> NtmlResult<()> {
+    static DATA_KEY_REGEX: OnceLock<Regex> = OnceLock::new();
+    let re = DATA_KEY_REGEX
+        .get_or_init(|| Regex::new(r"^data-[a-z][a-z0-9-]*$").unwrap());
+
+    for key in data.keys() {
+        if !re.is_match(key) {
+            return Err(NtmlError::InvalidDataAttribute {
+                key: key.clone(),
+                reason: "must match pattern data-[a-z][a-z0-9-]* (lowercase, starts with a letter after the hyphen)".to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+// --- Component validators ---
+
+fn validate_container(
+    container: &Container,
+    depth: usize,
+    font_families: &[String],
+) -> NtmlResult<()> {
+    validate_data_attributes(&container.data)?;
+    validate_style(&container.style, font_families)?;
+    validate_children(&container.children, depth, font_families)
+}
+
+fn validate_flex(flex: &Flex, depth: usize, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&flex.data)?;
     if let Some(gap) = flex.gap {
         if gap < 0.0 {
             return Err(NtmlError::InvalidProperty {
@@ -153,12 +415,12 @@ fn validate_flex(flex: &Flex, depth: usize) -> NtmlResult<()> {
             });
         }
     }
-    validate_style(&flex.style)?;
-    validate_children(&flex.children, depth)
+    validate_style(&flex.style, font_families)?;
+    validate_children(&flex.children, depth, font_families)
 }
 
-fn validate_grid(grid: &Grid, depth: usize) -> NtmlResult<()> {
-    // Validate columns
+fn validate_grid(grid: &Grid, depth: usize, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&grid.data)?;
     match &grid.columns {
         GridSize::Count(count) => {
             if *count == 0 {
@@ -180,7 +442,6 @@ fn validate_grid(grid: &Grid, depth: usize) -> NtmlResult<()> {
         }
     }
 
-    // Validate gap
     if let Some(gap) = &grid.gap {
         match gap {
             GridGap::Single(g) => {
@@ -204,16 +465,18 @@ fn validate_grid(grid: &Grid, depth: usize) -> NtmlResult<()> {
         }
     }
 
-    validate_style(&grid.style)?;
-    validate_children(&grid.children, depth)
+    validate_style(&grid.style, font_families)?;
+    validate_children(&grid.children, depth, font_families)
 }
 
-fn validate_stack(stack: &Stack, depth: usize) -> NtmlResult<()> {
-    validate_style(&stack.style)?;
-    validate_children(&stack.children, depth)
+fn validate_stack(stack: &Stack, depth: usize, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&stack.data)?;
+    validate_style(&stack.style, font_families)?;
+    validate_children(&stack.children, depth, font_families)
 }
 
-fn validate_row(row: &Row, depth: usize) -> NtmlResult<()> {
+fn validate_row(row: &Row, depth: usize, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&row.data)?;
     if let Some(gap) = row.gap {
         if gap < 0.0 {
             return Err(NtmlError::InvalidProperty {
@@ -223,11 +486,12 @@ fn validate_row(row: &Row, depth: usize) -> NtmlResult<()> {
             });
         }
     }
-    validate_style(&row.style)?;
-    validate_children(&row.children, depth)
+    validate_style(&row.style, font_families)?;
+    validate_children(&row.children, depth, font_families)
 }
 
-fn validate_column(column: &Column, depth: usize) -> NtmlResult<()> {
+fn validate_column(column: &Column, depth: usize, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&column.data)?;
     if let Some(gap) = column.gap {
         if gap < 0.0 {
             return Err(NtmlError::InvalidProperty {
@@ -237,31 +501,33 @@ fn validate_column(column: &Column, depth: usize) -> NtmlResult<()> {
             });
         }
     }
-    validate_style(&column.style)?;
-    validate_children(&column.children, depth)
+    validate_style(&column.style, font_families)?;
+    validate_children(&column.children, depth, font_families)
 }
 
-fn validate_text(text: &Text) -> NtmlResult<()> {
+fn validate_text(text: &Text, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&text.data)?;
     if text.text.is_empty() {
         return Err(NtmlError::ValidationError(
             "Text component must have non-empty text".to_string(),
         ));
     }
-    validate_style(&text.style)
+    validate_style(&text.style, font_families)
 }
 
-fn validate_image(image: &Image) -> NtmlResult<()> {
+fn validate_image(image: &Image, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&image.data)?;
     if image.src.is_empty() {
         return Err(NtmlError::MissingProperty {
             component: "Image".to_string(),
             property: "src".to_string(),
         });
     }
-    // Note: Asset whitelisting would be done at runtime with actual whitelist
-    validate_style(&image.style)
+    validate_style(&image.style, font_families)
 }
 
-fn validate_icon(icon: &Icon) -> NtmlResult<()> {
+fn validate_icon(icon: &Icon, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&icon.data)?;
     if icon.name.is_empty() {
         return Err(NtmlError::MissingProperty {
             component: "Icon".to_string(),
@@ -277,41 +543,45 @@ fn validate_icon(icon: &Icon) -> NtmlResult<()> {
             });
         }
     }
-    validate_style(&icon.style)
+    validate_style(&icon.style, font_families)
 }
 
-fn validate_button(button: &Button, depth: usize) -> NtmlResult<()> {
+fn validate_button(button: &Button, depth: usize, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&button.data)?;
     if button.action.is_empty() {
         return Err(NtmlError::MissingProperty {
             component: "Button".to_string(),
             property: "action".to_string(),
         });
     }
-    validate_style(&button.style)?;
-    validate_children(&button.children, depth)
+    validate_style(&button.style, font_families)?;
+    validate_children(&button.children, depth, font_families)
 }
 
-fn validate_input(input: &Input) -> NtmlResult<()> {
+fn validate_input(input: &Input, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&input.data)?;
     if input.name.is_empty() {
         return Err(NtmlError::MissingProperty {
             component: "Input".to_string(),
             property: "name".to_string(),
         });
     }
-    validate_style(&input.style)
+    validate_style(&input.style, font_families)
 }
 
-fn validate_checkbox(checkbox: &Checkbox) -> NtmlResult<()> {
+fn validate_checkbox(checkbox: &Checkbox, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&checkbox.data)?;
     if checkbox.name.is_empty() {
         return Err(NtmlError::MissingProperty {
             component: "Checkbox".to_string(),
             property: "name".to_string(),
         });
     }
-    validate_style(&checkbox.style)
+    validate_style(&checkbox.style, font_families)
 }
 
-fn validate_radio(radio: &Radio) -> NtmlResult<()> {
+fn validate_radio(radio: &Radio, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&radio.data)?;
     if radio.name.is_empty() {
         return Err(NtmlError::MissingProperty {
             component: "Radio".to_string(),
@@ -324,10 +594,11 @@ fn validate_radio(radio: &Radio) -> NtmlResult<()> {
             property: "value".to_string(),
         });
     }
-    validate_style(&radio.style)
+    validate_style(&radio.style, font_families)
 }
 
-fn validate_select(select: &Select) -> NtmlResult<()> {
+fn validate_select(select: &Select, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&select.data)?;
     if select.name.is_empty() {
         return Err(NtmlError::MissingProperty {
             component: "Select".to_string(),
@@ -339,10 +610,14 @@ fn validate_select(select: &Select) -> NtmlResult<()> {
             "Select component must have at least one option".to_string(),
         ));
     }
-    validate_style(&select.style)
+    validate_style(&select.style, font_families)
 }
 
-fn validate_progress_bar(progress_bar: &ProgressBar) -> NtmlResult<()> {
+fn validate_progress_bar(
+    progress_bar: &ProgressBar,
+    font_families: &[String],
+) -> NtmlResult<()> {
+    validate_data_attributes(&progress_bar.data)?;
     let max = progress_bar.max.unwrap_or(100.0);
     validate_range(progress_bar.value, 0.0, max, "value")?;
     if let Some(max_val) = progress_bar.max {
@@ -354,26 +629,27 @@ fn validate_progress_bar(progress_bar: &ProgressBar) -> NtmlResult<()> {
             });
         }
     }
-    validate_style(&progress_bar.style)
+    validate_style(&progress_bar.style, font_families)
 }
 
-fn validate_badge(badge: &Badge) -> NtmlResult<()> {
+fn validate_badge(badge: &Badge, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&badge.data)?;
     if badge.text.is_empty() {
         return Err(NtmlError::MissingProperty {
             component: "Badge".to_string(),
             property: "text".to_string(),
         });
     }
-    validate_style(&badge.style)
+    validate_style(&badge.style, font_families)
 }
 
-fn validate_divider(divider: &Divider) -> NtmlResult<()> {
-    validate_style(&divider.style)
+fn validate_divider(divider: &Divider, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&divider.data)?;
+    validate_style(&divider.style, font_families)
 }
 
-fn validate_spacer(_spacer: &Spacer) -> NtmlResult<()> {
-    // Spacer validation is minimal - size can be any number or "auto"
-    Ok(())
+fn validate_spacer(spacer: &Spacer) -> NtmlResult<()> {
+    validate_data_attributes(&spacer.data)
 }
 
 #[cfg(test)]
@@ -397,5 +673,131 @@ mod tests {
         assert!(validate_range(1.0, 0.0, 1.0, "opacity").is_ok());
         assert!(validate_range(-0.1, 0.0, 1.0, "opacity").is_err());
         assert!(validate_range(1.1, 0.0, 1.0, "opacity").is_err());
+    }
+
+    #[test]
+    fn test_validate_tag() {
+        assert!(validate_tag("hud").is_ok());
+        assert!(validate_tag("my-tag").is_ok());
+        assert!(validate_tag("").is_err());
+        assert!(validate_tag("my tag").is_err());
+        assert!(validate_tag("MyTag").is_err());
+        assert!(validate_tag("UPPER").is_err());
+    }
+
+    #[test]
+    fn test_validate_head_valid() {
+        let head = Head {
+            title: "Test Page".to_string(),
+            description: Some("A test".to_string()),
+            author: None,
+            tags: Some(vec!["hud".to_string(), "system".to_string()]),
+            fonts: None,
+            scripts: None,
+            imports: None,
+        };
+        assert!(validate_head(&head).is_ok());
+    }
+
+    #[test]
+    fn test_validate_head_missing_title() {
+        let head = Head {
+            title: "".to_string(),
+            description: None,
+            author: None,
+            tags: None,
+            fonts: None,
+            scripts: None,
+            imports: None,
+        };
+        assert!(matches!(validate_head(&head), Err(NtmlError::MissingTitle)));
+    }
+
+    #[test]
+    fn test_validate_head_tag_with_uppercase() {
+        let head = Head {
+            title: "Test".to_string(),
+            description: None,
+            author: None,
+            tags: Some(vec!["ValidTag".to_string()]),
+            fonts: None,
+            scripts: None,
+            imports: None,
+        };
+        assert!(matches!(
+            validate_head(&head),
+            Err(NtmlError::InvalidTag { .. })
+        ));
+    }
+
+    #[test]
+    fn test_validate_head_too_many_tags() {
+        let head = Head {
+            title: "Test".to_string(),
+            description: None,
+            author: None,
+            tags: Some(vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+                "e".to_string(),
+                "f".to_string(),
+                "g".to_string(),
+                "h".to_string(),
+                "i".to_string(),
+                "j".to_string(),
+                "k".to_string(),
+            ]),
+            fonts: None,
+            scripts: None,
+            imports: None,
+        };
+        assert!(matches!(
+            validate_head(&head),
+            Err(NtmlError::TagLimitExceeded { .. })
+        ));
+    }
+
+    #[test]
+    fn test_validate_id_uniqueness() {
+        let comp = Component::Container(Container {
+            id: Some("foo".to_string()),
+            style: None,
+            children: Some(vec![
+                Component::Text(Text {
+                    id: Some("foo".to_string()), // duplicate!
+                    text: "Hello".to_string(),
+                    style: None,
+                    data: Default::default(),
+                }),
+            ]),
+            data: Default::default(),
+        });
+        assert!(matches!(
+            validate_id_uniqueness(&comp),
+            Err(NtmlError::DuplicateId { .. })
+        ));
+    }
+
+    #[test]
+    fn test_validate_custom_font_not_declared() {
+        let style = Some(Style {
+            font_family: Some(FontFamily::Custom("Roboto Mono".to_string())),
+            ..Default::default()
+        });
+        let result = validate_style(&style, &[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_custom_font_declared() {
+        let style = Some(Style {
+            font_family: Some(FontFamily::Custom("Roboto Mono".to_string())),
+            ..Default::default()
+        });
+        let font_families = vec!["Roboto Mono".to_string()];
+        let result = validate_style(&style, &font_families);
+        assert!(result.is_ok());
     }
 }
