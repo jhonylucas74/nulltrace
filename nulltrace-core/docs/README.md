@@ -32,8 +32,10 @@ The core is composed of three main layers:
 | [Game Loop & Stress Test](./game-loop.md) | Main loop, frame timing and benchmark |
 | [Server & gRPC](./server.md) | gRPC server and communication protocol |
 | [Networking](./networking.md) | Full network simulation: IP, subnets, packets, NICs, routers, NAT, DNS, cross-pod |
+| [HTTP Protocol](./http-protocol.md) | HTTP-like protocol for VM-to-VM communication (request/response, Lua API) |
 | [Lua examples](./lua-examples.md) | Practical Lua script examples: I/O, fs, os, net (client and server) |
 | [Blob Store](./blob-store.md) | Content-addressable storage: deduplication and copy-on-write for file content |
+| [Nexus HTTP Server & Bootstrap](./nexus-http-server-and-bootstrap.md) | Nexus VM, httpd bin program, and /etc/bootstrap startup pattern |
 
 ## Testing
 

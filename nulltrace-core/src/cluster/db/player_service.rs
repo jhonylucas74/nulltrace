@@ -10,6 +10,9 @@ pub const SEED_USERNAME: &str = "Haru";
 /// Default test player password (same as username for dev/test).
 pub const SEED_PASSWORD: &str = "haru";
 
+/// Webserver VM owner (system player for Nexus HTTP server).
+pub const WEBSERVER_USERNAME: &str = "webserver";
+
 #[derive(Debug, Clone, FromRow)]
 pub struct Player {
     pub id: Uuid,
@@ -107,6 +110,15 @@ impl PlayerService {
             return Ok(());
         }
         self.create_player(SEED_USERNAME, SEED_PASSWORD).await?;
+        Ok(())
+    }
+
+    /// Ensure the webserver player (Nexus VM owner) exists; create if not. Idempotent.
+    pub async fn seed_webserver(&self) -> Result<(), sqlx::Error> {
+        if self.get_by_username(WEBSERVER_USERNAME).await?.is_some() {
+            return Ok(());
+        }
+        self.create_player(WEBSERVER_USERNAME, "webserver").await?;
         Ok(())
     }
 

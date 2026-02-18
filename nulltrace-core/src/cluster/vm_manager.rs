@@ -7784,6 +7784,449 @@ while true do end
         );
     }
 
+    /// HTTP daemon (httpd bin program): server runs httpd, client fetches / and /robot.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_httpd_routes() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 98, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config_server = super::super::db::vm_service::VmConfig {
+            hostname: "httpd-server".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let config_client = super::super::db::vm_service::VmConfig {
+            hostname: "httpd-client".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_s, nic_s) = manager.create_vm(config_server).await.unwrap();
+        let (_rec_c, nic_c) = manager.create_vm(config_client).await.unwrap();
+        let ip_s = nic_s.ip.to_string();
+
+        fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
+        let index_ntml = r##"Container:
+  style:
+    padding: 16
+    backgroundColor: "#1a1a2e"
+  children:
+    - Text:
+        text: "Welcome to Nexus"
+        style:
+          fontSize: 24
+          color: "#e0e0e0"
+"##;
+        fs_service
+            .write_file(_rec_s.id, "/var/www/index.ntml", index_ntml.as_bytes(), Some("application/x-ntml"), "root")
+            .await
+            .unwrap();
+        fs_service
+            .write_file(_rec_s.id, "/var/www/robot.txt", b"Robot: operational\n", Some("text/plain"), "root")
+            .await
+            .unwrap();
+
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
+        vm_s.attach_nic(nic_s);
+        let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
+        vm_c.attach_nic(nic_c);
+
+        vm_s.os.spawn_process(&vm_s.lua, bin_programs::HTTPD, vec!["/var/www".to_string()], 0, "root");
+        vm_c.os.spawn_process(
+            &vm_c.lua,
+            &format!(
+                r##"
+local req1 = http.build_request("GET", "/", nil)
+local conn = net.connect("{}", 80)
+conn:send(req1)
+while true do
+  local r = conn:recv()
+  if r then
+    local res = http.parse_response(r.data)
+    if res and res.status == 200 then
+      io.write("HOME:" .. res.body)
+    end
+    break
+  end
+end
+local req2 = http.build_request("GET", "/robot", nil)
+conn:send(req2)
+while true do
+  local r = conn:recv()
+  if r then
+    local res = http.parse_response(r.data)
+    if res and res.status == 200 then
+      io.write("ROBOT:" .. res.body)
+    end
+    conn:close()
+    break
+  end
+end
+while true do end
+"##,
+                ip_s
+            ),
+            vec![],
+            0,
+            "root",
+        );
+
+        let mut vms = vec![vm_s, vm_c];
+        run_n_ticks_vms_network(&mut manager, &mut vms, 500).await;
+
+        let client_stdout = vms[1]
+            .os
+            .processes
+            .iter()
+            .next()
+            .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .unwrap_or_default();
+        assert!(
+            client_stdout.contains("Welcome to Nexus"),
+            "httpd / should return NTML home; got: {:?}",
+            client_stdout
+        );
+        assert!(
+            client_stdout.contains("Robot: operational"),
+            "httpd /robot should return plain text; got: {:?}",
+            client_stdout
+        );
+    }
+
+    /// httpd /about: serves about.ntml from /var/www.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_httpd_about() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 99, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
+            hostname: "httpd-about-srv".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        }).await.unwrap();
+        let (_rec_c, nic_c) = manager.create_vm(super::super::db::vm_service::VmConfig {
+            hostname: "httpd-about-cli".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        }).await.unwrap();
+        let ip_s = nic_s.ip.to_string();
+
+        fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
+        let about_ntml = r##"Container:
+  children:
+    - Text:
+        text: "About Nexus"
+"##;
+        fs_service.write_file(_rec_s.id, "/var/www/about.ntml", about_ntml.as_bytes(), Some("application/x-ntml"), "root").await.unwrap();
+
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
+        vm_s.attach_nic(nic_s);
+        let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
+        vm_c.attach_nic(nic_c);
+
+        vm_s.os.spawn_process(&vm_s.lua, bin_programs::HTTPD, vec!["/var/www".to_string()], 0, "root");
+        vm_c.os.spawn_process(&vm_c.lua, &format!(r##"
+local req = http.build_request("GET", "/about", nil)
+local conn = net.connect("{}", 80)
+conn:send(req)
+while true do
+  local r = conn:recv()
+  if r then
+    local res = http.parse_response(r.data)
+    if res and res.status == 200 then io.write(res.body) end
+    conn:close()
+    break
+  end
+end
+while true do end
+"##, ip_s), vec![], 0, "root");
+
+        let mut vms = vec![vm_s, vm_c];
+        run_n_ticks_vms_network(&mut manager, &mut vms, 500).await;
+
+        let stdout = vms[1].os.processes.iter().next().and_then(|p| p.stdout.lock().ok().map(|g| g.clone())).unwrap_or_default();
+        assert!(stdout.contains("About Nexus"), "httpd /about should return about.ntml; got: {:?}", stdout);
+    }
+
+    /// httpd /robot.txt: explicit extension serves exact file.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_httpd_explicit_extension() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 100, 0), 24);
+        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), subnet);
+        let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
+            hostname: "httpd-ext-srv".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
+            ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+        }).await.unwrap();
+        let (_rec_c, nic_c) = manager.create_vm(super::super::db::vm_service::VmConfig {
+            hostname: "httpd-ext-cli".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
+            ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+        }).await.unwrap();
+        let ip_s = nic_s.ip.to_string();
+
+        fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
+        fs_service.write_file(_rec_s.id, "/var/www/robot.txt", b"Robot: operational\n", Some("text/plain"), "root").await.unwrap();
+
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
+        vm_s.attach_nic(nic_s);
+        let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
+        vm_c.attach_nic(nic_c);
+
+        vm_s.os.spawn_process(&vm_s.lua, bin_programs::HTTPD, vec!["/var/www".to_string()], 0, "root");
+        vm_c.os.spawn_process(&vm_c.lua, &format!(r##"
+local req = http.build_request("GET", "/robot.txt", nil)
+local conn = net.connect("{}", 80)
+conn:send(req)
+while true do
+  local r = conn:recv()
+  if r then
+    local res = http.parse_response(r.data)
+    if res and res.status == 200 then io.write(res.body) end
+    conn:close()
+    break
+  end
+end
+while true do end
+"##, ip_s), vec![], 0, "root");
+
+        let mut vms = vec![vm_s, vm_c];
+        run_n_ticks_vms_network(&mut manager, &mut vms, 500).await;
+
+        let stdout = vms[1].os.processes.iter().next().and_then(|p| p.stdout.lock().ok().map(|g| g.clone())).unwrap_or_default();
+        assert!(stdout.contains("Robot: operational"), "httpd /robot.txt should return robot.txt; got: {:?}", stdout);
+    }
+
+    /// httpd 404: nonexistent path returns 404.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_httpd_404() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 101, 0), 24);
+        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), subnet);
+        let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
+            hostname: "httpd-404-srv".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
+            ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+        }).await.unwrap();
+        let (_rec_c, nic_c) = manager.create_vm(super::super::db::vm_service::VmConfig {
+            hostname: "httpd-404-cli".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
+            ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+        }).await.unwrap();
+        let ip_s = nic_s.ip.to_string();
+
+        fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
+        fs_service.write_file(_rec_s.id, "/var/www/index.ntml", b"home", Some("application/x-ntml"), "root").await.unwrap();
+
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
+        vm_s.attach_nic(nic_s);
+        let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
+        vm_c.attach_nic(nic_c);
+
+        vm_s.os.spawn_process(&vm_s.lua, bin_programs::HTTPD, vec!["/var/www".to_string()], 0, "root");
+        vm_c.os.spawn_process(&vm_c.lua, &format!(r##"
+local req = http.build_request("GET", "/nonexistent", nil)
+local conn = net.connect("{}", 80)
+conn:send(req)
+while true do
+  local r = conn:recv()
+  if r then
+    local res = http.parse_response(r.data)
+    if res and res.status == 404 then io.write("404") end
+    conn:close()
+    break
+  end
+end
+while true do end
+"##, ip_s), vec![], 0, "root");
+
+        let mut vms = vec![vm_s, vm_c];
+        run_n_ticks_vms_network(&mut manager, &mut vms, 500).await;
+
+        let stdout = vms[1].os.processes.iter().next().and_then(|p| p.stdout.lock().ok().map(|g| g.clone())).unwrap_or_default();
+        assert!(stdout.contains("404"), "httpd /nonexistent should return 404; got: {:?}", stdout);
+    }
+
+    /// httpd custom 404: 404.ntml in folder is served as 404 body.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_httpd_404_custom() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 102, 0), 24);
+        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), subnet);
+        let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
+            hostname: "httpd-404c-srv".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
+            ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+        }).await.unwrap();
+        let (_rec_c, nic_c) = manager.create_vm(super::super::db::vm_service::VmConfig {
+            hostname: "httpd-404c-cli".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
+            ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+        }).await.unwrap();
+        let ip_s = nic_s.ip.to_string();
+
+        fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
+        fs_service.write_file(_rec_s.id, "/var/www/404.ntml", b"Custom 404 page", Some("application/x-ntml"), "root").await.unwrap();
+
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
+        vm_s.attach_nic(nic_s);
+        let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
+        vm_c.attach_nic(nic_c);
+
+        vm_s.os.spawn_process(&vm_s.lua, bin_programs::HTTPD, vec!["/var/www".to_string()], 0, "root");
+        vm_c.os.spawn_process(&vm_c.lua, &format!(r##"
+local req = http.build_request("GET", "/missing", nil)
+local conn = net.connect("{}", 80)
+conn:send(req)
+while true do
+  local r = conn:recv()
+  if r then
+    local res = http.parse_response(r.data)
+    if res and res.status == 404 then io.write(res.body) end
+    conn:close()
+    break
+  end
+end
+while true do end
+"##, ip_s), vec![], 0, "root");
+
+        let mut vms = vec![vm_s, vm_c];
+        run_n_ticks_vms_network(&mut manager, &mut vms, 500).await;
+
+        let stdout = vms[1].os.processes.iter().next().and_then(|p| p.stdout.lock().ok().map(|g| g.clone())).unwrap_or_default();
+        assert!(stdout.contains("Custom 404 page"), "httpd should serve 404.ntml on 404; got: {:?}", stdout);
+    }
+
+    /// httpd ambiguous: robot.txt and robot.ntml both exist; /robot returns 404, /robot.txt works.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_httpd_ambiguous() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 103, 0), 24);
+        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), subnet);
+        let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
+            hostname: "httpd-amb-srv".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
+            ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+        }).await.unwrap();
+        let (_rec_c, nic_c) = manager.create_vm(super::super::db::vm_service::VmConfig {
+            hostname: "httpd-amb-cli".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
+            ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+        }).await.unwrap();
+        let ip_s = nic_s.ip.to_string();
+
+        fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
+        fs_service.write_file(_rec_s.id, "/var/www/robot.txt", b"plain", Some("text/plain"), "root").await.unwrap();
+        fs_service.write_file(_rec_s.id, "/var/www/robot.ntml", b"ntml", Some("application/x-ntml"), "root").await.unwrap();
+
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
+        vm_s.attach_nic(nic_s);
+        let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
+        vm_c.attach_nic(nic_c);
+
+        vm_s.os.spawn_process(&vm_s.lua, bin_programs::HTTPD, vec!["/var/www".to_string()], 0, "root");
+        vm_c.os.spawn_process(&vm_c.lua, &format!(r##"
+local conn = net.connect("{}", 80)
+local req_robot = http.build_request("GET", "/robot", nil)
+conn:send(req_robot)
+while true do
+  local r = conn:recv()
+  if r then
+    local res = http.parse_response(r.data)
+    if res and res.status == 404 then io.write("ROBOT_404:") end
+    break
+  end
+end
+local req_txt = http.build_request("GET", "/robot.txt", nil)
+conn:send(req_txt)
+while true do
+  local r = conn:recv()
+  if r then
+    local res = http.parse_response(r.data)
+    if res and res.status == 200 then io.write("TXT:" .. res.body) end
+    conn:close()
+    break
+  end
+end
+while true do end
+"##, ip_s), vec![], 0, "root");
+
+        let mut vms = vec![vm_s, vm_c];
+        run_n_ticks_vms_network(&mut manager, &mut vms, 500).await;
+
+        let stdout = vms[1].os.processes.iter().next().and_then(|p| p.stdout.lock().ok().map(|g| g.clone())).unwrap_or_default();
+        assert!(stdout.contains("ROBOT_404:"), "httpd /robot with ambiguous files should 404; got: {:?}", stdout);
+        assert!(stdout.contains("TXT:plain"), "httpd /robot.txt should serve robot.txt; got: {:?}", stdout);
+    }
+
     /// Max ticks for two-VM network tests. Single limit, no per-test tuning.
     const MAX_TICKS_TWO_VM_NETWORK: usize = 2000;
 

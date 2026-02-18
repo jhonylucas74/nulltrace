@@ -85,6 +85,12 @@ async fn main() {
         .expect("Failed to seed default player");
     println!("[cluster] Default player ready (Haru)");
 
+    // ── Seed webserver player (Nexus VM owner) if not present ──
+    player_service
+        .seed_webserver()
+        .await
+        .expect("Failed to seed webserver player");
+
     println!("[cluster] Lua APIs registered per VM (fs, net, os)");
 
     // ── VM Manager ──
@@ -331,6 +337,100 @@ async fn load_game_vms(
         manager.clear_active_vms();
     }
 
+    // 1b. Ensure Nexus (webserver) has a VM (create if doesn't exist)
+    let webserver = player_service
+        .get_by_username(db::player_service::WEBSERVER_USERNAME)
+        .await
+        .expect("Failed to get webserver")
+        .expect("Webserver not found");
+
+    let nexus_vm = vm_service
+        .get_vm_by_owner_id(webserver.id)
+        .await
+        .expect("Failed to check webserver's VM");
+
+    if nexus_vm.is_none() {
+        println!("[cluster] Creating VM for Nexus (webserver)...");
+        let config = VmConfig {
+            hostname: "nexus-server".to_string(),
+            dns_name: Some("nexus.local".to_string()),
+            cpu_cores: 2,
+            memory_mb: 2048,
+            disk_mb: 20480,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: Some(webserver.id),
+        };
+        let (record, _) = manager.create_vm(config).await.expect("Failed to create Nexus VM");
+        fs_service
+            .mkdir(record.id, "/var/www", "root")
+            .await
+            .expect("Failed to create /var/www for Nexus");
+        let index_ntml = r##"Container:
+  style:
+    padding: 16
+    backgroundColor: "#1a1a2e"
+  children:
+    - Text:
+        text: "Welcome to Nexus"
+        style:
+          fontSize: 24
+          color: "#e0e0e0"
+"##;
+        let about_ntml = r##"Container:
+  style:
+    padding: 16
+    backgroundColor: "#1a1a2e"
+  children:
+    - Text:
+        text: "About Nexus"
+        style:
+          fontSize: 24
+          color: "#e0e0e0"
+    - Text:
+        text: "HTTP server for testing the protocol."
+        style:
+          fontSize: 14
+          color: "#a0a0a0"
+"##;
+        let notfound_ntml = r##"Container:
+  style:
+    padding: 16
+    backgroundColor: "#1a1a2e"
+  children:
+    - Text:
+        text: "Not found"
+        style:
+          fontSize: 18
+          color: "#e0e0e0"
+"##;
+        fs_service
+            .write_file(record.id, "/var/www/index.ntml", index_ntml.as_bytes(), Some("application/x-ntml"), "root")
+            .await
+            .expect("Failed to write index.ntml");
+        fs_service
+            .write_file(record.id, "/var/www/robot.txt", b"Robot: operational\n", Some("text/plain"), "root")
+            .await
+            .expect("Failed to write robot.txt");
+        fs_service
+            .write_file(record.id, "/var/www/about.ntml", about_ntml.as_bytes(), Some("application/x-ntml"), "root")
+            .await
+            .expect("Failed to write about.ntml");
+        fs_service
+            .write_file(record.id, "/var/www/404.ntml", notfound_ntml.as_bytes(), Some("application/x-ntml"), "root")
+            .await
+            .expect("Failed to write 404.ntml");
+        fs_service
+            .write_file(record.id, "/etc/bootstrap", b"httpd /var/www\n", None, "root")
+            .await
+            .expect("Failed to write /etc/bootstrap for Nexus");
+        println!("[cluster] ✓ Nexus VM created");
+
+        manager.clear_active_vms();
+    }
+
     // 2. Restore all running/crashed player VMs from database
     match manager.restore_vms().await {
         Ok(records) => {
@@ -368,6 +468,29 @@ async fn load_game_vms(
                 println!("[cluster]   VM {} ({}) - IP: {}", active_vm.hostname, vm_id, ip);
             } else {
                 println!("[cluster]   VM {} ({}) - No IP assigned", active_vm.hostname, vm_id);
+            }
+        }
+
+        // Run bootstrap: read /etc/bootstrap and spawn each line
+        if let Ok(Some((data, _))) = fs_service.read_file(vm_id, "/etc/bootstrap").await {
+            if let Ok(content) = String::from_utf8(data) {
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') {
+                        continue;
+                    }
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if let Some(program) = parts.first() {
+                        let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+                        if let Ok(Some((code, _))) =
+                            fs_service.read_file(vm_id, &format!("/bin/{}", program)).await
+                        {
+                            if let Ok(lua_code) = String::from_utf8(code) {
+                                vm.os.spawn_process(&vm.lua, &lua_code, args, 0, "root");
+                            }
+                        }
+                    }
+                }
             }
         }
 

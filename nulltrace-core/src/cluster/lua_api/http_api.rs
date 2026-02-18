@@ -50,14 +50,20 @@ pub fn register(lua: &Lua) -> Result<()> {
         })?,
     )?;
 
-    // http.build_response(status, body?) -> string (raw bytes)
+    // http.build_response(status, body?, headers?) -> string (raw bytes)
+    // headers: optional table { ["Content-Type"] = "application/x-ntml", ... }
     http.set(
         "build_response",
-        lua.create_function(|lua, (status, body): (u16, Option<String>)| {
+        lua.create_function(|lua, (status, body, headers): (u16, Option<String>, Option<mlua::Table>)| {
             let body_bytes = body.as_deref().map(|s| s.as_bytes()).unwrap_or(&[]);
-            let res = match status {
+            let mut res = match status {
                 200 => HttpResponse::ok(body_bytes),
-                404 => HttpResponse::not_found(),
+                404 => HttpResponse {
+                    status_code: 404,
+                    reason_phrase: "Not Found".to_string(),
+                    headers: Vec::new(),
+                    body: body_bytes.to_vec(),
+                },
                 _ => HttpResponse {
                     status_code: status,
                     reason_phrase: "Unknown".to_string(),
@@ -65,6 +71,13 @@ pub fn register(lua: &Lua) -> Result<()> {
                     body: body_bytes.to_vec(),
                 },
             };
+            if let Some(t) = headers {
+                for pair in t.pairs::<String, String>() {
+                    if let Ok((k, v)) = pair {
+                        res = res.with_header(&k, &v);
+                    }
+                }
+            }
             Ok(Value::String(lua.create_string(&res.to_bytes())?))
         })?,
     )?;
