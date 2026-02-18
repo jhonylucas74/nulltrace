@@ -8,6 +8,7 @@ use super::db::user_service::{UserService, VmUser};
 use super::db::vm_service::{VmConfig, VmRecord, VmService};
 use super::lua_api::context::{SpawnSpec, VmContext};
 use super::net::dns::DnsResolver;
+use std::sync::RwLock;
 use super::net::ip::{Ipv4Addr, Subnet};
 use super::net::net_manager::NetManager;
 use super::net::nic::NIC;
@@ -51,7 +52,7 @@ pub struct VmManager {
     pub fs_service: Arc<FsService>,
     pub user_service: Arc<UserService>,
     pub player_service: Arc<PlayerService>,
-    pub dns: DnsResolver,
+    pub dns: Arc<RwLock<DnsResolver>>,
     pub net_manager: NetManager,
     pub subnet: Subnet,
     pub router: Router,
@@ -89,7 +90,7 @@ impl VmManager {
             fs_service,
             user_service,
             player_service,
-            dns: DnsResolver::new(),
+            dns: Arc::new(RwLock::new(DnsResolver::new())),
             net_manager: NetManager::new("local".to_string()),
             subnet,
             router,
@@ -251,7 +252,7 @@ impl VmManager {
 
         // Register in DNS only if dns_name is set
         if let Some(ref dns_name) = record.dns_name {
-            self.dns.register_a(dns_name, nic.ip);
+            self.dns.write().unwrap().register_a(dns_name, nic.ip);
         }
 
         // Register in NetManager
@@ -284,7 +285,7 @@ impl VmManager {
         if let Some(pos) = self.active_vms.iter().position(|v| v.id == vm_id) {
             let vm = self.active_vms.remove(pos);
             if let Some(ref dns_name) = vm.dns_name {
-                self.dns.unregister_a(dns_name);
+                self.dns.write().unwrap().unregister_a(dns_name);
             }
             if let Some(ip) = vm.ip {
                 self.net_manager.unregister_vm(&ip);
@@ -301,7 +302,7 @@ impl VmManager {
         if let Some(pos) = self.active_vms.iter().position(|v| v.id == vm_id) {
             let vm = self.active_vms.remove(pos);
             if let Some(ref dns_name) = vm.dns_name {
-                self.dns.unregister_a(dns_name);
+                self.dns.write().unwrap().unregister_a(dns_name);
             }
             if let Some(ip) = vm.ip {
                 self.net_manager.unregister_vm(&ip);
@@ -330,7 +331,7 @@ impl VmManager {
 
             // Re-register in DNS only if dns_name is set
             if let (Some(dns_name), Some(ip)) = (&record.dns_name, ip) {
-                self.dns.register_a(dns_name, ip);
+                self.dns.write().unwrap().register_a(dns_name, ip);
             }
 
             if let Some(ip) = ip {
@@ -470,7 +471,7 @@ impl VmManager {
             .collect();
 
         let worker = VmWorker { worker_id: 0 };
-        let result = worker.process_chunk(vms, executable_indices, &active_vm_metadata);
+        let result = worker.process_chunk(vms, executable_indices, &active_vm_metadata, self.dns.clone());
         let total_ticks = result.process_ticks;
 
         (total_ticks, vec![result])
@@ -7835,7 +7836,7 @@ while true do end
     backgroundColor: "#1a1a2e"
   children:
     - Text:
-        text: "Welcome to Nexus"
+        text: "Welcome to NTML"
         style:
           fontSize: 24
           color: "#e0e0e0"
@@ -7907,13 +7908,111 @@ while true do end
             .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
             .unwrap_or_default();
         assert!(
-            client_stdout.contains("Welcome to Nexus"),
+            client_stdout.contains("Welcome to NTML"),
             "httpd / should return NTML home; got: {:?}",
             client_stdout
         );
         assert!(
             client_stdout.contains("Robot: operational"),
             "httpd /robot should return plain text; got: {:?}",
+            client_stdout
+        );
+    }
+
+    /// curl bin program: fetches URL via HTTP GET. Client runs curl via shell (forward_stdout) so we can read stdout after curl exits.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_curl_bin() {
+        let pool = db::test_pool().await;
+        let vm_service = Arc::new(VmService::new(pool.clone()));
+        let fs_service = Arc::new(FsService::new(pool.clone()));
+        let user_service = Arc::new(UserService::new(pool.clone()));
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let subnet = Subnet::new(Ipv4Addr::new(10, 0, 97, 0), 24);
+        let mut manager = VmManager::new(
+            vm_service.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            player_service.clone(),
+            subnet,
+        );
+        let config_server = super::super::db::vm_service::VmConfig {
+            hostname: "curl-test-server".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let config_client = super::super::db::vm_service::VmConfig {
+            hostname: "curl-test-client".to_string(),
+            dns_name: None,
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+        };
+        let (_rec_s, nic_s) = manager.create_vm(config_server).await.unwrap();
+        let (_rec_c, nic_c) = manager.create_vm(config_client).await.unwrap();
+        let ip_s = nic_s.ip.to_string();
+
+        fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
+        fs_service
+            .write_file(_rec_s.id, "/var/www/hello.txt", b"Hello from curl test\n", Some("text/plain"), "root")
+            .await
+            .unwrap();
+
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
+        vm_s.attach_nic(nic_s);
+        let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
+        vm_c.attach_nic(nic_c);
+
+        vm_s.os.spawn_process(&vm_s.lua, bin_programs::HTTPD, vec!["/var/www".to_string()], 0, "root");
+        // Driver spawns shell with forward_stdout, sends "curl ip/hello". Shell runs curl; curl's stdout goes to shell.
+        let driver_script = format!(
+            r#"
+local pid = os.spawn("sh", {{}}, {{ forward_stdout = true }})
+os.write_stdin(pid, "curl {}/hello")
+"#,
+            ip_s
+        );
+        vm_c.os.spawn_process(&vm_c.lua, &driver_script, vec![], 0, "root");
+
+        let mut vms = vec![vm_s, vm_c];
+        run_n_ticks_vms_network(&mut manager, &mut vms, 500).await;
+
+        let client_stdout = vms[1]
+            .os
+            .processes
+            .iter()
+            .filter_map(|p| p.stdout.lock().ok().map(|g| g.clone()))
+            .find(|s| s.contains("200") || s.contains("Hello from curl test"))
+            .unwrap_or_else(|| {
+                vms[1]
+                    .os
+                    .processes
+                    .iter()
+                    .next()
+                    .and_then(|p| p.stdout.lock().ok().map(|g| g.clone()))
+                    .unwrap_or_default()
+            });
+        assert!(
+            client_stdout.contains("200"),
+            "curl should return 200 status; got: {:?}",
+            client_stdout
+        );
+        assert!(
+            client_stdout.contains("Hello from curl test"),
+            "curl should return body; got: {:?}",
             client_stdout
         );
     }
@@ -7964,7 +8063,7 @@ while true do end
         let about_ntml = r##"Container:
   children:
     - Text:
-        text: "About Nexus"
+        text: "About NTML"
 "##;
         fs_service.write_file(_rec_s.id, "/var/www/about.ntml", about_ntml.as_bytes(), Some("application/x-ntml"), "root").await.unwrap();
 
@@ -7996,7 +8095,7 @@ while true do end
         run_n_ticks_vms_network(&mut manager, &mut vms, 500).await;
 
         let stdout = vms[1].os.processes.iter().next().and_then(|p| p.stdout.lock().ok().map(|g| g.clone())).unwrap_or_default();
-        assert!(stdout.contains("About Nexus"), "httpd /about should return about.ntml; got: {:?}", stdout);
+        assert!(stdout.contains("About NTML"), "httpd /about should return about.ntml; got: {:?}", stdout);
     }
 
     /// httpd /robot.txt: explicit extension serves exact file.

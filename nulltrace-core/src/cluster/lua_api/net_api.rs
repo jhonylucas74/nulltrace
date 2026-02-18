@@ -7,14 +7,22 @@ use crate::net::packet::Packet;
 use mlua::{Lua, Result};
 use std::collections::VecDeque;
 
-/// Resolve host string to IP. "localhost" and "127.0.0.1" (and any 127.x.x.x) map to loopback.
-fn resolve_host(host: &str) -> Option<Ipv4Addr> {
+/// Resolve host string to IP. "localhost" and 127.x.x.x map to loopback.
+/// Hostnames like ntml.org use cluster DNS when available.
+fn resolve_host(lua: &Lua, host: &str) -> Option<Ipv4Addr> {
     let s = host.trim();
     if s.eq_ignore_ascii_case("localhost") {
         return Some(Ipv4Addr::new(127, 0, 0, 1));
     }
     if let Some(ip) = Ipv4Addr::parse(s) {
         return Some(ip);
+    }
+    if let Some(ctx) = lua.app_data_ref::<VmContext>() {
+        if let Some(ref dns) = ctx.dns_resolver {
+            if let Ok(guard) = dns.read() {
+                return guard.resolve(s);
+            }
+        }
     }
     None
 }
@@ -28,7 +36,7 @@ pub fn register(lua: &Lua) -> Result<()> {
     net.set(
         "send",
         lua.create_function(|lua, (dst_ip_str, dst_port, data): (String, u16, String)| {
-            let dst_ip = resolve_host(&dst_ip_str)
+            let dst_ip = resolve_host(&lua, &dst_ip_str)
                 .ok_or_else(|| mlua::Error::runtime(format!("Invalid IP/host: {}", dst_ip_str)))?;
 
             let mut ctx = lua
@@ -116,7 +124,7 @@ pub fn register(lua: &Lua) -> Result<()> {
     net.set(
         "connect",
         lua.create_function(|lua, (host_str, remote_port): (String, u16)| {
-            let remote_ip = resolve_host(&host_str)
+            let remote_ip = resolve_host(&lua, &host_str)
                 .ok_or_else(|| mlua::Error::runtime(format!("Invalid IP/host: {}", host_str)))?;
 
             let mut ctx = lua

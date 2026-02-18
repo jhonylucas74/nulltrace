@@ -123,6 +123,7 @@ pub fn parse_component_value_ctx(value: &Value, import_aliases: &[String]) -> Nt
         "Badge" => parse_badge(component_props).map(Component::Badge),
         "Divider" => parse_divider(component_props).map(Component::Divider),
         "Spacer" => parse_spacer(component_props).map(Component::Spacer),
+        "Link" => parse_link(component_props, import_aliases).map(Component::Link),
         other => {
             if import_aliases.iter().any(|a| a == other) {
                 parse_imported_component(other, component_props).map(Component::ImportedComponent)
@@ -1122,6 +1123,52 @@ fn parse_spacer(value: &Value) -> NtmlResult<Spacer> {
     };
 
     Ok(Spacer { size, data })
+}
+
+fn parse_link(value: &Value, import_aliases: &[String]) -> NtmlResult<Link> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Link".to_string(),
+        reason: "properties must be an object".to_string(),
+    })?;
+
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
+
+    let href = obj
+        .get(&Value::String("href".to_string()))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| NtmlError::MissingProperty {
+            component: "Link".to_string(),
+            property: "href".to_string(),
+        })?
+        .to_string();
+
+    let target = if let Some(t) = obj.get(&Value::String("target".to_string())) {
+        Some(serde_yaml::from_value(t.clone())?)
+    } else {
+        None
+    };
+
+    let style = if let Some(style_value) = obj.get(&Value::String("style".to_string())) {
+        Some(serde_yaml::from_value(style_value.clone())?)
+    } else {
+        None
+    };
+
+    let children = if let Some(children_value) = obj.get(&Value::String("children".to_string())) {
+        parse_children(children_value, import_aliases)?
+    } else {
+        None
+    };
+
+    Ok(Link {
+        id,
+        href,
+        target,
+        style,
+        children,
+        data,
+    })
 }
 
 #[cfg(test)]

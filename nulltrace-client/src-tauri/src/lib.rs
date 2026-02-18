@@ -1,4 +1,6 @@
 mod grpc;
+mod ntml_html;
+mod ntml_runtime;
 
 use mlua::{Lua, VmState};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -58,6 +60,80 @@ fn run_luau(code: String) -> LuauResult {
 }
 
 #[tauri::command]
+fn ntml_to_html(
+    yaml: String,
+    imports: Option<Vec<NtmlImportPayload>>,
+    base_url: Option<String>,
+) -> Result<String, String> {
+    let imp = imports.unwrap_or_default();
+    let ntml_imports: Vec<ntml_html::NtmlImport> = imp
+        .into_iter()
+        .map(|i| ntml_html::NtmlImport {
+            alias: i.alias,
+            content: i.content,
+        })
+        .collect();
+    let base = base_url.as_deref();
+    ntml_html::ntml_to_html_with_imports(&yaml, &ntml_imports, base)
+}
+
+#[derive(serde::Deserialize)]
+struct NtmlImportPayload {
+    alias: String,
+    content: String,
+}
+
+#[tauri::command]
+fn ntml_create_tab_state(
+    tab_id: String,
+    base_url: String,
+    script_sources: Vec<ntml_runtime::ScriptSource>,
+    component_yaml: String,
+    imports: Vec<ntml_runtime::TabImport>,
+    store: tauri::State<ntml_runtime::TabStateStore>,
+) -> Result<(), String> {
+    ntml_runtime::create_tab_state(
+        &store,
+        tab_id,
+        base_url,
+        script_sources,
+        component_yaml,
+        imports,
+    )
+}
+
+#[tauri::command]
+fn ntml_run_handler(
+    tab_id: String,
+    action: String,
+    store: tauri::State<ntml_runtime::TabStateStore>,
+) -> Result<ntml_run_handler_result::NtmlRunHandlerResult, String> {
+    let patches = ntml_runtime::run_handler(&store, &tab_id, &action)?;
+    let html = ntml_runtime::render_with_patches(&store, &tab_id, &patches)?;
+    Ok(ntml_run_handler_result::NtmlRunHandlerResult { patches, html })
+}
+
+mod ntml_run_handler_result {
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    pub struct NtmlRunHandlerResult {
+        pub patches: Vec<crate::ntml_runtime::Patch>,
+        pub html: String,
+    }
+}
+
+#[tauri::command]
+fn ntml_close_tab(tab_id: String, store: tauri::State<ntml_runtime::TabStateStore>) {
+    ntml_runtime::close_tab(&store, &tab_id);
+}
+
+#[tauri::command]
+fn ntml_get_head_resources(yaml: String) -> Result<ntml_runtime::NtmlHeadResources, String> {
+    ntml_runtime::get_head_resources(&yaml)
+}
+
+#[tauri::command]
 fn get_app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
 }
@@ -68,8 +144,14 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(grpc::new_terminal_sessions())
         .manage(grpc::new_process_spy_state())
+        .manage(ntml_runtime::new_tab_state_store())
         .invoke_handler(tauri::generate_handler![
             get_app_version,
+            ntml_to_html,
+            ntml_create_tab_state,
+            ntml_run_handler,
+            ntml_close_tab,
+            ntml_get_head_resources,
             run_luau,
             grpc::grpc_ping,
             grpc::grpc_login,

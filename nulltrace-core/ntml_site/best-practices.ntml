@@ -1,0 +1,50 @@
+Container:
+  style:
+    padding: 24
+    backgroundColor: "#1a1a2e"
+    minHeight: 400
+  children:
+    - Column:
+        gap: 24
+        style:
+          width: 100%
+        children:
+          - Link:
+              href: "/"
+              children:
+                - Text:
+                    text: "< Home"
+                    style:
+                      fontSize: 14
+                      color: "#6b4cdf"
+          - Text:
+              text: "Best Practices"
+              style:
+                fontSize: 28
+                color: "#e0e0e0"
+                fontWeight: 700
+          - Divider:
+              orientation: horizontal
+              style:
+                backgroundColor: "#333333"
+                height: 1
+          - Text:
+              text: "File structure: kebab-case (main-menu.ntml). Actions: snake_case. Group related styles (paddingVertical vs paddingTop+Bottom)."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+          - Text:
+              text: "Layout: Container for grouping, Flex/Row/Column for flexible layout, Grid for uniform grids, Stack for overlays."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+          - Text:
+              text: "Use Spacer instead of empty Containers. Keep components simple; split into smaller reusable pieces."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+          - Text:
+              text: "Security: validate actions server-side; whitelist assets. Limit nesting depth (under 10 levels)."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"

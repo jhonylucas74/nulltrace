@@ -1,0 +1,70 @@
+Container:
+  style:
+    padding: 24
+    backgroundColor: "#1a1a2e"
+    minHeight: 400
+  children:
+    - Column:
+        gap: 24
+        style:
+          width: 100%
+        children:
+          - Link:
+              href: "/"
+              children:
+                - Text:
+                    text: "< Home"
+                    style:
+                      fontSize: 14
+                      color: "#6b4cdf"
+          - Text:
+              text: "Lua API"
+              style:
+                fontSize: 28
+                color: "#e0e0e0"
+                fontWeight: 700
+          - Text:
+              text: "Scripts run inside VMs with fs, net, os, io, and http. Execution is tick-based; use loops when waiting for I/O."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+          - Divider:
+              orientation: horizontal
+              style:
+                backgroundColor: "#333333"
+                height: 1
+          - Text:
+              text: "fs: stat(path), ls(path), read(path), write(path, data, mime?), mkdir(path), rm(path), read_bytes(path), search_files(paths, opts?), search_files_content(paths, pattern, opts?)"
+              style:
+                fontSize: 12
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "net: listen(port), send(ip, port, data), recv() -> pkt|nil, connect(host, port) -> conn, ip() -> string|nil. conn:send, conn:recv, conn:close."
+              style:
+                fontSize: 12
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "os: hostname(), pid(), whoami(), vm_id(), uid(), is_root(), get_args(), get_env(name?), spawn(prog, args, opts?), process_status(pid), read_stdout(pid), write_stdin(pid, data)"
+              style:
+                fontSize: 12
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "io: read() -> line|nil, write(s). print(...) writes to stdout."
+              style:
+                fontSize: 12
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "http: build_request(method, path, body?), parse_request(data), build_response(status, body?), parse_response(data)"
+              style:
+                fontSize: 12
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Use while true do local r = net.recv(); if r then ... break end end for async receive."
+              style:
+                fontSize: 14
+                color: "#e0e0e0"

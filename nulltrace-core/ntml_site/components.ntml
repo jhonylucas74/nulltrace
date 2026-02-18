@@ -1,0 +1,84 @@
+Container:
+  style:
+    padding: 24
+    backgroundColor: "#1a1a2e"
+    minHeight: 400
+  children:
+    - Column:
+        gap: 24
+        style:
+          width: 100%
+        children:
+          - Link:
+              href: "/"
+              children:
+                - Text:
+                    text: "< Home"
+                    style:
+                      fontSize: 14
+                      color: "#6b4cdf"
+          - Text:
+              text: "Components"
+              style:
+                fontSize: 28
+                color: "#e0e0e0"
+                fontWeight: 700
+          - Text:
+              text: "NTML components are the building blocks of interfaces. Each is a YAML object with properties, style, and optional children."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                lineHeight: 1.5
+          - Divider:
+              orientation: horizontal
+              style:
+                backgroundColor: "#333333"
+                height: 1
+          - Text:
+              text: "Layout"
+              style:
+                fontSize: 18
+                color: "#e0e0e0"
+                fontWeight: 600
+          - Text:
+              text: "Container — Basic rectangular container. Flex — direction, justify, align, gap, wrap. Row/Column — Flex shorthand. Grid — columns, rows, gap. Stack — Layers children (z-index)."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Content"
+              style:
+                fontSize: 18
+                color: "#e0e0e0"
+                fontWeight: 600
+          - Text:
+              text: "Text — Displays text. Image — src, alt, fit. Icon — name, size."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Interactive"
+              style:
+                fontSize: 18
+                color: "#e0e0e0"
+                fontWeight: 600
+          - Text:
+              text: "Link — href, target. Button — action, variant. Input — name, placeholder, type. Checkbox, Radio, Select."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Specialized"
+              style:
+                fontSize: 18
+                color: "#e0e0e0"
+                fontWeight: 600
+          - Text:
+              text: "ProgressBar — value, max, variant. Badge — text, variant. Divider — orientation. Spacer — size (number or auto)."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"

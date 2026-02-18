@@ -451,6 +451,66 @@ while true do
 end
 "##;
 
+/// Curl: HTTP GET client. Args: [host[:port]/path] or [host] [path]. Connects via net.connect, sends GET, writes raw HTTP response to stdout.
+/// Example: curl ntml.org/robot or curl 10.0.1.5/robot
+pub const CURL: &str = r#"
+local args = os.get_args()
+if not args or #args < 1 then
+  io.write("curl: usage: curl [host[:port]/path]\n")
+  return
+end
+local url = args[1]
+-- Parse host[:port] and path from url (host/path or host:port/path)
+local slash_pos = nil
+for i = 1, #url do
+  if url:sub(i, i) == "/" then slash_pos = i; break end
+end
+local host_port, path
+if slash_pos then
+  host_port = url:sub(1, slash_pos - 1)
+  path = "/" .. url:sub(slash_pos + 1)
+else
+  host_port = url
+  path = "/"
+end
+if path == "" then path = "/" end
+local colon_pos = nil
+for i = 1, #host_port do
+  if host_port:sub(i, i) == ":" then colon_pos = i; break end
+end
+local host, port
+if colon_pos then
+  host = host_port:sub(1, colon_pos - 1)
+  port = tonumber(host_port:sub(colon_pos + 1)) or 80
+else
+  host = host_port
+  port = 80
+end
+if host == "" then
+  io.write("curl: invalid URL\n")
+  return
+end
+local ok, conn = pcall(net.connect, host, port)
+if not ok or not conn then
+  io.write("curl: connection failed\n")
+  return
+end
+local req = http.build_request("GET", path, nil)
+conn:send(req)
+local resp = nil
+while true do
+  local r = conn:recv()
+  if r and r.data and #r.data > 0 then
+    resp = r.data
+    break
+  end
+end
+conn:close()
+if resp then
+  io.write(resp)
+end
+"#;
+
 /// Grep: search for pattern in files. Args: [-i] [-E] pattern [path ...]. -i case-insensitive, -E regex. Resolves relative paths.
 pub const GREP: &str = r#"
 local args = os.get_args()
@@ -573,6 +633,7 @@ end
 pub const DEFAULT_BIN_PROGRAMS: &[(&str, &str)] = &[
     ("cat", CAT),
     ("coin", COIN),
+    ("curl", CURL),
     ("echo", ECHO),
     ("httpd", HTTPD),
     ("echo_stdin", ECHO_STDIN),

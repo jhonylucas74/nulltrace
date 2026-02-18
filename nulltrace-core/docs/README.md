@@ -35,7 +35,7 @@ The core is composed of three main layers:
 | [HTTP Protocol](./http-protocol.md) | HTTP-like protocol for VM-to-VM communication (request/response, Lua API) |
 | [Lua examples](./lua-examples.md) | Practical Lua script examples: I/O, fs, os, net (client and server) |
 | [Blob Store](./blob-store.md) | Content-addressable storage: deduplication and copy-on-write for file content |
-| [Nexus HTTP Server & Bootstrap](./nexus-http-server-and-bootstrap.md) | Nexus VM, httpd bin program, and /etc/bootstrap startup pattern |
+| [ntml.org HTTP Server & Bootstrap](./nexus-http-server-and-bootstrap.md) | ntml.org VM, httpd bin program, and /etc/bootstrap startup pattern |
 
 ## Testing
 

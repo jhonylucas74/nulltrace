@@ -26,6 +26,7 @@ pub enum Component {
     Badge(Badge),
     Divider(Divider),
     Spacer(Spacer),
+    Link(Link),
     /// An instance of an imported component declared in head.imports (v0.2.0)
     ImportedComponent(ImportedComponentInstance),
 }
@@ -262,6 +263,29 @@ pub struct Icon {
     pub style: Option<Style>,
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub data: DataAttributes,
+}
+
+/// Link component - hyperlink that navigates the Browser or opens in new tab
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Link {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub href: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<LinkTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<Style>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<Component>>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub data: DataAttributes,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LinkTarget {
+    Same,
+    New,
 }
 
 /// Button component - clickable button

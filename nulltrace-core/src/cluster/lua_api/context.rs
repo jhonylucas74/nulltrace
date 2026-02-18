@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::net::connection::ConnectionState;
+use crate::net::dns::DnsResolver;
 use crate::net::ip::Ipv4Addr;
 use crate::net::nic::NIC;
 use crate::net::packet::Packet;
@@ -95,6 +96,9 @@ pub struct VmContext {
 
     /// (vm_id, shell_pid) that called os.prompt_ready() this tick. Drained by game loop to send prompt_ready to terminal clients.
     pub shell_prompt_ready_pending: HashSet<(Uuid, u64)>,
+
+    /// Cluster DNS resolver for hostname resolution (ntml.org, haru.local, etc.). Set before each tick.
+    pub dns_resolver: Option<Arc<std::sync::RwLock<DnsResolver>>>,
 }
 
 impl VmContext {
@@ -131,6 +135,7 @@ impl VmContext {
             requested_kills: Vec::new(),
             process_cwd: HashMap::new(),
             shell_prompt_ready_pending: HashSet::new(),
+            dns_resolver: None,
         }
     }
 

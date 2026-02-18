@@ -350,10 +350,10 @@ async fn load_game_vms(
         .expect("Failed to check webserver's VM");
 
     if nexus_vm.is_none() {
-        println!("[cluster] Creating VM for Nexus (webserver)...");
+        println!("[cluster] Creating VM for ntml.org (webserver)...");
         let config = VmConfig {
-            hostname: "nexus-server".to_string(),
-            dns_name: Some("nexus.local".to_string()),
+            hostname: "ntml-server".to_string(),
+            dns_name: Some("ntml.org".to_string()),
             cpu_cores: 2,
             memory_mb: 2048,
             disk_mb: 20480,
@@ -363,49 +363,159 @@ async fn load_game_vms(
             mac: None,
             owner_id: Some(webserver.id),
         };
-        let (record, _) = manager.create_vm(config).await.expect("Failed to create Nexus VM");
+        let (record, _) = manager.create_vm(config).await.expect("Failed to create ntml.org VM");
         fs_service
             .mkdir(record.id, "/var/www", "root")
             .await
-            .expect("Failed to create /var/www for Nexus");
+            .expect("Failed to create /var/www for ntml.org");
         let index_ntml = r##"Container:
   style:
-    padding: 16
+    padding: 24
     backgroundColor: "#1a1a2e"
+    minHeight: 400
   children:
-    - Text:
-        text: "Welcome to Nexus"
+    - Column:
+        gap: 24
         style:
-          fontSize: 24
-          color: "#e0e0e0"
-"##;
-        let about_ntml = r##"Container:
-  style:
-    padding: 16
-    backgroundColor: "#1a1a2e"
-  children:
-    - Text:
-        text: "About Nexus"
-        style:
-          fontSize: 24
-          color: "#e0e0e0"
-    - Text:
-        text: "HTTP server for testing the protocol."
-        style:
-          fontSize: 14
-          color: "#a0a0a0"
+          width: 100%
+        children:
+          - Container:
+              style:
+                padding: 20
+                backgroundColor: "#6b4cdf"
+                borderRadius: 8
+              children:
+                - Text:
+                    text: "What is NTML"
+                    style:
+                      fontSize: 32
+                      color: "#ffffff"
+                      textAlign: center
+                      fontWeight: 700
+          - Text:
+              text: "NTML (NullTrace Markup Language) is a secure, YAML-based UI description language for the NullTrace game. Type-safe, designer-friendly, and sandboxed—no script injection or XSS. Build interfaces with layout primitives (Flex, Grid), components (Text, Button, Input), and CSS-like styling."
+              style:
+                fontSize: 16
+                color: "#e0e0e0"
+                textAlign: center
+                lineHeight: 1.6
+          - Divider:
+              orientation: horizontal
+              style:
+                backgroundColor: "#333333"
+                height: 1
+                marginVertical: 8
+          - Text:
+              text: "Documentation"
+              style:
+                fontSize: 18
+                color: "#e0e0e0"
+                fontWeight: 700
+          - Row:
+              gap: 12
+              wrap: true
+              style:
+                width: 100%
+              children:
+                - Link:
+                    href: "/components"
+                    children:
+                      - Text:
+                          text: "Components"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+                - Link:
+                    href: "/styling"
+                    children:
+                      - Text:
+                          text: "Styling"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+                - Link:
+                    href: "/document-format"
+                    children:
+                      - Text:
+                          text: "Document Format"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+                - Link:
+                    href: "/examples"
+                    children:
+                      - Text:
+                          text: "Examples"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+                - Link:
+                    href: "/lua-api"
+                    children:
+                      - Text:
+                          text: "Lua API"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+                - Link:
+                    href: "/best-practices"
+                    children:
+                      - Text:
+                          text: "Best Practices"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+                - Link:
+                    href: "/http"
+                    children:
+                      - Text:
+                          text: "HTTP"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+          - Link:
+              href: "/robot.txt"
+              target: new
+              children:
+                - Text:
+                    text: "robot.txt (new tab)"
+                    style:
+                      fontSize: 12
+                      color: "#a0a0a0"
 "##;
         let notfound_ntml = r##"Container:
   style:
-    padding: 16
+    padding: 24
     backgroundColor: "#1a1a2e"
   children:
     - Text:
-        text: "Not found"
+        text: "Page not found"
         style:
-          fontSize: 18
+          fontSize: 24
           color: "#e0e0e0"
+          fontWeight: 700
+    - Text:
+        text: "The requested page does not exist at ntml.org."
+        style:
+          fontSize: 14
+          color: "#a0a0a0"
+    - Link:
+        href: "/"
+        children:
+          - Text:
+              text: "Back to home"
+              style:
+                fontSize: 14
+                color: "#6b4cdf"
+                marginTop: 16
 "##;
+        let components_ntml = include_str!("../../ntml_site/components.ntml");
+        let styling_ntml = include_str!("../../ntml_site/styling.ntml");
+        let document_format_ntml = include_str!("../../ntml_site/document-format.ntml");
+        let examples_ntml = include_str!("../../ntml_site/examples.ntml");
+        let lua_api_ntml = include_str!("../../ntml_site/lua-api.ntml");
+        let best_practices_ntml = include_str!("../../ntml_site/best-practices.ntml");
+        let http_ntml = include_str!("../../ntml_site/http.ntml");
         fs_service
             .write_file(record.id, "/var/www/index.ntml", index_ntml.as_bytes(), Some("application/x-ntml"), "root")
             .await
@@ -415,9 +525,33 @@ async fn load_game_vms(
             .await
             .expect("Failed to write robot.txt");
         fs_service
-            .write_file(record.id, "/var/www/about.ntml", about_ntml.as_bytes(), Some("application/x-ntml"), "root")
+            .write_file(record.id, "/var/www/components.ntml", components_ntml.as_bytes(), Some("application/x-ntml"), "root")
             .await
-            .expect("Failed to write about.ntml");
+            .expect("Failed to write components.ntml");
+        fs_service
+            .write_file(record.id, "/var/www/styling.ntml", styling_ntml.as_bytes(), Some("application/x-ntml"), "root")
+            .await
+            .expect("Failed to write styling.ntml");
+        fs_service
+            .write_file(record.id, "/var/www/document-format.ntml", document_format_ntml.as_bytes(), Some("application/x-ntml"), "root")
+            .await
+            .expect("Failed to write document-format.ntml");
+        fs_service
+            .write_file(record.id, "/var/www/examples.ntml", examples_ntml.as_bytes(), Some("application/x-ntml"), "root")
+            .await
+            .expect("Failed to write examples.ntml");
+        fs_service
+            .write_file(record.id, "/var/www/lua-api.ntml", lua_api_ntml.as_bytes(), Some("application/x-ntml"), "root")
+            .await
+            .expect("Failed to write lua-api.ntml");
+        fs_service
+            .write_file(record.id, "/var/www/best-practices.ntml", best_practices_ntml.as_bytes(), Some("application/x-ntml"), "root")
+            .await
+            .expect("Failed to write best-practices.ntml");
+        fs_service
+            .write_file(record.id, "/var/www/http.ntml", http_ntml.as_bytes(), Some("application/x-ntml"), "root")
+            .await
+            .expect("Failed to write http.ntml");
         fs_service
             .write_file(record.id, "/var/www/404.ntml", notfound_ntml.as_bytes(), Some("application/x-ntml"), "root")
             .await
@@ -425,8 +559,8 @@ async fn load_game_vms(
         fs_service
             .write_file(record.id, "/etc/bootstrap", b"httpd /var/www\n", None, "root")
             .await
-            .expect("Failed to write /etc/bootstrap for Nexus");
-        println!("[cluster] ✓ Nexus VM created");
+            .expect("Failed to write /etc/bootstrap for ntml.org");
+        println!("[cluster] ✓ ntml.org VM created");
 
         manager.clear_active_vms();
     }

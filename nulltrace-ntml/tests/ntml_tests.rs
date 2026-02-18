@@ -227,6 +227,22 @@ fn test_icon_negative_size() {
     assert!(result.is_err());
 }
 
+// Dimension style tests (width/height: number or "auto")
+#[test]
+fn test_dimension_auto_parses() {
+    let yaml = r#"
+Container:
+  style:
+    width: 200
+    height: auto
+  children:
+    - Text:
+        text: "Hello"
+"#;
+    let result = parse_ntml(yaml);
+    assert!(result.is_ok(), "height: auto (lowercase) should parse: {:?}", result.err());
+}
+
 // Multiple roots test
 #[test]
 fn test_multiple_root_components() {

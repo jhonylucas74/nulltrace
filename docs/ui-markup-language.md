@@ -227,6 +227,35 @@ Icon:
 
 ### Interactive Components
 
+#### `Link`
+A hyperlink that navigates the Browser. Behaves like an `<a>` tag.
+
+**Properties:**
+- `href`: String (required) — URL or path (e.g. `/about`, `robot.txt`, `http://example.com`)
+- `target`: `same` | `new` (default: `same`) — open in current tab or new tab
+- `style`: Style object
+- `children`: Array of components (typically Text) — link content; if omitted, shows `href`
+
+**Example:**
+```yaml
+Link:
+  href: "/about"
+  children:
+    - Text:
+        text: "About"
+        style:
+          color: "#6b4cdf"
+
+Link:
+  href: "http://example.com"
+  target: new
+  children:
+    - Text:
+        text: "External (new tab)"
+```
+
+---
+
 #### `Button`
 A clickable button component.
 
@@ -957,6 +986,29 @@ Button:
     padding: "$theme.spacing.medium"
     borderRadius: "$theme.borderRadius.medium"
 ```
+
+---
+
+## Browser NTML Rendering
+
+The in-app **Browser** renders NTML pages served by VMs (e.g. ntml.org) by converting NTML to safe HTML. The renderer supports all components and style properties defined in this document.
+
+### Supported Features
+
+- **All layout components:** Container, Flex, Row, Column, Grid, Stack
+- **All content components:** Text, Image, Icon
+- **All interactive components:** Button, Link, Input, Checkbox, Radio, Select
+- **All display components:** ProgressBar, Badge, Divider, Spacer
+- **Full style support:** All properties in the Style Reference (dimensions, spacing, typography, borders, shadow, position, flex, display, overflow, cursor)
+- **Layout props:** Flex/Row/Column `justify`, `align`, `wrap`; Grid `columns` and `rows`; Stack `alignment`; Divider `orientation`; Spacer `size: "auto"`
+
+### Image Resolution
+
+When NTML is rendered in the Browser, Image `src` paths are resolved against the page base URL. For example, a page at `http://ntml.org/about` with `Image: src: "img/logo.png"` will load `http://ntml.org/img/logo.png`. The `fit` property maps to CSS `object-fit` (cover, contain, fill, none, scale-down).
+
+### Lua Scripts and Patches
+
+Pages with `head.scripts` can run Lua in a sandbox. Button `action` values without `:` call Lua functions. The `ui` API (`set_text`, `set_visible`, `set_value`, `set_disabled`) applies patches that update the rendered HTML on the next frame.
 
 ---
 

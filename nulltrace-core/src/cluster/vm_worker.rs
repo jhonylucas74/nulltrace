@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 use super::lua_api::context::{SpawnQueueItem, VmContext};
+use super::net::dns::DnsResolver;
 use super::net::packet::Packet;
 use super::vm::VirtualMachine;
+use std::sync::{Arc, RwLock};
 use uuid::Uuid;
 
 /// Task sent to a worker thread
@@ -58,6 +60,7 @@ impl VmWorker {
         vms: &mut [VirtualMachine],
         executable_indices: &[usize],
         active_vms: &[(Uuid, String, Option<super::net::ip::Ipv4Addr>)], // (id, hostname, ip)
+        dns: Arc<RwLock<DnsResolver>>,
     ) -> WorkerResult {
         let mut result = WorkerResult::default();
         result.start_idx = 0;
@@ -78,6 +81,7 @@ impl VmWorker {
             {
                 let mut ctx = lua.app_data_mut::<VmContext>().unwrap();
                 ctx.set_vm(vm.id, hostname, ip);
+                ctx.dns_resolver = Some(dns.clone());
                 if let Some(nic) = &vm.nic {
                     ctx.set_port_owners(nic.get_port_owners());
                 }

@@ -11,11 +11,14 @@ tauri-build = { version = "2", features = [] }
 tonic-build = "0.9"
 
 [dependencies]
+dashmap = "5"
+nulltrace-ntml = { path = "../../nulltrace-ntml" }
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
-mlua = { version = "0.11.1", features = ["luau"] }
+mlua = { version = "0.11.1", features = ["luau", "send"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 prost = "0.11"
 tonic = "0.9"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }

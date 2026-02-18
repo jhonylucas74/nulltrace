@@ -310,7 +310,20 @@ export async function uploadProgramUI(programId: string, yaml: string) {
 
 ## 🎮 Runtime Rendering
 
-### Convert NTML to React Components
+### Browser NTML → HTML Renderer (nulltrace-client)
+
+The **Browser** app in nulltrace-client converts NTML to safe HTML for display in an iframe. The renderer (`ntml_html.rs`) supports:
+
+- **All NTML components** (Container, Flex, Row, Column, Grid, Stack, Text, Image, Icon, Button, Input, Checkbox, Radio, Select, ProgressBar, Badge, Divider, Spacer)
+- **Full style support** (dimensions, spacing, typography, borders, shadow, position, flex, display, overflow, cursor)
+- **Layout props** (Flex/Row/Column justify, align, wrap; Grid columns/rows; Stack alignment; Divider orientation; Spacer size: "auto")
+- **Image resolution** via `base_url` (paths resolved against page URL)
+- **Image fit** (object-fit: cover, contain, fill, none, scale-down)
+- **Lua scripts** (head.scripts) and **patches** (ui.set_text, etc.)
+
+The Tauri command `ntml_to_html` accepts `yaml`, `imports`, and optional `base_url`. The `ntml_runtime` uses `ntml_to_html_with_imports_and_patches` for re-renders after Lua handlers. See [docs/ui-markup-language.md](../docs/ui-markup-language.md) for the full spec.
+
+### Convert NTML to React Components (Alternative)
 
 ```typescript
 // renderers/NtmlRenderer.tsx

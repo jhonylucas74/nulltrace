@@ -1,11 +1,28 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
-/// A dimension value that can be either a number (pixels) or "auto"
+/// A dimension value: number (pixels), "auto", or custom string (e.g. "100%")
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Dimension {
-    Pixels(f64),
+    #[serde(deserialize_with = "deserialize_auto")]
     Auto,
+    Pixels(f64),
+    /// Custom CSS dimension (e.g. "100%", "50vw")
+    Custom(String),
+}
+
+/// Deserializes the string "auto" for untagged enum (rename does not work for untagged unit variants)
+fn deserialize_auto<'de, D>(deserializer: D) -> Result<(), D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    enum Helper {
+        #[serde(rename = "auto")]
+        Variant,
+    }
+    Helper::deserialize(deserializer)?;
+    Ok(())
 }
 
 /// Shadow offset configuration

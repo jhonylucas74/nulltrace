@@ -1,0 +1,83 @@
+Container:
+  style:
+    padding: 24
+    backgroundColor: "#1a1a2e"
+    minHeight: 400
+  children:
+    - Column:
+        gap: 24
+        style:
+          width: 100%
+        children:
+          - Link:
+              href: "/"
+              children:
+                - Text:
+                    text: "< Home"
+                    style:
+                      fontSize: 14
+                      color: "#6b4cdf"
+          - Text:
+              text: "Style Reference"
+              style:
+                fontSize: 28
+                color: "#e0e0e0"
+                fontWeight: 700
+          - Text:
+              text: "All style properties are optional. Follow CSS conventions."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+          - Divider:
+              orientation: horizontal
+              style:
+                backgroundColor: "#333333"
+                height: 1
+          - Text:
+              text: "Dimensions: width, height, minWidth, maxWidth, minHeight, maxHeight (px or auto)"
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Spacing: padding, paddingVertical, paddingHorizontal, margin, marginVertical, marginHorizontal"
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Colors: color, backgroundColor, borderColor (hex or named). opacity 0-1."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Typography: fontSize, fontWeight, fontFamily, textAlign, textTransform, letterSpacing, lineHeight, textDecoration"
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Borders: borderWidth, borderStyle, borderRadius"
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Shadow: shadow (small/medium/large) or shadowColor, shadowOffset, shadowBlur, shadowOpacity"
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Position: position, top, right, bottom, left, zIndex"
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Flex: flex, alignSelf. Display: display, overflow. Cursor: cursor."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"

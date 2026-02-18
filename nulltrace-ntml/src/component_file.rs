@@ -9,7 +9,7 @@ use crate::parser::parse_component_value;
 pub const BUILTIN_COMPONENTS: &[&str] = &[
     "Container", "Flex", "Grid", "Stack", "Row", "Column",
     "Text", "Image", "Icon", "Button", "Input", "Checkbox",
-    "Radio", "Select", "ProgressBar", "Badge", "Divider", "Spacer",
+    "Radio", "Select", "ProgressBar", "Badge", "Divider", "Spacer", "Link",
 ];
 
 /// A parsed NTML component file (reusable component definition)

@@ -171,6 +171,7 @@ fn get_component_id(component: &Component) -> Option<String> {
         Component::Badge(c) => c.id.clone(),
         Component::Divider(c) => c.id.clone(),
         Component::Spacer(_) => None,
+        Component::Link(c) => c.id.clone(),
         Component::ImportedComponent(c) => c.id.clone(),
     }
 }
@@ -184,6 +185,7 @@ fn get_component_children(component: &Component) -> Option<&Vec<Component>> {
         Component::Row(c) => c.children.as_ref(),
         Component::Column(c) => c.children.as_ref(),
         Component::Button(c) => c.children.as_ref(),
+        Component::Link(c) => c.children.as_ref(),
         _ => None,
     }
 }
@@ -218,6 +220,7 @@ fn validate_component_recursive(
         Component::Badge(c) => validate_badge(c, font_families),
         Component::Divider(c) => validate_divider(c, font_families),
         Component::Spacer(c) => validate_spacer(c),
+        Component::Link(c) => validate_link(c, depth, font_families),
         Component::ImportedComponent(_) => Ok(()), // props validated at runtime
     }
 }
@@ -650,6 +653,19 @@ fn validate_divider(divider: &Divider, font_families: &[String]) -> NtmlResult<(
 
 fn validate_spacer(spacer: &Spacer) -> NtmlResult<()> {
     validate_data_attributes(&spacer.data)
+}
+
+fn validate_link(link: &Link, depth: usize, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&link.data)?;
+    if link.href.is_empty() {
+        return Err(NtmlError::InvalidProperty {
+            component: "Link".to_string(),
+            property: "href".to_string(),
+            reason: "must not be empty".to_string(),
+        });
+    }
+    validate_style(&link.style, font_families)?;
+    validate_children(&link.children, depth, font_families)
 }
 
 #[cfg(test)]

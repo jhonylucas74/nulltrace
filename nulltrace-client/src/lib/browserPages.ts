@@ -2,13 +2,14 @@
  * Built-in pages for the in-app browser. No network – all content is static HTML strings.
  */
 
-const DEFAULT_URL = "search.example";
+const DEFAULT_URL = "ntml.org";
 
 /** Special in-app URL for the history page (rendered by React, not iframe). */
 export const BROWSER_HISTORY_URL = "browser://history";
 
 const PAGE_TITLES: Record<string, string> = {
   "search.example": "Search",
+  "ntml.org": "NTML",
   "about:blank": "Blank",
   [BROWSER_HISTORY_URL]: "History",
 };
@@ -156,8 +157,51 @@ const NOT_FOUND_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+/** Error page when site can't be reached (connection failed, timeout). */
+export const CONNECTION_ERROR_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Site can't be reached</title>
+<style>
+  body { font-family: Arial,sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f1f1f1; color: #333; }
+  .box { text-align: center; padding: 2rem; }
+  h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+  p { color: #666; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>This site can't be reached</h1>
+    <p>Connection failed. The server may be down or unreachable.</p>
+  </div>
+</body>
+</html>`;
+
+/** Error page for HTTP 4xx/5xx responses. */
+export function httpErrorHtml(status: number, reason?: string): string {
+  const title = status === 404 ? "404 Not Found" : `${status} Error`;
+  const msg = reason || (status === 404 ? "The requested page was not found." : "The server encountered an error.");
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>${title}</title>
+<style>
+  body { font-family: Arial,sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f1f1f1; color: #333; }
+  .box { text-align: center; padding: 2rem; }
+  h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+  p { color: #666; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>${title}</h1>
+    <p>${msg}</p>
+  </div>
+</body>
+</html>`;
+}
+
 const PAGES: Record<string, string> = {
   "search.example": SEARCH_PAGE_HTML,
+  "ntml.org": BLANK_HTML, // Fetched from VM; placeholder until loaded
   "about:blank": BLANK_HTML,
   [BROWSER_HISTORY_URL]: BLANK_HTML, // Rendered by Browser component, not iframe
 };
