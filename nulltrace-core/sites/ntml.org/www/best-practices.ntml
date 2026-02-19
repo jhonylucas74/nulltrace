@@ -14,9 +14,10 @@
           </Link>
           <Row gap="1" wrap="true">
             <Link href="/getting-started"><Text text="Getting started" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
             <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
             <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
-            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/tailwind-reference"><Text text="Tailwind" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
             <Link href="/lua-api"><Text text="Lua API" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
             <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
             <Link href="/best-practices"><Text text="Best practices" class="text-sm text-amber-400 font-medium px-3 py-2 rounded-md bg-amber-500/10 transition-colors duration-200" /></Link>
@@ -29,40 +30,177 @@
           <Column gap="2" class="sticky top-24">
             <Text text="On this page" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1" />
             <Link href="/getting-started"><Text text="Getting started" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
             <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
             <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
-            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/tailwind-reference"><Text text="Tailwind reference" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
             <Link href="/lua-api"><Text text="Lua API" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
             <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
             <Link href="/best-practices"><Text text="Best practices" class="text-sm text-amber-400 py-1.5 transition-colors duration-200" /></Link>
             <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
           </Column>
         </Container>
-        <Column gap="10" class="flex-1 min-w-0 max-w-3xl pl-0 md:pl-12">
+        <Column gap="12" class="flex-1 min-w-0 max-w-3xl pl-0 md:pl-12">
           <Link href="/"><Text text="← Home" class="text-sm text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
           <Column gap="6">
             <Heading level="1" text="Best practices" class="text-3xl md:text-4xl font-bold text-zinc-100 tracking-tight" />
-            <Text text="Keep NTML maintainable and consistent with these conventions." class="text-zinc-400 leading-relaxed text-lg" />
+            <Text text="Conventions and patterns that keep NTML code maintainable, consistent, and performant across your NullTrace projects." class="text-zinc-400 leading-relaxed text-lg" />
           </Column>
-          <Column gap="8">
-            <Column gap="3">
-              <Heading level="2" text="File structure" class="text-xl font-semibold text-zinc-100" />
-              <Text text="Organize with folders: ui/ for screens, components/ for reusable pieces, themes/ for theme files. Use kebab-case for file names (main-menu.ntml, player-stats.ntml)." class="text-zinc-400 text-sm" />
-            </Column>
-            <Column gap="3">
-              <Heading level="2" text="Naming" class="text-xl font-semibold text-zinc-100" />
-              <Text text='Actions: snake_case (e.g. hack_system, send_message). Input names: snake_case (username_input, password_field). Component IDs: kebab-case or snake_case for Lua (ui.set_text("status-id", "...")).' class="text-zinc-400 text-sm" />
-            </Column>
-            <Column gap="3">
-              <Heading level="2" text="Themes" class="text-xl font-semibold text-zinc-100" />
-              <Text text="Use theme variables instead of hardcoded colors: $theme.colors.primary, $theme.spacing.medium. Group related styles (paddingVertical + paddingHorizontal instead of four separate padding props)." class="text-zinc-400 text-sm" />
-            </Column>
-            <Column gap="3">
-              <Heading level="2" text="Layout" class="text-xl font-semibold text-zinc-100" />
-              <Text text="Prefer Flex and Grid over deeply nested Container. Use Row/Column with gap for spacing. Keep component trees shallow; split large UIs into imported components." class="text-zinc-400 text-sm" />
-              <Link href="/examples"><Text text="Full examples →" class="text-amber-400 hover:text-amber-300 font-medium transition-colors duration-200" /></Link>
-            </Column>
+
+          <Column gap="4">
+            <Heading level="2" text="File structure" class="text-xl font-semibold text-zinc-100" />
+            <Text text="Organize large projects with a consistent folder layout. Split UI into screens, reusable components, and themes." class="text-zinc-400 text-sm leading-relaxed" />
+            <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[/var/www/
+├── index.ntml           -- main entry
+├── dashboard.ntml
+├── settings.ntml
+├── components/
+│   ├── navbar.ntml
+│   ├── stat-card.ntml
+│   └── player-badge.ntml
+├── scripts/
+│   ├── auth.lua
+│   ├── dashboard.lua
+│   └── utils.lua
+└── themes/
+    ├── dark.yaml
+    └── corp.yaml]]></Code>
+            <Text text="Use kebab-case for filenames (player-stats.ntml, hack-panel.ntml). Keep component files in components/ and scripts in scripts/." class="text-zinc-500 text-sm" />
           </Column>
+
+          <Column gap="4">
+            <Heading level="2" text="Naming conventions" class="text-xl font-semibold text-zinc-100" />
+            <Text text="Consistent naming prevents bugs and makes Lua scripts easier to write." class="text-zinc-400 text-sm leading-relaxed" />
+            <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<!-- Button actions: snake_case Lua function names -->
+<Button action="hack_system" />
+<Button action="send_message" />
+<Button action="submit_login" />
+
+<!-- Input names: snake_case (used in ui.get_value) -->
+<Input name="username_input" />
+<Input name="target_ip" />
+
+<!-- Component IDs: kebab-case (used in ui.set_text etc) -->
+<Text id="status-message" text="" />
+<ProgressBar id="health-bar" value="100" max="100" />
+<Container id="result-panel" />]]></Code>
+          </Column>
+
+          <Column gap="4">
+            <Heading level="2" text="Layout patterns" class="text-xl font-semibold text-zinc-100" />
+            <Text text="Prefer Flex/Grid over deeply nested Containers. Use gap instead of margin for consistent spacing." class="text-zinc-400 text-sm leading-relaxed" />
+            <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<!-- Good: flat structure with gap -->
+<Column gap="4" class="p-6">
+  <Row gap="3" align="center">
+    <Icon name="user" size="20" class="text-amber-400" />
+    <Text text="Player" class="font-medium text-zinc-200" />
+  </Row>
+  <Text text="Stats below" class="text-zinc-400 text-sm" />
+</Column>
+
+<!-- Avoid: deeply nested containers for spacing -->
+<Container>
+  <Container class="p-2">
+    <Container class="p-2">
+      <Text text="Nested padding anti-pattern" />
+    </Container>
+  </Container>
+</Container>]]></Code>
+          </Column>
+
+          <Column gap="4">
+            <Heading level="2" text="Reusable components" class="text-xl font-semibold text-zinc-100" />
+            <Text text="Extract repeated UI patterns into component files. Import them with aliases in the full format head." class="text-zinc-400 text-sm leading-relaxed" />
+            <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<!-- components/stat-card.ntml -->
+<Container class="p-4 bg-zinc-800 rounded-lg border border-zinc-700">
+  <Column gap="2">
+    <Text text="$props.label" class="text-xs text-zinc-400 uppercase tracking-wider" />
+    <Text text="$props.value" class="text-2xl font-bold text-zinc-100 tabular-nums" />
+    <ProgressBar value="$props.value" max="100" />
+  </Column>
+</Container>
+
+<!-- dashboard.ntml -->
+<head>
+  <title>Dashboard</title>
+  <import src="components/stat-card.ntml" as="StatCard" />
+</head>
+<body>
+  <Row gap="4" wrap="true">
+    <StatCard label="Health" value="85" />
+    <StatCard label="Energy" value="60" />
+  </Row>
+</body>]]></Code>
+          </Column>
+
+          <Column gap="4">
+            <Heading level="2" text="Scripting patterns" class="text-xl font-semibold text-zinc-100" />
+            <Text text="Keep Lua scripts focused. One script per feature, not one massive script. Check ok before using response data." class="text-zinc-400 text-sm leading-relaxed" />
+            <Code language="lua" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[-- Good: always check res.ok
+function loadData()
+  ui.set_disabled("refresh-btn", true)
+  ui.set_text("status", "Loading...")
+  local res = http.get("/api/data")
+  if res.ok then
+    ui.set_text("value", tostring(res.data.count))
+    ui.set_text("status", "")
+  else
+    ui.set_text("status", "Error: " .. (res.error or "unknown"))
+  end
+  ui.set_disabled("refresh-btn", false)
+end]]></Code>
+          </Column>
+
+          <Column gap="4">
+            <Heading level="2" text="Anti-patterns to avoid" class="text-xl font-semibold text-zinc-100" />
+            <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<!-- Don't: hardcode colors as hex when Tailwind classes exist -->
+<Text text="Bad" style="color: #f59e0b" />
+<Text text="Good" class="text-amber-400" />
+
+<!-- Don't: use id on non-manipulated components -->
+<Text id="static-label" text="Username:" />  <!-- unnecessary -->
+<Input id="username" name="username" />       <!-- id not needed for get_value -->
+
+<!-- Don't: mix style props and Tailwind for the same property -->
+<Container class="p-4" style="padding: 8" />  <!-- ambiguous -->
+
+<!-- Don't: nest more than 4 levels deep without extracting a component -->]]></Code>
+          </Column>
+
+          <Column gap="4">
+            <Heading level="2" text="Themes" class="text-xl font-semibold text-zinc-100" />
+            <Text text="Define theme variables in a YAML theme file. Reference them with $theme.* in props. Theme files enable players to skin your UI." class="text-zinc-400 text-sm leading-relaxed" />
+            <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[# themes/dark.yaml
+colors:
+  primary: "#f59e0b"
+  background: "#09090b"
+  surface: "#18181b"
+  border: "#3f3f46"
+spacing:
+  sm: 4
+  md: 8
+  lg: 16]]></Code>
+          </Column>
+
+          <Container class="pt-10 mt-2 border-t border-zinc-800">
+            <Row justify="spaceBetween">
+              <Link href="/http">
+                <Row gap="2" align="center">
+                  <Text text="←" class="text-amber-400" />
+                  <Text text="HTTP" class="text-sm font-medium text-zinc-300 hover:text-amber-400 transition-colors duration-200" />
+                </Row>
+              </Link>
+              <Link href="/examples">
+                <Row gap="2" align="center">
+                  <Text text="Examples" class="text-sm font-medium text-zinc-300 hover:text-amber-400 transition-colors duration-200" />
+                  <Text text="→" class="text-amber-400" />
+                </Row>
+              </Link>
+            </Row>
+          </Container>
+          <Container class="pt-4 mt-2">
+            <Text text="NTML Documentation · NullTrace" class="text-xs text-zinc-500" />
+          </Container>
         </Column>
       </Row>
     </Column>

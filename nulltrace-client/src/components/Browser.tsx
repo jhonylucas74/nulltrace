@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Plus, X } from "lucide-react";
+import { Loader2, Plus, X } from "lucide-react";
 import {
   getPageHtml,
   getPageTitle,
@@ -555,6 +555,9 @@ export default function Browser() {
             </button>
           </div>
           <div className={styles.addressWrap}>
+            {activeTab?.loading && (
+              <Loader2 size={18} className={`${styles.addressLoader} ${styles.spin}`} aria-hidden />
+            )}
             <input
               ref={addressInputRef}
               type="text"
@@ -610,7 +613,7 @@ export default function Browser() {
             {activeTab.content ?? ""}
           </pre>
         ) : activeTab?.loading ? (
-          <div className={styles.textContent}>Loading...</div>
+          <div className={styles.loadingPlaceholder} />
         ) : (
           <iframe
             ref={iframeRef}

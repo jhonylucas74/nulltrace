@@ -1,0 +1,212 @@
+<head>
+  <title>Files — NullTrace Demo</title>
+</head>
+<body>
+  <Container class="min-h-screen bg-zinc-950 text-zinc-200 font-sans antialiased">
+    <!-- Demo banner -->
+    <Container class="bg-amber-500/10 border-b border-amber-500/20 px-6 py-2">
+      <Row gap="3" align="center" justify="spaceBetween" class="max-w-5xl mx-auto">
+        <Row gap="2" align="center">
+          <Badge text="DEMO" variant="warning" />
+          <Text text="Esta é uma página de exemplo NTML — explorador de arquivos simulado." class="text-xs text-amber-400/80" />
+        </Row>
+        <Link href="/examples"><Text text="← Ver exemplos de código" class="text-xs text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
+      </Row>
+    </Container>
+
+    <!-- App header -->
+    <Container class="border-b border-zinc-800 px-6 py-4 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-10">
+      <Row gap="4" align="center" justify="spaceBetween" class="max-w-5xl mx-auto">
+        <Row gap="3" align="center">
+          <Icon name="folder-open" size="20" class="text-amber-400" />
+          <Text text="File Explorer" class="text-base font-semibold text-zinc-100" />
+        </Row>
+        <Row gap="2">
+          <Button variant="ghost" class="text-xs text-zinc-500 px-3 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors duration-200"><Text text="Upload" /></Button>
+          <Button variant="secondary" class="text-xs px-3 py-1.5 rounded-lg"><Text text="New folder" /></Button>
+        </Row>
+      </Row>
+    </Container>
+
+    <Row gap="0" class="max-w-5xl mx-auto px-6 py-6">
+      <!-- Sidebar tree -->
+      <Container class="w-48 flex-shrink-0 hidden md:block pr-4 border-r border-zinc-800">
+        <Column gap="1" class="sticky top-24">
+          <Text text="Filesystem" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2" />
+          <Container class="px-2 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <Row gap="2" align="center">
+              <Icon name="server" size="14" class="text-amber-400 flex-shrink-0" />
+              <Text text="api-server-01" class="text-sm text-amber-400 truncate" />
+            </Row>
+          </Container>
+          <Container class="px-2 py-1.5 rounded-lg hover:bg-zinc-800 cursor-pointer transition-colors duration-200">
+            <Row gap="2" align="center">
+              <Icon name="server" size="14" class="text-zinc-600 flex-shrink-0" />
+              <Text text="db-primary" class="text-sm text-zinc-400 truncate" />
+            </Row>
+          </Container>
+          <Container class="px-2 py-1.5 rounded-lg hover:bg-zinc-800 cursor-pointer transition-colors duration-200">
+            <Row gap="2" align="center">
+              <Icon name="server" size="14" class="text-zinc-600 flex-shrink-0" />
+              <Text text="worker-03" class="text-sm text-zinc-400 truncate" />
+            </Row>
+          </Container>
+          <Divider class="border-zinc-800 my-1" />
+          <Text text="Bookmarks" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-1 mb-1" />
+          <Container class="px-2 py-1.5 rounded-lg hover:bg-zinc-800 cursor-pointer transition-colors duration-200">
+            <Row gap="2" align="center">
+              <Icon name="folder" size="14" class="text-zinc-500 flex-shrink-0" />
+              <Text text="/etc" class="text-sm text-zinc-400 font-mono truncate" />
+            </Row>
+          </Container>
+          <Container class="px-2 py-1.5 rounded-lg hover:bg-zinc-800 cursor-pointer transition-colors duration-200">
+            <Row gap="2" align="center">
+              <Icon name="folder" size="14" class="text-zinc-500 flex-shrink-0" />
+              <Text text="/var/log" class="text-sm text-zinc-400 font-mono truncate" />
+            </Row>
+          </Container>
+          <Container class="px-2 py-1.5 rounded-lg hover:bg-zinc-800 cursor-pointer transition-colors duration-200">
+            <Row gap="2" align="center">
+              <Icon name="folder" size="14" class="text-zinc-500 flex-shrink-0" />
+              <Text text="/home" class="text-sm text-zinc-400 font-mono truncate" />
+            </Row>
+          </Container>
+        </Column>
+      </Container>
+
+      <Column gap="4" class="flex-1 pl-0 md:pl-5">
+        <!-- Breadcrumb -->
+        <Row gap="1" align="center">
+          <Text text="api-server-01" class="text-sm text-zinc-400 font-mono cursor-pointer hover:text-amber-400 transition-colors duration-200" />
+          <Text text="/" class="text-zinc-700" />
+          <Text text="var" class="text-sm text-zinc-400 font-mono cursor-pointer hover:text-amber-400 transition-colors duration-200" />
+          <Text text="/" class="text-zinc-700" />
+          <Text text="www" class="text-sm text-zinc-200 font-mono" />
+        </Row>
+
+        <!-- Toolbar -->
+        <Row gap="3" align="center" justify="spaceBetween">
+          <Row gap="2" align="center">
+            <Container class="relative">
+              <Input name="filter" placeholder="Filter files..." type="search"
+                     class="pl-8 pr-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 placeholder-zinc-600 w-48" />
+              <Icon name="search" size="12" class="absolute left-2.5 top-2 text-zinc-600" />
+            </Container>
+            <Select name="sort" options="Name,Size,Modified,Type" value="Name"
+                    class="py-1.5 px-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-400" />
+          </Row>
+          <Row gap="2">
+            <Container class="px-2 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 cursor-pointer">
+              <Icon name="layout-grid" size="14" class="text-zinc-400" />
+            </Container>
+            <Container class="px-2 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 cursor-pointer">
+              <Icon name="list" size="14" class="text-amber-400" />
+            </Container>
+          </Row>
+        </Row>
+
+        <!-- File list -->
+        <Container class="rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden">
+          <Column gap="0">
+            <!-- Header -->
+            <Container class="px-4 py-2.5 border-b border-zinc-800 bg-zinc-800/50">
+              <Row gap="4" align="center">
+                <Text text="Name" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider flex-1" />
+                <Text text="Size" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider w-20 text-right" />
+                <Text text="Modified" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider w-32 hidden md:block" />
+                <Text text="Permissions" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider w-24 hidden lg:block font-mono" />
+              </Row>
+            </Container>
+            <!-- Directories -->
+            <Container class="px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Row gap="2.5" align="center" class="flex-1">
+                  <Icon name="folder" size="16" class="text-amber-400 flex-shrink-0" />
+                  <Text text="assets" class="text-sm font-mono text-zinc-200" />
+                </Row>
+                <Text text="—" class="text-xs text-zinc-700 w-20 text-right" />
+                <Text text="Feb 18, 14:32" class="text-xs text-zinc-600 w-32 hidden md:block" />
+                <Text text="drwxr-xr-x" class="text-xs font-mono text-zinc-600 w-24 hidden lg:block" />
+              </Row>
+            </Container>
+            <Container class="px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Row gap="2.5" align="center" class="flex-1">
+                  <Icon name="folder" size="16" class="text-amber-400 flex-shrink-0" />
+                  <Text text="components" class="text-sm font-mono text-zinc-200" />
+                </Row>
+                <Text text="—" class="text-xs text-zinc-700 w-20 text-right" />
+                <Text text="Feb 18, 14:32" class="text-xs text-zinc-600 w-32 hidden md:block" />
+                <Text text="drwxr-xr-x" class="text-xs font-mono text-zinc-600 w-24 hidden lg:block" />
+              </Row>
+            </Container>
+            <!-- Files -->
+            <Container class="px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Row gap="2.5" align="center" class="flex-1">
+                  <Icon name="file-code" size="16" class="text-blue-400 flex-shrink-0" />
+                  <Text text="index.ntml" class="text-sm font-mono text-zinc-200" />
+                </Row>
+                <Text text="4.2 KB" class="text-xs text-zinc-500 w-20 text-right font-mono" />
+                <Text text="Feb 18, 10:15" class="text-xs text-zinc-600 w-32 hidden md:block" />
+                <Text text="-rw-r--r--" class="text-xs font-mono text-zinc-600 w-24 hidden lg:block" />
+              </Row>
+            </Container>
+            <Container class="px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Row gap="2.5" align="center" class="flex-1">
+                  <Icon name="file-code" size="16" class="text-blue-400 flex-shrink-0" />
+                  <Text text="dashboard.ntml" class="text-sm font-mono text-zinc-200" />
+                </Row>
+                <Text text="8.7 KB" class="text-xs text-zinc-500 w-20 text-right font-mono" />
+                <Text text="Feb 18, 11:40" class="text-xs text-zinc-600 w-32 hidden md:block" />
+                <Text text="-rw-r--r--" class="text-xs font-mono text-zinc-600 w-24 hidden lg:block" />
+              </Row>
+            </Container>
+            <Container class="px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Row gap="2.5" align="center" class="flex-1">
+                  <Icon name="file-text" size="16" class="text-zinc-500 flex-shrink-0" />
+                  <Text text="config.yaml" class="text-sm font-mono text-zinc-200" />
+                </Row>
+                <Text text="1.1 KB" class="text-xs text-zinc-500 w-20 text-right font-mono" />
+                <Text text="Feb 17, 09:00" class="text-xs text-zinc-600 w-32 hidden md:block" />
+                <Text text="-rw-------" class="text-xs font-mono text-yellow-600/80 w-24 hidden lg:block" />
+              </Row>
+            </Container>
+            <Container class="px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Row gap="2.5" align="center" class="flex-1">
+                  <Icon name="file-lock" size="16" class="text-yellow-400 flex-shrink-0" />
+                  <Text text=".env" class="text-sm font-mono text-yellow-400/80" />
+                  <Badge text="sensitive" variant="warning" />
+                </Row>
+                <Text text="0.3 KB" class="text-xs text-zinc-500 w-20 text-right font-mono" />
+                <Text text="Feb 15, 18:22" class="text-xs text-zinc-600 w-32 hidden md:block" />
+                <Text text="-rw-------" class="text-xs font-mono text-yellow-600/80 w-24 hidden lg:block" />
+              </Row>
+            </Container>
+            <Container class="px-4 py-3 hover:bg-zinc-800/30 cursor-pointer transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Row gap="2.5" align="center" class="flex-1">
+                  <Icon name="file" size="16" class="text-zinc-600 flex-shrink-0" />
+                  <Text text="access.log" class="text-sm font-mono text-zinc-200" />
+                </Row>
+                <Text text="142 KB" class="text-xs text-zinc-500 w-20 text-right font-mono" />
+                <Text text="Feb 19, 06:11" class="text-xs text-zinc-600 w-32 hidden md:block" />
+                <Text text="-rw-r--r--" class="text-xs font-mono text-zinc-600 w-24 hidden lg:block" />
+              </Row>
+            </Container>
+          </Column>
+        </Container>
+
+        <!-- Status bar -->
+        <Row gap="4" align="center" class="px-1">
+          <Text text="7 items — 2 directories, 5 files" class="text-xs text-zinc-600" />
+          <Spacer size="auto" />
+          <Text text="156 KB total" class="text-xs text-zinc-600" />
+        </Row>
+      </Column>
+    </Row>
+  </Container>
+</body>

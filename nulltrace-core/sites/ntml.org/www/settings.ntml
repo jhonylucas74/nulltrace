@@ -1,0 +1,193 @@
+<head>
+  <title>Settings — NullTrace Demo</title>
+</head>
+<body>
+  <Container class="min-h-screen bg-zinc-950 text-zinc-200 font-sans antialiased">
+    <!-- Demo banner -->
+    <Container class="bg-amber-500/10 border-b border-amber-500/20 px-6 py-2">
+      <Row gap="3" align="center" justify="spaceBetween" class="max-w-4xl mx-auto">
+        <Row gap="2" align="center">
+          <Badge text="DEMO" variant="warning" />
+          <Text text="Esta é uma página de exemplo NTML — mostra componentes de formulário em uso real." class="text-xs text-amber-400/80" />
+        </Row>
+        <Link href="/examples"><Text text="← Ver exemplos de código" class="text-xs text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
+      </Row>
+    </Container>
+
+    <!-- App header -->
+    <Container class="border-b border-zinc-800 px-6 py-4 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-10">
+      <Row gap="4" align="center" justify="spaceBetween" class="max-w-4xl mx-auto">
+        <Row gap="3" align="center">
+          <Icon name="settings" size="20" class="text-amber-400" />
+          <Text text="Settings" class="text-base font-semibold text-zinc-100" />
+        </Row>
+        <Row gap="2">
+          <Button variant="ghost" class="text-sm text-zinc-400 px-4 py-2 rounded-lg hover:bg-zinc-800 transition-colors duration-200"><Text text="Cancel" /></Button>
+          <Button variant="primary" class="text-sm px-4 py-2 rounded-lg"><Text text="Save changes" /></Button>
+        </Row>
+      </Row>
+    </Container>
+
+    <Row gap="0" class="max-w-4xl mx-auto px-6 py-8">
+      <!-- Sidebar nav -->
+      <Container class="w-44 flex-shrink-0 hidden md:block pr-6 border-r border-zinc-800">
+        <Column gap="1" class="sticky top-24">
+          <Text text="General" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2" />
+          <Container class="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <Text text="Appearance" class="text-sm font-medium text-amber-400" />
+          </Container>
+          <Container class="px-3 py-2 rounded-lg hover:bg-zinc-800 transition-colors duration-200 cursor-pointer">
+            <Text text="Notifications" class="text-sm text-zinc-400" />
+          </Container>
+          <Container class="px-3 py-2 rounded-lg hover:bg-zinc-800 transition-colors duration-200 cursor-pointer">
+            <Text text="Security" class="text-sm text-zinc-400" />
+          </Container>
+          <Text text="Advanced" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-4 mb-2" />
+          <Container class="px-3 py-2 rounded-lg hover:bg-zinc-800 transition-colors duration-200 cursor-pointer">
+            <Text text="API Keys" class="text-sm text-zinc-400" />
+          </Container>
+          <Container class="px-3 py-2 rounded-lg hover:bg-zinc-800 transition-colors duration-200 cursor-pointer">
+            <Text text="Danger zone" class="text-sm text-red-400" />
+          </Container>
+        </Column>
+      </Container>
+
+      <Column gap="8" class="flex-1 pl-0 md:pl-8">
+        <!-- Appearance section -->
+        <Column gap="6">
+          <Column gap="1">
+            <Heading level="2" text="Appearance" class="text-lg font-semibold text-zinc-100" />
+            <Text text="Customize how NullTrace looks and feels." class="text-sm text-zinc-500" />
+          </Column>
+
+          <Container class="rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden">
+            <Column gap="0">
+              <!-- Theme -->
+              <Container class="px-6 py-5 border-b border-zinc-800">
+                <Row gap="4" align="start" justify="spaceBetween">
+                  <Column gap="1" class="flex-1">
+                    <Text text="Theme" class="text-sm font-medium text-zinc-200" />
+                    <Text text="Choose your preferred color theme." class="text-xs text-zinc-500" />
+                  </Column>
+                  <Select name="theme" options="Dark,Light,System" value="Dark"
+                          class="p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 w-36" />
+                </Row>
+              </Container>
+              <!-- Language -->
+              <Container class="px-6 py-5 border-b border-zinc-800">
+                <Row gap="4" align="start" justify="spaceBetween">
+                  <Column gap="1" class="flex-1">
+                    <Text text="Language" class="text-sm font-medium text-zinc-200" />
+                    <Text text="Interface language for the application." class="text-xs text-zinc-500" />
+                  </Column>
+                  <Select name="language" options="English,Português,Español,Français,Deutsch" value="English"
+                          class="p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 w-36" />
+                </Row>
+              </Container>
+              <!-- Font size -->
+              <Container class="px-6 py-5">
+                <Row gap="4" align="start" justify="spaceBetween">
+                  <Column gap="1" class="flex-1">
+                    <Text text="Font size" class="text-sm font-medium text-zinc-200" />
+                    <Text text="Controls the base text size." class="text-xs text-zinc-500" />
+                  </Column>
+                  <Column gap="2" align="end">
+                    <Radio name="font_size" value="small" label="Small" />
+                    <Radio name="font_size" value="medium" label="Medium" />
+                    <Radio name="font_size" value="large" label="Large" />
+                  </Column>
+                </Row>
+              </Container>
+            </Column>
+          </Container>
+        </Column>
+
+        <!-- Notifications section -->
+        <Column gap="6">
+          <Column gap="1">
+            <Heading level="2" text="Notifications" class="text-lg font-semibold text-zinc-100" />
+            <Text text="Control what events trigger alerts." class="text-sm text-zinc-500" />
+          </Column>
+
+          <Container class="rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden">
+            <Column gap="0">
+              <Container class="px-6 py-5 border-b border-zinc-800">
+                <Row gap="4" align="center" justify="spaceBetween">
+                  <Column gap="1" class="flex-1">
+                    <Text text="VM status changes" class="text-sm font-medium text-zinc-200" />
+                    <Text text="Alert when a VM goes up, down, or enters warning state." class="text-xs text-zinc-500" />
+                  </Column>
+                  <Checkbox name="notify_vm" checked="true" />
+                </Row>
+              </Container>
+              <Container class="px-6 py-5 border-b border-zinc-800">
+                <Row gap="4" align="center" justify="spaceBetween">
+                  <Column gap="1" class="flex-1">
+                    <Text text="Deploy events" class="text-sm font-medium text-zinc-200" />
+                    <Text text="Notify on successful deploys and failures." class="text-xs text-zinc-500" />
+                  </Column>
+                  <Checkbox name="notify_deploy" checked="true" />
+                </Row>
+              </Container>
+              <Container class="px-6 py-5 border-b border-zinc-800">
+                <Row gap="4" align="center" justify="spaceBetween">
+                  <Column gap="1" class="flex-1">
+                    <Text text="Resource threshold alerts" class="text-sm font-medium text-zinc-200" />
+                    <Text text="Alert when CPU, memory, or disk exceed set thresholds." class="text-xs text-zinc-500" />
+                  </Column>
+                  <Checkbox name="notify_resources" checked="true" />
+                </Row>
+              </Container>
+              <Container class="px-6 py-5">
+                <Row gap="4" align="center" justify="spaceBetween">
+                  <Column gap="1" class="flex-1">
+                    <Text text="Weekly digest" class="text-sm font-medium text-zinc-200" />
+                    <Text text="Receive a weekly summary every Monday." class="text-xs text-zinc-500" />
+                  </Column>
+                  <Checkbox name="notify_digest" />
+                </Row>
+              </Container>
+            </Column>
+          </Container>
+        </Column>
+
+        <!-- Security section -->
+        <Column gap="6">
+          <Column gap="1">
+            <Heading level="2" text="Security" class="text-lg font-semibold text-zinc-100" />
+            <Text text="Manage authentication and access control." class="text-sm text-zinc-500" />
+          </Column>
+
+          <Container class="rounded-xl bg-zinc-900 border border-zinc-800 p-6">
+            <Column gap="5">
+              <Column gap="2">
+                <Text text="Current password" class="text-sm font-medium text-zinc-300" />
+                <Input name="current_password" type="password" placeholder="••••••••"
+                       class="w-full p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm" />
+              </Column>
+              <Column gap="2">
+                <Text text="New password" class="text-sm font-medium text-zinc-300" />
+                <Input name="new_password" type="password" placeholder="••••••••"
+                       class="w-full p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm" />
+              </Column>
+              <Column gap="2">
+                <Text text="Confirm new password" class="text-sm font-medium text-zinc-300" />
+                <Input name="confirm_password" type="password" placeholder="••••••••"
+                       class="w-full p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm" />
+              </Column>
+              <Button variant="secondary" class="self-start px-4 py-2 rounded-lg text-sm"><Text text="Update password" /></Button>
+            </Column>
+          </Container>
+        </Column>
+
+        <!-- Save button -->
+        <Row justify="end" class="pt-4 border-t border-zinc-800">
+          <Row gap="3">
+            <Button variant="ghost" class="text-sm text-zinc-400 px-4 py-2 rounded-lg hover:bg-zinc-800 transition-colors duration-200"><Text text="Reset to defaults" /></Button>
+            <Button variant="primary" class="text-sm px-6 py-2 rounded-lg font-medium"><Text text="Save changes" /></Button>
+          </Row>
+        </Row>
+      </Column>
+    </Row>
+  </Container>
+</body>

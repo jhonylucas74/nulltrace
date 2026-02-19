@@ -1,0 +1,257 @@
+<head>
+  <title>Tailwind reference — NTML</title>
+</head>
+<body>
+  <Container class="min-h-screen bg-zinc-950 text-zinc-200 flex flex-col font-sans antialiased">
+    <Column gap="0" class="min-h-screen w-full">
+      <Container class="border-b border-zinc-800 px-6 py-4 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-10">
+        <Row gap="8" align="center" justify="spaceBetween" wrap="true" class="w-full max-w-6xl mx-auto">
+          <Link href="/" class="transition-colors duration-200 rounded-lg px-2 py-1 -ml-2 hover:bg-zinc-800/50">
+            <Row gap="3" align="center">
+              <Icon name="file-code" size="32" class="w-8 h-8 text-amber-400" />
+              <Text text="NTML" class="text-lg font-semibold text-zinc-100 tracking-tight" />
+            </Row>
+          </Link>
+          <Row gap="1" wrap="true">
+            <Link href="/getting-started"><Text text="Getting started" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/tailwind-reference"><Text text="Tailwind" class="text-sm text-amber-400 font-medium px-3 py-2 rounded-md bg-amber-500/10 transition-colors duration-200" /></Link>
+            <Link href="/lua-api"><Text text="Lua API" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+          </Row>
+        </Row>
+      </Container>
+      <Row gap="0" class="flex-1 w-full max-w-6xl mx-auto px-6 py-12">
+        <Container class="w-52 flex-shrink-0 hidden md:block pr-8 border-r border-zinc-800">
+          <Column gap="1" class="sticky top-24">
+            <Text text="Sections" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2" />
+            <Text text="Spacing" class="text-sm text-zinc-400 py-1 cursor-pointer hover:text-amber-400 transition-colors duration-200" />
+            <Text text="Typography" class="text-sm text-zinc-400 py-1 cursor-pointer hover:text-amber-400 transition-colors duration-200" />
+            <Text text="Colors" class="text-sm text-zinc-400 py-1 cursor-pointer hover:text-amber-400 transition-colors duration-200" />
+            <Text text="Borders &amp; Radius" class="text-sm text-zinc-400 py-1 cursor-pointer hover:text-amber-400 transition-colors duration-200" />
+            <Text text="Flexbox" class="text-sm text-zinc-400 py-1 cursor-pointer hover:text-amber-400 transition-colors duration-200" />
+            <Text text="Sizing" class="text-sm text-zinc-400 py-1 cursor-pointer hover:text-amber-400 transition-colors duration-200" />
+            <Text text="Position" class="text-sm text-zinc-400 py-1 cursor-pointer hover:text-amber-400 transition-colors duration-200" />
+            <Text text="Effects" class="text-sm text-zinc-400 py-1 cursor-pointer hover:text-amber-400 transition-colors duration-200" />
+            <Text text="Responsive" class="text-sm text-zinc-400 py-1 cursor-pointer hover:text-amber-400 transition-colors duration-200" />
+            <Text text="Display" class="text-sm text-zinc-400 py-1 cursor-pointer hover:text-amber-400 transition-colors duration-200" />
+          </Column>
+        </Container>
+        <Column gap="10" class="flex-1 min-w-0 max-w-3xl pl-0 md:pl-12">
+          <Column gap="3">
+            <Heading level="1" text="Tailwind reference" class="text-3xl md:text-4xl font-bold text-zinc-100 tracking-tight" />
+            <Text text="Tailwind CSS v3 utility classes available on every NTML component via the class attribute. No imports needed — just use the class." class="text-zinc-400 leading-relaxed text-lg" />
+          </Column>
+
+          <!-- Spacing -->
+          <Column gap="4">
+            <Heading level="2" text="Spacing" class="text-xl font-semibold text-zinc-100 border-b border-zinc-800 pb-2" />
+            <Text text="Scale: 1=4px  2=8px  3=12px  4=16px  5=20px  6=24px  8=32px  10=40px  12=48px  16=64px" class="text-xs text-zinc-600 font-mono" />
+            <Column gap="2">
+              <Text text="Padding" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[p-1   p-2   p-3   p-4   p-5   p-6   p-8   p-10   p-12
+px-2  px-3  px-4  px-5  px-6  px-8     py-1  py-2  py-3  py-4
+pt-2  pr-3  pb-4  pl-3]]></Code>
+            </Column>
+            <Column gap="2">
+              <Text text="Margin" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[m-2   m-4   m-auto   mx-auto   mx-2
+mt-2  mt-4  mt-6  mt-8    mb-0  mb-2  mb-4
+-ml-2   -mt-1]]></Code>
+            </Column>
+            <Column gap="2">
+              <Text text="Gap (flex/grid containers)" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[gap-1   gap-2   gap-3   gap-4   gap-5   gap-6   gap-8   gap-10   gap-12
+gap-x-4   gap-y-2]]></Code>
+            </Column>
+          </Column>
+
+          <!-- Typography -->
+          <Column gap="4">
+            <Heading level="2" text="Typography" class="text-xl font-semibold text-zinc-100 border-b border-zinc-800 pb-2" />
+            <Column gap="2">
+              <Text text="Size" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[text-xs   text-sm   text-base   text-lg   text-xl
+text-2xl  text-3xl  text-4xl    text-5xl  text-6xl]]></Code>
+            </Column>
+            <Column gap="2">
+              <Text text="Weight" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[font-thin   font-light   font-normal   font-medium   font-semibold   font-bold   font-extrabold]]></Code>
+            </Column>
+            <Column gap="2">
+              <Text text="Family / Tracking / Leading" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[font-sans   font-mono   font-serif   font-[JetBrains_Mono]
+
+tracking-tighter  tracking-tight  tracking-normal  tracking-wide  tracking-wider  tracking-widest
+
+leading-none  leading-tight  leading-snug  leading-normal  leading-relaxed  leading-loose]]></Code>
+            </Column>
+            <Column gap="2">
+              <Text text="Alignment / Transform / Decoration" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[text-left   text-center   text-right   text-justify
+
+uppercase   lowercase   capitalize   normal-case   italic   antialiased
+
+underline   line-through   no-underline
+
+truncate   text-ellipsis   whitespace-nowrap   break-words   break-all]]></Code>
+            </Column>
+          </Column>
+
+          <!-- Colors -->
+          <Column gap="4">
+            <Heading level="2" text="Colors" class="text-xl font-semibold text-zinc-100 border-b border-zinc-800 pb-2" />
+            <Text text="Add /15, /30, /50, /80 for opacity variants — e.g. bg-zinc-800/50" class="text-xs text-zinc-500 font-mono" />
+            <Column gap="2">
+              <Text text="Text" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[text-zinc-50    text-zinc-100   text-zinc-200   text-zinc-300
+text-zinc-400   text-zinc-500   text-zinc-600   text-zinc-700
+text-amber-300  text-amber-400  text-amber-500
+text-red-400    text-red-500    text-green-400   text-blue-400
+text-yellow-400 text-purple-400 text-cyan-400]]></Code>
+            </Column>
+            <Column gap="2">
+              <Text text="Background" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[bg-zinc-950   bg-zinc-900   bg-zinc-800   bg-zinc-700
+bg-zinc-800/50    bg-amber-500/15   bg-red-500/10
+bg-green-500/15   bg-blue-500/15    bg-yellow-500/10]]></Code>
+            </Column>
+            <Column gap="2">
+              <Text text="Border" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[border-zinc-800   border-zinc-700   border-zinc-600
+border-amber-500/30   border-red-500/40   border-green-500/30]]></Code>
+            </Column>
+          </Column>
+
+          <!-- Borders & Radius -->
+          <Column gap="4">
+            <Heading level="2" text="Borders &amp; Radius" class="text-xl font-semibold text-zinc-100 border-b border-zinc-800 pb-2" />
+            <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[border   border-2   border-4   border-none
+border-t   border-b   border-l   border-r
+
+rounded-sm   rounded   rounded-md   rounded-lg   rounded-xl   rounded-2xl   rounded-full
+rounded-t-lg   rounded-b-lg   rounded-l-lg   rounded-r-lg]]></Code>
+          </Column>
+
+          <!-- Flexbox -->
+          <Column gap="4">
+            <Heading level="2" text="Flexbox" class="text-xl font-semibold text-zinc-100 border-b border-zinc-800 pb-2" />
+            <Text text="Use on Container, or as a complement to Row / Column." class="text-sm text-zinc-500" />
+            <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[flex-row   flex-col   flex-row-reverse   flex-col-reverse
+
+flex-wrap   flex-nowrap   flex-wrap-reverse
+
+items-start   items-center   items-end   items-stretch   items-baseline
+
+justify-start   justify-center   justify-end   justify-between   justify-around   justify-evenly
+
+flex-1   flex-auto   flex-none   flex-grow   flex-shrink-0
+
+self-start   self-center   self-end   self-stretch]]></Code>
+          </Column>
+
+          <!-- Sizing -->
+          <Column gap="4">
+            <Heading level="2" text="Sizing" class="text-xl font-semibold text-zinc-100 border-b border-zinc-800 pb-2" />
+            <Column gap="2">
+              <Text text="Width" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[w-full   w-auto   w-screen   w-fit
+w-1/2   w-1/3   w-2/3   w-1/4   w-3/4
+w-8   w-12   w-16   w-32   w-48   w-52   w-64   w-96]]></Code>
+            </Column>
+            <Column gap="2">
+              <Text text="Height" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[h-full   h-screen   h-auto   h-fit
+h-4   h-6   h-8   h-10   h-12   h-16   h-32   h-64]]></Code>
+            </Column>
+            <Column gap="2">
+              <Text text="Min / Max" class="text-xs font-semibold text-amber-500/80 uppercase tracking-wider" />
+              <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[min-w-0   min-h-screen
+max-w-xs   max-w-sm   max-w-md   max-w-lg   max-w-xl   max-w-2xl   max-w-3xl   max-w-6xl   max-w-full]]></Code>
+            </Column>
+          </Column>
+
+          <!-- Position & Z-index -->
+          <Column gap="4">
+            <Heading level="2" text="Position &amp; Z-index" class="text-xl font-semibold text-zinc-100 border-b border-zinc-800 pb-2" />
+            <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[static   relative   absolute   fixed   sticky
+
+top-0   top-4   top-24   right-0   bottom-0   left-0   inset-0
+
+z-0   z-10   z-20   z-30   z-40   z-50]]></Code>
+          </Column>
+
+          <!-- Effects & Transitions -->
+          <Column gap="4">
+            <Heading level="2" text="Effects &amp; Transitions" class="text-xl font-semibold text-zinc-100 border-b border-zinc-800 pb-2" />
+            <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[shadow-sm   shadow   shadow-md   shadow-lg   shadow-xl
+
+opacity-0   opacity-25   opacity-50   opacity-75   opacity-100
+
+transition   transition-colors   transition-opacity   transition-all   transition-transform
+duration-100   duration-200   duration-300   ease-in-out
+
+backdrop-blur-sm   backdrop-blur-md   backdrop-blur-lg
+
+hover:bg-zinc-800    hover:text-amber-400    hover:border-zinc-600
+focus:outline-none   focus:ring-2   disabled:opacity-50]]></Code>
+          </Column>
+
+          <!-- Responsive prefixes -->
+          <Column gap="4">
+            <Heading level="2" text="Responsive prefixes" class="text-xl font-semibold text-zinc-100 border-b border-zinc-800 pb-2" />
+            <Text text="Breakpoints are mobile-first: sm ≥640px · md ≥768px · lg ≥1024px · xl ≥1280px" class="text-sm text-zinc-500" />
+            <Code language="ntml" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 overflow-x-auto font-mono"><![CDATA[<!-- Hidden on mobile, visible on md+ -->
+<Container class="hidden md:block">...</Container>
+
+<!-- Responsive padding -->
+<Container class="px-4 md:px-8 lg:px-12">...</Container>
+
+<!-- Responsive text size -->
+<Heading text="Title" class="text-2xl md:text-4xl lg:text-5xl font-bold" />
+
+<!-- Responsive columns -->
+<Container class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">]]></Code>
+          </Column>
+
+          <!-- Display & Overflow -->
+          <Column gap="4">
+            <Heading level="2" text="Display &amp; Overflow" class="text-xl font-semibold text-zinc-100 border-b border-zinc-800 pb-2" />
+            <Code language="css" block="true" class="bg-zinc-900 border border-zinc-800 rounded-lg px-5 py-3 text-sm text-zinc-300 font-mono"><![CDATA[block   inline   inline-block   flex   inline-flex   grid   hidden   contents
+
+overflow-hidden   overflow-auto   overflow-scroll   overflow-visible
+overflow-x-auto   overflow-y-auto
+
+cursor-pointer   cursor-default   cursor-not-allowed   cursor-wait   cursor-grab
+
+visible   invisible   pointer-events-none   select-none]]></Code>
+          </Column>
+
+          <Container class="pt-10 mt-2 border-t border-zinc-800">
+            <Row justify="spaceBetween">
+              <Link href="/styling">
+                <Row gap="2" align="center">
+                  <Text text="←" class="text-amber-400" />
+                  <Text text="Styling" class="text-sm font-medium text-zinc-300 hover:text-amber-400 transition-colors duration-200" />
+                </Row>
+              </Link>
+              <Link href="/lua-api">
+                <Row gap="2" align="center">
+                  <Text text="Lua API" class="text-sm font-medium text-zinc-300 hover:text-amber-400 transition-colors duration-200" />
+                  <Text text="→" class="text-amber-400" />
+                </Row>
+              </Link>
+            </Row>
+          </Container>
+          <Container class="pt-4 mt-2">
+            <Text text="NTML Documentation · NullTrace" class="text-xs text-zinc-500" />
+          </Container>
+        </Column>
+      </Row>
+    </Column>
+  </Container>
+</body>

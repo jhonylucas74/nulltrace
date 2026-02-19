@@ -1,0 +1,165 @@
+<head>
+  <title>Code / Markdown / List / Table — NTML Components</title>
+</head>
+<body>
+  <Container class="min-h-screen bg-zinc-950 text-zinc-200 flex flex-col font-sans antialiased">
+    <Column gap="0" class="min-h-screen w-full">
+      <Container class="border-b border-zinc-800 px-6 py-4 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-10">
+        <Row gap="8" align="center" justify="spaceBetween" wrap="true" class="w-full max-w-6xl mx-auto">
+          <Link href="/" class="transition-colors duration-200 rounded-lg px-2 py-1 -ml-2 hover:bg-zinc-800/50">
+            <Row gap="3" align="center">
+              <Icon name="file-code" size="32" class="w-8 h-8 text-amber-400" />
+              <Text text="NTML" class="text-lg font-semibold text-zinc-100 tracking-tight" />
+            </Row>
+          </Link>
+          <Row gap="1" wrap="true">
+            <Link href="/getting-started"><Text text="Getting started" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/components"><Text text="Components" class="text-sm text-amber-400 font-medium px-3 py-2 rounded-md bg-amber-500/10 transition-colors duration-200" /></Link>
+            <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/tailwind-reference"><Text text="Tailwind" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/lua-api"><Text text="Lua API" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+          </Row>
+        </Row>
+      </Container>
+      <Row gap="0" class="flex-1 w-full max-w-6xl mx-auto px-6 py-12">
+        <Container class="w-52 flex-shrink-0 hidden md:block pr-8 border-r border-zinc-800">
+          <Column gap="1" class="sticky top-24">
+            <Link href="/components"><Text text="← Components" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200 mb-2" /></Link>
+            <Text text="Layout" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-2 mb-1" />
+            <Link href="/components/container"><Text text="Container" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/row-column"><Text text="Row / Column" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/flex"><Text text="Flex" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/grid"><Text text="Grid / Stack" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Text text="Content" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-3 mb-1" />
+            <Link href="/components/text"><Text text="Text / Heading" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/image"><Text text="Image / Icon" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Text text="Interactive" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-3 mb-1" />
+            <Link href="/components/button"><Text text="Button" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/input"><Text text="Input · Checkbox · Radio · Select" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/link"><Text text="Link" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Text text="Display" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-3 mb-1" />
+            <Link href="/components/progress"><Text text="ProgressBar · Badge" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/layout-utils"><Text text="Divider · Spacer" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Text text="Document" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-3 mb-1" />
+            <Link href="/components/content"><Text text="Code · Markdown · List · Table..." class="text-sm text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+          </Column>
+        </Container>
+        <Column gap="10" class="flex-1 min-w-0 max-w-3xl pl-0 md:pl-12">
+          <Link href="/components"><Text text="← All components" class="text-sm text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
+          <Column gap="4">
+            <Row gap="3" align="center">
+              <Text text="Document" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 py-1 bg-zinc-800 rounded" />
+            </Row>
+            <Heading level="1" text="Code · Markdown · List · Table" class="text-3xl md:text-4xl font-bold text-zinc-100 tracking-tight" />
+            <Text text="Rich content components for documentation, reports, and structured data. Also includes Blockquote, Pre, and Details." class="text-zinc-400 leading-relaxed text-lg" />
+          </Column>
+          <Column gap="8">
+            <Column gap="4">
+              <Heading level="2" text="Code" class="text-xl font-semibold text-zinc-100" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[language  string   — syntax highlight language (lua, ntml, yaml, etc.)
+block     true|false — block-level (true) or inline (false, default)
+class     string   — Tailwind utility classes
+children  CDATA    — code content via <![CDATA[...]]>]]></Code>
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<!-- Block code -->
+<Code language="lua" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 font-mono text-sm"><![CDATA[
+  local x = 42
+  print(x)
+]]]><![CDATA[]></Code>
+
+<!-- Inline code within text -->
+<Text text="Use " /><Code language="ntml">action</Code><Text text=" on Button." />]]></Code>
+            </Column>
+            <Column gap="4">
+              <Heading level="2" text="Markdown" class="text-xl font-semibold text-zinc-100" />
+              <Text text="Renders CommonMark markdown. Use for documentation, changelogs, and rich text content loaded from files." class="text-zinc-400 text-sm leading-relaxed" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<Markdown class="prose prose-zinc prose-invert max-w-none"><![CDATA[
+# System Report
+
+**Status:** Operational
+
+All services are running normally. See the [dashboard](/dashboard) for details.
+
+- 12 VMs active
+- 0 critical alerts
+- Uptime: 99.8%
+]]]><![CDATA[]></Markdown>]]></Code>
+            </Column>
+            <Column gap="4">
+              <Heading level="2" text="List / ListItem" class="text-xl font-semibold text-zinc-100" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<!-- Unordered list (default) -->
+<List>
+  <ListItem text="First item" />
+  <ListItem text="Second item" />
+  <ListItem text="Third item" />
+</List>
+
+<!-- Ordered list -->
+<List ordered="true">
+  <ListItem text="Open terminal" />
+  <ListItem text="Run exploit" />
+  <ListItem text="Exfiltrate data" />
+</List>]]></Code>
+            </Column>
+            <Column gap="4">
+              <Heading level="2" text="Table" class="text-xl font-semibold text-zinc-100" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[headers   string   — comma-separated column headers
+rows      list     — array of row data arrays
+
+<Table
+  headers="IP,Hostname,Status"
+  rows="10.0.1.50,api-server,Up|10.0.1.80,db-01,Down" />]]></Code>
+            </Column>
+            <Column gap="4">
+              <Heading level="2" text="Details (collapsible)" class="text-xl font-semibold text-zinc-100" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<Details summary="Advanced options">
+  <Column gap="3" class="mt-3">
+    <Text text="These are hidden by default." class="text-sm text-zinc-400" />
+    <Select name="log_level" options="Error,Warning,Info,Debug" />
+  </Column>
+</Details>
+
+<Details summary="View raw response">
+  <Pre class="mt-2 text-xs font-mono text-zinc-400"><![CDATA[
+    HTTP/1.1 200 OK
+    Content-Type: application/json
+    {"ok": true}
+  ]]]><![CDATA[]></Pre>
+</Details>]]></Code>
+            </Column>
+            <Column gap="4">
+              <Heading level="2" text="Blockquote / Pre" class="text-xl font-semibold text-zinc-100" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<!-- Blockquote: indented quote styling -->
+<Blockquote>
+  <Text text="Security through obscurity is not security." class="italic text-zinc-400" />
+</Blockquote>
+
+<!-- Pre: preserves whitespace and line breaks -->
+<Pre class="text-xs font-mono text-zinc-400 bg-zinc-900 p-4 rounded-lg"><![CDATA[
+  10.0.1.1   router
+  10.0.1.50  api-server
+  10.0.1.100 ntml.org
+]]]><![CDATA[]></Pre>]]></Code>
+            </Column>
+          </Column>
+          <Container class="pt-10 mt-2 border-t border-zinc-800">
+            <Row justify="start">
+              <Link href="/components/layout-utils">
+                <Row gap="2" align="center">
+                  <Text text="←" class="text-amber-400" />
+                  <Text text="Divider &amp; Spacer" class="text-sm font-medium text-zinc-300 hover:text-amber-400 transition-colors duration-200" />
+                </Row>
+              </Link>
+            </Row>
+          </Container>
+          <Container class="pt-4 mt-2">
+            <Text text="NTML Documentation · NullTrace" class="text-xs text-zinc-500" />
+          </Container>
+        </Column>
+      </Row>
+    </Column>
+  </Container>
+</body>

@@ -67,11 +67,25 @@ pub fn register(lua: &Lua, fs_service: Arc<FsService>) -> Result<()> {
                     }
                 };
 
-                let (base, ext) = file_ext(&normalized);
+                // Split normalized path into (subdir, filename).
+                // e.g. "components/flex" → subdir="components", filename="flex"
+                //      "dashboard"       → subdir="",            filename="dashboard"
+                let (subdir, filename) = match normalized.rfind('/') {
+                    Some(slash) => (&normalized[..slash], &normalized[slash + 1..]),
+                    None => ("", normalized.as_str()),
+                };
+
+                let lookup_dir = if subdir.is_empty() {
+                    root.trim_end_matches('/').to_string()
+                } else {
+                    format!("{}/{}", root.trim_end_matches('/'), subdir)
+                };
+
+                let (base, ext) = file_ext(filename);
 
                 let entries = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(async {
-                        svc.ls(vm_id, &root).await
+                        svc.ls(vm_id, &lookup_dir).await
                     })
                 })
                 .map_err(|e| mlua::Error::runtime(e.to_string()))?;
@@ -104,7 +118,7 @@ pub fn register(lua: &Lua, fs_service: Arc<FsService>) -> Result<()> {
                 }
 
                 let (body, status, content_type) = if let Some(f) = target_file {
-                    let full_path = format!("{}/{}", root.trim_end_matches('/'), f);
+                    let full_path = format!("{}/{}", lookup_dir, f);
                     let content = tokio::task::block_in_place(|| {
                         tokio::runtime::Handle::current().block_on(async {
                             svc.read_file(vm_id, &full_path).await

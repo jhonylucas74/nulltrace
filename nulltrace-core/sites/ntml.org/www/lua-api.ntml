@@ -14,9 +14,10 @@
           </Link>
           <Row gap="1" wrap="true">
             <Link href="/getting-started"><Text text="Getting started" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
             <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
             <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
-            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/tailwind-reference"><Text text="Tailwind" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
             <Link href="/lua-api"><Text text="Lua API" class="text-sm text-amber-400 font-medium px-3 py-2 rounded-md bg-amber-500/10 transition-colors duration-200" /></Link>
             <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
             <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
@@ -29,9 +30,10 @@
           <Column gap="2" class="sticky top-24">
             <Text text="On this page" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1" />
             <Link href="/getting-started"><Text text="Getting started" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
             <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
             <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
-            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/tailwind-reference"><Text text="Tailwind reference" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
             <Link href="/lua-api"><Text text="Lua API" class="text-sm text-amber-400 py-1.5 transition-colors duration-200" /></Link>
             <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
             <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
@@ -42,33 +44,86 @@
           <Link href="/"><Text text="← Home" class="text-sm text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
           <Column gap="6">
             <Heading level="1" text="Lua API" class="text-3xl md:text-4xl font-bold text-zinc-100 tracking-tight" />
-            <Text text="Scripts declared in head script elements run in a sandbox. Only ui and http are available for UI and network. Button action can call a Lua function by name." class="text-zinc-400 leading-relaxed text-lg" />
+            <Text text="Scripts declared in head run in a sandboxed Lua environment. Only the ui and http modules are available. Button action attributes call Lua functions by name when clicked." class="text-zinc-400 leading-relaxed text-lg" />
           </Column>
           <Column gap="8">
-            <Column gap="3">
-              <Heading level="2" text="ui" class="text-xl font-semibold text-zinc-100" />
-              <Text text="ui.get_value(name) — value of Input, Checkbox, or Select by name. ui.set_text(id, text) — set Text by id. ui.set_visible(id, bool) — show/hide by id. ui.set_value(id, value) — set ProgressBar value. ui.set_disabled(id, bool) — disable Button or Input by id." class="text-zinc-400 text-sm font-mono" />
+            <Column gap="4">
+              <Heading level="2" text="ui — DOM manipulation" class="text-xl font-semibold text-zinc-100" />
+              <Text text="Read and modify component state from Lua scripts. Components must have an id attribute to be targeted by ui functions." class="text-zinc-400 text-sm leading-relaxed" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[ui.get_value(name)      -- value of Input/Checkbox/Select by name attr
+ui.set_text(id, text)  -- set Text content by id
+ui.set_visible(id, bool) -- show or hide a component by id
+ui.set_value(id, val)  -- set ProgressBar value by id
+ui.set_disabled(id, bool) -- enable/disable Button or Input by id]]></Code>
             </Column>
-            <Column gap="3">
-              <Heading level="2" text="http" class="text-xl font-semibold text-zinc-100" />
-              <Text text="http.get(url), http.post(url, body), http.put(url, body), http.patch(url, body), http.delete(url). Return table: ok (boolean), status (number), data (parsed or string), error (string or nil)." class="text-zinc-400 text-sm" />
+            <Column gap="4">
+              <Heading level="2" text="http — HTTP requests" class="text-xl font-semibold text-zinc-100" />
+              <Text text="Make HTTP requests to in-game servers. Requests are blocked (synchronous) and have a 200ms timeout." class="text-zinc-400 text-sm leading-relaxed" />
+              <Code language="lua" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[local res = http.get("http://api.corp.local/status")
+-- res.ok      boolean
+-- res.status  number (e.g. 200)
+-- res.data    parsed table (if JSON) or string
+-- res.error   string or nil
+
+http.post(url, body)    -- body: table or string
+http.put(url, body)
+http.patch(url, body)
+http.delete(url)]]></Code>
             </Column>
-            <Column gap="3">
+            <Column gap="4">
               <Heading level="2" text="Button actions" class="text-xl font-semibold text-zinc-100" />
-              <Text text='Use action="functionName". The runtime calls the Lua function of that name when the button is clicked.' class="text-zinc-400 text-sm" />
+              <Text text='Set action="functionName" on a Button. The runtime calls that Lua function when clicked. The function receives no arguments.' class="text-zinc-400 text-sm leading-relaxed" />
               <Code language="lua" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[function doLogin()
   local user = ui.get_value("username")
-  local res = http.post("/api/login", { username = user })
+  local pass = ui.get_value("password")
+  local res = http.post("/api/login", {
+    username = user,
+    password = pass
+  })
   if res.ok then
-    ui.set_text("msg", "Welcome!")
+    ui.set_text("msg", "Welcome, " .. user .. "!")
+    ui.set_visible("form", false)
   else
-    ui.set_text("msg", res.error or "Failed")
+    ui.set_text("msg", res.error or "Login failed")
   end
 end]]></Code>
-              <Text text="Limits: 200ms timeout per handler, 500 lines per script, 5 scripts per document. Modules io, os, file, require are blocked." class="text-zinc-500 text-sm" />
-              <Link href="/http"><Text text="HTTP protocol (build_request, parse_response) →" class="text-amber-400 hover:text-amber-300 font-medium transition-colors duration-200" /></Link>
+            </Column>
+            <Column gap="4">
+              <Heading level="2" text="Accessing component values" class="text-xl font-semibold text-zinc-100" />
+              <Text text="Use the name attribute on form elements, and id on components you want to manipulate." class="text-zinc-400 text-sm leading-relaxed" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<Column gap="4" id="form">
+  <Input name="username" placeholder="Username" />
+  <Input name="password" type="password" placeholder="Password" />
+  <Button action="doLogin" variant="primary">
+    <Text text="Sign in" />
+  </Button>
+  <Text id="msg" text="" class="text-sm text-red-400" />
+</Column>]]></Code>
+            </Column>
+            <Column gap="3">
+              <Heading level="2" text="Sandbox limits" class="text-xl font-semibold text-zinc-100" />
+              <Text text="200ms timeout per handler · 500 lines per script · 5 scripts per document · Blocked: io, os, file, require, dofile, loadfile" class="text-zinc-500 text-sm font-mono" />
             </Column>
           </Column>
+          <Container class="pt-10 mt-2 border-t border-zinc-800">
+            <Row justify="spaceBetween">
+              <Link href="/tailwind-reference">
+                <Row gap="2" align="center">
+                  <Text text="←" class="text-amber-400" />
+                  <Text text="Tailwind reference" class="text-sm font-medium text-zinc-300 hover:text-amber-400 transition-colors duration-200" />
+                </Row>
+              </Link>
+              <Link href="/http">
+                <Row gap="2" align="center">
+                  <Text text="HTTP" class="text-sm font-medium text-zinc-300 hover:text-amber-400 transition-colors duration-200" />
+                  <Text text="→" class="text-amber-400" />
+                </Row>
+              </Link>
+            </Row>
+          </Container>
+          <Container class="pt-4 mt-2">
+            <Text text="NTML Documentation · NullTrace" class="text-xs text-zinc-500" />
+          </Container>
         </Column>
       </Row>
     </Column>

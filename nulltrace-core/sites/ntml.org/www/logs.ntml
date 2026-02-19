@@ -1,0 +1,213 @@
+<head>
+  <title>Logs — NullTrace Demo</title>
+</head>
+<body>
+  <Container class="min-h-screen bg-zinc-950 text-zinc-200 font-sans antialiased">
+    <!-- Demo banner -->
+    <Container class="bg-amber-500/10 border-b border-amber-500/20 px-6 py-2">
+      <Row gap="3" align="center" justify="spaceBetween" class="max-w-6xl mx-auto">
+        <Row gap="2" align="center">
+          <Badge text="DEMO" variant="warning" />
+          <Text text="Esta é uma página de exemplo NTML — visualizador de logs do sistema." class="text-xs text-amber-400/80" />
+        </Row>
+        <Link href="/examples"><Text text="← Ver exemplos de código" class="text-xs text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
+      </Row>
+    </Container>
+
+    <!-- App header -->
+    <Container class="border-b border-zinc-800 px-6 py-4 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-10">
+      <Row gap="4" align="center" justify="spaceBetween" class="max-w-6xl mx-auto">
+        <Row gap="3" align="center">
+          <Icon name="scroll-text" size="20" class="text-amber-400" />
+          <Text text="System Logs" class="text-base font-semibold text-zinc-100" />
+          <Badge text="● Live" variant="success" />
+        </Row>
+        <Row gap="2" align="center">
+          <Select name="source" options="All services,api-server-01,db-primary,worker-03" value="All services"
+                  class="py-1.5 px-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-300" />
+          <Select name="level" options="All levels,ERROR,WARN,INFO,DEBUG" value="All levels"
+                  class="py-1.5 px-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-300" />
+          <Button variant="ghost" class="text-xs text-zinc-400 px-3 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors duration-200"><Text text="Clear" /></Button>
+          <Button variant="secondary" class="text-xs px-3 py-1.5 rounded-lg"><Text text="Export" /></Button>
+        </Row>
+      </Row>
+    </Container>
+
+    <Column gap="4" class="max-w-6xl mx-auto px-6 py-6">
+      <!-- Search + filter bar -->
+      <Row gap="3" align="center" wrap="true">
+        <Container class="flex-1 min-w-48 relative">
+          <Input name="search" placeholder="Search logs..." type="search"
+                 class="w-full pl-9 pr-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 placeholder-zinc-600" />
+          <Icon name="search" size="14" class="absolute left-3 top-2.5 text-zinc-600" />
+        </Container>
+        <Row gap="2" wrap="true">
+          <Container class="px-2.5 py-1.5 rounded-lg bg-red-500/15 border border-red-500/30 cursor-pointer">
+            <Row gap="1.5" align="center">
+              <Container class="w-2 h-2 rounded-full bg-red-500" />
+              <Text text="ERROR" class="text-xs font-mono text-red-400 font-bold" />
+              <Text text="3" class="text-xs text-red-400/60" />
+            </Row>
+          </Container>
+          <Container class="px-2.5 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20 cursor-pointer">
+            <Row gap="1.5" align="center">
+              <Container class="w-2 h-2 rounded-full bg-yellow-500" />
+              <Text text="WARN" class="text-xs font-mono text-yellow-400 font-bold" />
+              <Text text="7" class="text-xs text-yellow-400/60" />
+            </Row>
+          </Container>
+          <Container class="px-2.5 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 cursor-pointer">
+            <Row gap="1.5" align="center">
+              <Container class="w-2 h-2 rounded-full bg-blue-400" />
+              <Text text="INFO" class="text-xs font-mono text-blue-400 font-bold" />
+              <Text text="142" class="text-xs text-blue-400/60" />
+            </Row>
+          </Container>
+          <Container class="px-2.5 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 cursor-pointer">
+            <Row gap="1.5" align="center">
+              <Container class="w-2 h-2 rounded-full bg-zinc-600" />
+              <Text text="DEBUG" class="text-xs font-mono text-zinc-500 font-bold" />
+              <Text text="891" class="text-xs text-zinc-600" />
+            </Row>
+          </Container>
+        </Row>
+      </Row>
+
+      <!-- Log entries -->
+      <Container class="rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden">
+        <!-- ERROR entries -->
+        <Container class="px-4 py-3 border-b border-zinc-800/80 bg-red-500/5 hover:bg-red-500/10 transition-colors duration-150">
+          <Row gap="3" align="start">
+            <Text text="06:47:13" class="text-xs font-mono text-zinc-600 w-16 flex-shrink-0 pt-0.5" />
+            <Container class="w-14 flex-shrink-0 pt-0.5">
+              <Badge text="ERROR" variant="danger" />
+            </Container>
+            <Text text="api-server" class="text-xs font-mono text-zinc-600 w-24 flex-shrink-0 pt-0.5 hidden lg:block" />
+            <Column gap="1" class="flex-1 min-w-0">
+              <Text text="db-replica: connection refused — tcp dial 10.0.1.81:5432: connect: connection refused" class="text-sm font-mono text-red-300 break-all" />
+              <Text text="pkg=db/pool fn=acquireConn retry=3/3" class="text-xs font-mono text-zinc-600" />
+            </Column>
+          </Row>
+        </Container>
+        <Container class="px-4 py-3 border-b border-zinc-800/80 bg-yellow-500/5 hover:bg-yellow-500/8 transition-colors duration-150">
+          <Row gap="3" align="start">
+            <Text text="06:45:52" class="text-xs font-mono text-zinc-600 w-16 flex-shrink-0 pt-0.5" />
+            <Container class="w-14 flex-shrink-0 pt-0.5">
+              <Badge text="WARN" variant="warning" />
+            </Container>
+            <Text text="worker-03" class="text-xs font-mono text-zinc-600 w-24 flex-shrink-0 pt-0.5 hidden lg:block" />
+            <Column gap="1" class="flex-1 min-w-0">
+              <Text text="memory usage at 87% — GC pressure increasing" class="text-sm font-mono text-yellow-300/90" />
+              <Text text="pid=1842 mem_used=7.2GB mem_total=8GB" class="text-xs font-mono text-zinc-600" />
+            </Column>
+          </Row>
+        </Container>
+        <Container class="px-4 py-3 border-b border-zinc-800/80 hover:bg-zinc-800/20 transition-colors duration-150">
+          <Row gap="3" align="start">
+            <Text text="06:44:11" class="text-xs font-mono text-zinc-600 w-16 flex-shrink-0 pt-0.5" />
+            <Container class="w-14 flex-shrink-0 pt-0.5">
+              <Badge text="INFO" variant="info" />
+            </Container>
+            <Text text="api-server" class="text-xs font-mono text-zinc-600 w-24 flex-shrink-0 pt-0.5 hidden lg:block" />
+            <Column gap="1" class="flex-1 min-w-0">
+              <Text text="POST /api/v2/deploy 200 OK — 143ms" class="text-sm font-mono text-zinc-300" />
+              <Text text="user=deploy_bot ip=10.0.1.1 service=frontend" class="text-xs font-mono text-zinc-600" />
+            </Column>
+          </Row>
+        </Container>
+        <Container class="px-4 py-3 border-b border-zinc-800/80 hover:bg-zinc-800/20 transition-colors duration-150">
+          <Row gap="3" align="start">
+            <Text text="06:44:09" class="text-xs font-mono text-zinc-600 w-16 flex-shrink-0 pt-0.5" />
+            <Container class="w-14 flex-shrink-0 pt-0.5">
+              <Badge text="INFO" variant="info" />
+            </Container>
+            <Text text="api-server" class="text-xs font-mono text-zinc-600 w-24 flex-shrink-0 pt-0.5 hidden lg:block" />
+            <Column gap="1" class="flex-1 min-w-0">
+              <Text text="deploy pipeline started — frontend:v2.4.1" class="text-sm font-mono text-zinc-300" />
+              <Text text="pipeline_id=pipe_7f3a trigger=push branch=main" class="text-xs font-mono text-zinc-600" />
+            </Column>
+          </Row>
+        </Container>
+        <Container class="px-4 py-3 border-b border-zinc-800/80 bg-yellow-500/5 hover:bg-yellow-500/8 transition-colors duration-150">
+          <Row gap="3" align="start">
+            <Text text="06:41:30" class="text-xs font-mono text-zinc-600 w-16 flex-shrink-0 pt-0.5" />
+            <Container class="w-14 flex-shrink-0 pt-0.5">
+              <Badge text="WARN" variant="warning" />
+            </Container>
+            <Text text="worker-03" class="text-xs font-mono text-zinc-600 w-24 flex-shrink-0 pt-0.5 hidden lg:block" />
+            <Column gap="1" class="flex-1 min-w-0">
+              <Text text="slow query detected: 2841ms (threshold: 500ms)" class="text-sm font-mono text-yellow-300/90" />
+              <Text text="query=SELECT * FROM events WHERE ts > ? db=analytics" class="text-xs font-mono text-zinc-600" />
+            </Column>
+          </Row>
+        </Container>
+        <Container class="px-4 py-3 border-b border-zinc-800/80 hover:bg-zinc-800/20 transition-colors duration-150">
+          <Row gap="3" align="start">
+            <Text text="06:38:05" class="text-xs font-mono text-zinc-600 w-16 flex-shrink-0 pt-0.5" />
+            <Container class="w-14 flex-shrink-0 pt-0.5">
+              <Badge text="INFO" variant="info" />
+            </Container>
+            <Text text="db-primary" class="text-xs font-mono text-zinc-600 w-24 flex-shrink-0 pt-0.5 hidden lg:block" />
+            <Column gap="1" class="flex-1 min-w-0">
+              <Text text="checkpoint complete: wrote 1024 buffers (0.6%)" class="text-sm font-mono text-zinc-300" />
+              <Text text="write=0.127s sync=0.003s total=0.130s" class="text-xs font-mono text-zinc-600" />
+            </Column>
+          </Row>
+        </Container>
+        <Container class="px-4 py-3 border-b border-zinc-800/80 bg-red-500/5 hover:bg-red-500/10 transition-colors duration-150">
+          <Row gap="3" align="start">
+            <Text text="06:32:18" class="text-xs font-mono text-zinc-600 w-16 flex-shrink-0 pt-0.5" />
+            <Container class="w-14 flex-shrink-0 pt-0.5">
+              <Badge text="ERROR" variant="danger" />
+            </Container>
+            <Text text="api-server" class="text-xs font-mono text-zinc-600 w-24 flex-shrink-0 pt-0.5 hidden lg:block" />
+            <Column gap="1" class="flex-1 min-w-0">
+              <Text text="unhandled panic: runtime error: index out of range [12] with length 12" class="text-sm font-mono text-red-300 break-all" />
+              <Text text="goroutine=247 file=pkg/scheduler/queue.go:87" class="text-xs font-mono text-zinc-600" />
+            </Column>
+          </Row>
+        </Container>
+        <Container class="px-4 py-3 border-b border-zinc-800/80 hover:bg-zinc-800/20 transition-colors duration-150">
+          <Row gap="3" align="start">
+            <Text text="06:30:00" class="text-xs font-mono text-zinc-600 w-16 flex-shrink-0 pt-0.5" />
+            <Container class="w-14 flex-shrink-0 pt-0.5">
+              <Badge text="INFO" variant="info" />
+            </Container>
+            <Text text="cache-01" class="text-xs font-mono text-zinc-600 w-24 flex-shrink-0 pt-0.5 hidden lg:block" />
+            <Column gap="1" class="flex-1 min-w-0">
+              <Text text="scheduled cache eviction completed — 1842 keys removed" class="text-sm font-mono text-zinc-300" />
+              <Text text="duration=0.042s mem_freed=48MB" class="text-xs font-mono text-zinc-600" />
+            </Column>
+          </Row>
+        </Container>
+        <Container class="px-4 py-3 hover:bg-zinc-800/20 transition-colors duration-150">
+          <Row gap="3" align="start">
+            <Text text="06:25:44" class="text-xs font-mono text-zinc-600 w-16 flex-shrink-0 pt-0.5" />
+            <Container class="w-14 flex-shrink-0 pt-0.5">
+              <Badge text="INFO" variant="info" />
+            </Container>
+            <Text text="api-server" class="text-xs font-mono text-zinc-600 w-24 flex-shrink-0 pt-0.5 hidden lg:block" />
+            <Column gap="1" class="flex-1 min-w-0">
+              <Text text="GET /health 200 OK — 2ms" class="text-sm font-mono text-zinc-300" />
+              <Text text="ip=10.0.1.1 ua=healthcheck/1.0" class="text-xs font-mono text-zinc-600" />
+            </Column>
+          </Row>
+        </Container>
+      </Container>
+
+      <!-- Status bar -->
+      <Row gap="4" align="center">
+        <Text text="Showing 9 of 1,043 entries" class="text-xs text-zinc-600" />
+        <Spacer size="auto" />
+        <Row gap="2">
+          <Container class="px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 cursor-pointer hover:bg-zinc-700 transition-colors duration-200">
+            <Text text="← Older" class="text-xs text-zinc-400" />
+          </Container>
+          <Container class="px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 cursor-pointer hover:bg-zinc-700 transition-colors duration-200">
+            <Text text="Newer →" class="text-xs text-zinc-400" />
+          </Container>
+        </Row>
+      </Row>
+    </Column>
+  </Container>
+</body>

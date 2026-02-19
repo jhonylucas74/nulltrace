@@ -1,0 +1,222 @@
+<head>
+  <title>Network — NullTrace Demo</title>
+</head>
+<body>
+  <Container class="min-h-screen bg-zinc-950 text-zinc-200 font-sans antialiased">
+    <!-- Demo banner -->
+    <Container class="bg-amber-500/10 border-b border-amber-500/20 px-6 py-2">
+      <Row gap="3" align="center" justify="spaceBetween" class="max-w-6xl mx-auto">
+        <Row gap="2" align="center">
+          <Badge text="DEMO" variant="warning" />
+          <Text text="Esta é uma página de exemplo NTML — scanner de rede simulado." class="text-xs text-amber-400/80" />
+        </Row>
+        <Link href="/examples"><Text text="← Ver exemplos de código" class="text-xs text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
+      </Row>
+    </Container>
+
+    <!-- App header -->
+    <Container class="border-b border-zinc-800 px-6 py-4 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-10">
+      <Row gap="4" align="center" justify="spaceBetween" class="max-w-6xl mx-auto">
+        <Row gap="3" align="center">
+          <Icon name="network" size="20" class="text-amber-400" />
+          <Text text="Network Scanner" class="text-base font-semibold text-zinc-100" />
+        </Row>
+        <Row gap="3" align="center">
+          <Badge id="scan-status" text="● Idle" variant="default" />
+          <Button variant="primary" class="text-sm px-4 py-2 rounded-lg"><Text text="Scan network" /></Button>
+        </Row>
+      </Row>
+    </Container>
+
+    <Column gap="6" class="max-w-6xl mx-auto px-6 py-8">
+      <!-- Scan config -->
+      <Container class="rounded-xl bg-zinc-900 border border-zinc-800 p-5">
+        <Row gap="4" align="end" wrap="true">
+          <Column gap="2" class="flex-1 min-w-48">
+            <Text text="Target range" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider" />
+            <Input name="ip_range" value="10.0.1.0/24" placeholder="e.g. 192.168.1.0/24"
+                   class="w-full p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm font-mono text-zinc-200" />
+          </Column>
+          <Column gap="2" class="w-40 flex-shrink-0">
+            <Text text="Scan type" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider" />
+            <Select name="scan_type" options="Ping,TCP,UDP,Full" value="Ping"
+                    class="w-full p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200" />
+          </Column>
+          <Column gap="2" class="w-32 flex-shrink-0">
+            <Text text="Timeout (ms)" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider" />
+            <Input name="timeout" value="300" type="number"
+                   class="w-full p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm font-mono text-zinc-200" />
+          </Column>
+          <Column gap="1">
+            <Checkbox name="resolve_hostnames" label="Resolve hostnames" checked="true" />
+            <Checkbox name="detect_os" label="Detect OS" />
+          </Column>
+          <Button variant="primary" class="px-5 py-2.5 rounded-lg text-sm font-medium flex-shrink-0"><Text text="Start scan" /></Button>
+        </Row>
+      </Container>
+
+      <!-- Stats row -->
+      <Row gap="4" wrap="true">
+        <Container class="flex-1 min-w-32 rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-3">
+          <Column gap="1">
+            <Text text="Hosts scanned" class="text-xs text-zinc-500" />
+            <Text text="254" class="text-xl font-bold text-zinc-100 font-mono" />
+          </Column>
+        </Container>
+        <Container class="flex-1 min-w-32 rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-3">
+          <Column gap="1">
+            <Text text="Online" class="text-xs text-zinc-500" />
+            <Text text="18" class="text-xl font-bold text-green-400 font-mono" />
+          </Column>
+        </Container>
+        <Container class="flex-1 min-w-32 rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-3">
+          <Column gap="1">
+            <Text text="Filtered" class="text-xs text-zinc-500" />
+            <Text text="4" class="text-xl font-bold text-yellow-400 font-mono" />
+          </Column>
+        </Container>
+        <Container class="flex-1 min-w-32 rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-3">
+          <Column gap="1">
+            <Text text="Offline" class="text-xs text-zinc-500" />
+            <Text text="232" class="text-xl font-bold text-zinc-600 font-mono" />
+          </Column>
+        </Container>
+        <Container class="flex-1 min-w-32 rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-3">
+          <Column gap="1">
+            <Text text="Scan time" class="text-xs text-zinc-500" />
+            <Text text="1.4s" class="text-xl font-bold text-zinc-100 font-mono" />
+          </Column>
+        </Container>
+      </Row>
+
+      <!-- Results table -->
+      <Column gap="3">
+        <Row gap="3" align="center" justify="spaceBetween">
+          <Text text="Discovered Hosts" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider" />
+          <Row gap="2">
+            <Container class="px-2 py-1 rounded bg-zinc-800 border border-zinc-700 cursor-pointer hover:border-zinc-600 transition-colors duration-200"><Text text="Export CSV" class="text-xs text-zinc-400" /></Container>
+          </Row>
+        </Row>
+        <Container class="rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden">
+          <Column gap="0">
+            <Container class="px-4 py-3 border-b border-zinc-800 bg-zinc-800/50">
+              <Row gap="4" align="center">
+                <Text text="IP Address" class="text-xs font-semibold text-zinc-400 uppercase tracking-wider w-32" />
+                <Text text="Hostname" class="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex-1" />
+                <Text text="MAC" class="text-xs font-semibold text-zinc-400 uppercase tracking-wider w-40 hidden md:block" />
+                <Text text="OS" class="text-xs font-semibold text-zinc-400 uppercase tracking-wider w-32 hidden lg:block" />
+                <Text text="Latency" class="text-xs font-semibold text-zinc-400 uppercase tracking-wider w-20" />
+                <Text text="Status" class="text-xs font-semibold text-zinc-400 uppercase tracking-wider w-24" />
+              </Row>
+            </Container>
+            <Container class="px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Text text="10.0.1.1" class="text-sm font-mono text-zinc-300 w-32" />
+                <Text text="gateway" class="text-sm font-mono text-zinc-400 flex-1" />
+                <Text text="00:11:22:33:44:55" class="text-xs font-mono text-zinc-600 w-40 hidden md:block" />
+                <Text text="RouterOS" class="text-xs text-zinc-500 w-32 hidden lg:block" />
+                <Text text="1ms" class="text-sm font-mono text-zinc-500 w-20" />
+                <Container class="w-24"><Badge text="Online" variant="success" /></Container>
+              </Row>
+            </Container>
+            <Container class="px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Text text="10.0.1.50" class="text-sm font-mono text-zinc-300 w-32" />
+                <Text text="api-server-01" class="text-sm font-mono text-zinc-400 flex-1" />
+                <Text text="aa:bb:cc:dd:ee:01" class="text-xs font-mono text-zinc-600 w-40 hidden md:block" />
+                <Text text="Linux 6.1" class="text-xs text-zinc-500 w-32 hidden lg:block" />
+                <Text text="3ms" class="text-sm font-mono text-zinc-500 w-20" />
+                <Container class="w-24"><Badge text="Online" variant="success" /></Container>
+              </Row>
+            </Container>
+            <Container class="px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Text text="10.0.1.80" class="text-sm font-mono text-zinc-300 w-32" />
+                <Text text="db-primary" class="text-sm font-mono text-zinc-400 flex-1" />
+                <Text text="aa:bb:cc:dd:ee:02" class="text-xs font-mono text-zinc-600 w-40 hidden md:block" />
+                <Text text="Linux 5.15" class="text-xs text-zinc-500 w-32 hidden lg:block" />
+                <Text text="4ms" class="text-sm font-mono text-zinc-500 w-20" />
+                <Container class="w-24"><Badge text="Online" variant="success" /></Container>
+              </Row>
+            </Container>
+            <Container class="px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Text text="10.0.1.93" class="text-sm font-mono text-zinc-300 w-32" />
+                <Text text="worker-03" class="text-sm font-mono text-zinc-400 flex-1" />
+                <Text text="aa:bb:cc:dd:ee:03" class="text-xs font-mono text-zinc-600 w-40 hidden md:block" />
+                <Text text="Linux 5.15" class="text-xs text-zinc-500 w-32 hidden lg:block" />
+                <Text text="187ms" class="text-sm font-mono text-yellow-400 w-20" />
+                <Container class="w-24"><Badge text="Filtered" variant="warning" /></Container>
+              </Row>
+            </Container>
+            <Container class="px-4 py-3 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Text text="10.0.1.100" class="text-sm font-mono text-zinc-300 w-32" />
+                <Text text="ntml.org" class="text-sm font-mono text-zinc-400 flex-1" />
+                <Text text="aa:bb:cc:dd:ee:04" class="text-xs font-mono text-zinc-600 w-40 hidden md:block" />
+                <Text text="NullTrace VM" class="text-xs text-zinc-500 w-32 hidden lg:block" />
+                <Text text="2ms" class="text-sm font-mono text-zinc-500 w-20" />
+                <Container class="w-24"><Badge text="Online" variant="success" /></Container>
+              </Row>
+            </Container>
+            <Container class="px-4 py-3 hover:bg-zinc-800/30 transition-colors duration-150">
+              <Row gap="4" align="center">
+                <Text text="10.0.1.81" class="text-sm font-mono text-zinc-300 w-32" />
+                <Text text="db-replica" class="text-sm font-mono text-zinc-400 flex-1" />
+                <Text text="—" class="text-xs font-mono text-zinc-700 w-40 hidden md:block" />
+                <Text text="—" class="text-xs text-zinc-700 w-32 hidden lg:block" />
+                <Text text="—" class="text-sm font-mono text-zinc-700 w-20" />
+                <Container class="w-24"><Badge text="Offline" variant="danger" /></Container>
+              </Row>
+            </Container>
+          </Column>
+        </Container>
+      </Column>
+
+      <!-- Open ports section -->
+      <Column gap="3">
+        <Text text="Open Ports — 10.0.1.50 (api-server-01)" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider" />
+        <Container class="rounded-xl bg-zinc-900 border border-zinc-800 p-5">
+          <Row gap="3" wrap="true">
+            <Container class="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700">
+              <Column gap="0">
+                <Text text="22" class="text-sm font-mono text-amber-300 font-bold" />
+                <Text text="SSH" class="text-xs text-zinc-500" />
+              </Column>
+            </Container>
+            <Container class="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700">
+              <Column gap="0">
+                <Text text="80" class="text-sm font-mono text-amber-300 font-bold" />
+                <Text text="HTTP" class="text-xs text-zinc-500" />
+              </Column>
+            </Container>
+            <Container class="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700">
+              <Column gap="0">
+                <Text text="443" class="text-sm font-mono text-amber-300 font-bold" />
+                <Text text="HTTPS" class="text-xs text-zinc-500" />
+              </Column>
+            </Container>
+            <Container class="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700">
+              <Column gap="0">
+                <Text text="8080" class="text-sm font-mono text-amber-300 font-bold" />
+                <Text text="HTTP-alt" class="text-xs text-zinc-500" />
+              </Column>
+            </Container>
+            <Container class="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30">
+              <Column gap="0">
+                <Text text="9200" class="text-sm font-mono text-red-400 font-bold" />
+                <Text text="Elasticsearch" class="text-xs text-red-400/60" />
+              </Column>
+            </Container>
+          </Row>
+          <Container class="mt-3 bg-red-500/5 border border-red-500/20 rounded-lg px-4 py-3">
+            <Row gap="2" align="center">
+              <Icon name="alert-triangle" size="14" class="text-red-400" />
+              <Text text="Port 9200 (Elasticsearch) is exposed without authentication — potential data exposure risk." class="text-xs text-red-400/80" />
+            </Row>
+          </Container>
+        </Container>
+      </Column>
+    </Column>
+  </Container>
+</body>

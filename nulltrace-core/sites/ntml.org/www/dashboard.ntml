@@ -1,0 +1,222 @@
+<head>
+  <title>Dashboard — NullTrace Demo</title>
+</head>
+<body>
+  <Container class="min-h-screen bg-zinc-950 text-zinc-200 font-sans antialiased">
+    <!-- Demo banner -->
+    <Container class="bg-amber-500/10 border-b border-amber-500/20 px-6 py-2">
+      <Row gap="3" align="center" justify="spaceBetween" class="max-w-6xl mx-auto">
+        <Row gap="2" align="center">
+          <Badge text="DEMO" variant="warning" />
+          <Text text="Esta é uma página de exemplo NTML — mostra componentes em uso real." class="text-xs text-amber-400/80" />
+        </Row>
+        <Link href="/examples"><Text text="← Ver exemplos de código" class="text-xs text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
+      </Row>
+    </Container>
+
+    <!-- App header -->
+    <Container class="border-b border-zinc-800 px-6 py-4 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-10">
+      <Row gap="8" align="center" justify="spaceBetween" class="max-w-6xl mx-auto">
+        <Row gap="3" align="center">
+          <Icon name="layout-dashboard" size="24" class="text-amber-400" />
+          <Text text="NullTrace Dashboard" class="text-base font-semibold text-zinc-100" />
+        </Row>
+        <Row gap="2" align="center">
+          <Badge text="● Live" variant="success" />
+          <Text text="Cluster: prod-01" class="text-sm text-zinc-500 font-mono" />
+        </Row>
+      </Row>
+    </Container>
+
+    <Column gap="8" class="max-w-6xl mx-auto px-6 py-8">
+      <!-- Metric cards -->
+      <Column gap="2">
+        <Text text="Overview" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider" />
+        <Row gap="4" wrap="true">
+          <Container class="flex-1 min-w-48 rounded-xl bg-zinc-900 border border-zinc-800 p-5">
+            <Column gap="3">
+              <Row gap="2" align="center" justify="spaceBetween">
+                <Text text="Active VMs" class="text-sm text-zinc-400" />
+                <Icon name="server" size="16" class="text-zinc-600" />
+              </Row>
+              <Text text="12" class="text-3xl font-bold text-zinc-100 font-mono" />
+              <Row gap="2" align="center">
+                <Badge text="↑ 2" variant="success" />
+                <Text text="since last hour" class="text-xs text-zinc-600" />
+              </Row>
+            </Column>
+          </Container>
+          <Container class="flex-1 min-w-48 rounded-xl bg-zinc-900 border border-zinc-800 p-5">
+            <Column gap="3">
+              <Row gap="2" align="center" justify="spaceBetween">
+                <Text text="CPU Usage" class="text-sm text-zinc-400" />
+                <Icon name="cpu" size="16" class="text-zinc-600" />
+              </Row>
+              <Text text="47%" class="text-3xl font-bold text-zinc-100 font-mono" />
+              <ProgressBar value="47" max="100" variant="default" class="h-1.5 rounded-full" />
+            </Column>
+          </Container>
+          <Container class="flex-1 min-w-48 rounded-xl bg-zinc-900 border border-zinc-800 p-5">
+            <Column gap="3">
+              <Row gap="2" align="center" justify="spaceBetween">
+                <Text text="Memory" class="text-sm text-zinc-400" />
+                <Icon name="memory-stick" size="16" class="text-zinc-600" />
+              </Row>
+              <Text text="6.2 GB" class="text-3xl font-bold text-zinc-100 font-mono" />
+              <ProgressBar value="62" max="100" variant="warning" class="h-1.5 rounded-full" />
+            </Column>
+          </Container>
+          <Container class="flex-1 min-w-48 rounded-xl bg-zinc-900 border border-zinc-800 p-5">
+            <Column gap="3">
+              <Row gap="2" align="center" justify="spaceBetween">
+                <Text text="Alerts" class="text-sm text-zinc-400" />
+                <Icon name="alert-triangle" size="16" class="text-zinc-600" />
+              </Row>
+              <Text text="3" class="text-3xl font-bold text-red-400 font-mono" />
+              <Row gap="2" align="center">
+                <Badge text="2 warning" variant="warning" />
+                <Badge text="1 critical" variant="danger" />
+              </Row>
+            </Column>
+          </Container>
+        </Row>
+      </Column>
+
+      <Row gap="6" wrap="true" align="start">
+        <!-- VM Status table -->
+        <Column gap="3" class="flex-1 min-w-64">
+          <Text text="VM Status" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider" />
+          <Container class="rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden">
+            <Column gap="0">
+              <Container class="px-4 py-3 border-b border-zinc-800 bg-zinc-800/50">
+                <Row gap="4" align="center">
+                  <Text text="Hostname" class="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex-1" />
+                  <Text text="IP" class="text-xs font-semibold text-zinc-400 uppercase tracking-wider w-28" />
+                  <Text text="Status" class="text-xs font-semibold text-zinc-400 uppercase tracking-wider w-20" />
+                </Row>
+              </Container>
+              <Container class="px-4 py-3 border-b border-zinc-800/50">
+                <Row gap="4" align="center">
+                  <Text text="api-server-01" class="text-sm font-mono text-zinc-300 flex-1" />
+                  <Text text="10.0.1.50" class="text-sm font-mono text-zinc-500 w-28" />
+                  <Container class="w-20"><Badge text="Up" variant="success" /></Container>
+                </Row>
+              </Container>
+              <Container class="px-4 py-3 border-b border-zinc-800/50">
+                <Row gap="4" align="center">
+                  <Text text="db-primary" class="text-sm font-mono text-zinc-300 flex-1" />
+                  <Text text="10.0.1.80" class="text-sm font-mono text-zinc-500 w-28" />
+                  <Container class="w-20"><Badge text="Up" variant="success" /></Container>
+                </Row>
+              </Container>
+              <Container class="px-4 py-3 border-b border-zinc-800/50">
+                <Row gap="4" align="center">
+                  <Text text="worker-03" class="text-sm font-mono text-zinc-300 flex-1" />
+                  <Text text="10.0.1.93" class="text-sm font-mono text-zinc-500 w-28" />
+                  <Container class="w-20"><Badge text="Warning" variant="warning" /></Container>
+                </Row>
+              </Container>
+              <Container class="px-4 py-3 border-b border-zinc-800/50">
+                <Row gap="4" align="center">
+                  <Text text="cache-01" class="text-sm font-mono text-zinc-300 flex-1" />
+                  <Text text="10.0.1.110" class="text-sm font-mono text-zinc-500 w-28" />
+                  <Container class="w-20"><Badge text="Up" variant="success" /></Container>
+                </Row>
+              </Container>
+              <Container class="px-4 py-3">
+                <Row gap="4" align="center">
+                  <Text text="db-replica" class="text-sm font-mono text-zinc-300 flex-1" />
+                  <Text text="10.0.1.81" class="text-sm font-mono text-zinc-500 w-28" />
+                  <Container class="w-20"><Badge text="Down" variant="danger" /></Container>
+                </Row>
+              </Container>
+            </Column>
+          </Container>
+        </Column>
+
+        <!-- Resource usage -->
+        <Column gap="3" class="w-72 flex-shrink-0">
+          <Text text="Resource Usage" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider" />
+          <Container class="rounded-xl bg-zinc-900 border border-zinc-800 p-5">
+            <Column gap="4">
+              <Column gap="2">
+                <Row gap="2" align="center" justify="spaceBetween">
+                  <Text text="CPU" class="text-xs text-zinc-400 font-mono w-12" />
+                  <ProgressBar value="47" max="100" variant="default" class="flex-1 h-2 rounded-full" />
+                  <Text text="47%" class="text-xs text-zinc-500 font-mono w-8 text-right" />
+                </Row>
+                <Row gap="2" align="center" justify="spaceBetween">
+                  <Text text="MEM" class="text-xs text-zinc-400 font-mono w-12" />
+                  <ProgressBar value="62" max="100" variant="warning" class="flex-1 h-2 rounded-full" />
+                  <Text text="62%" class="text-xs text-zinc-500 font-mono w-8 text-right" />
+                </Row>
+                <Row gap="2" align="center" justify="spaceBetween">
+                  <Text text="DISK" class="text-xs text-zinc-400 font-mono w-12" />
+                  <ProgressBar value="81" max="100" variant="danger" class="flex-1 h-2 rounded-full" />
+                  <Text text="81%" class="text-xs text-zinc-500 font-mono w-8 text-right" />
+                </Row>
+                <Row gap="2" align="center" justify="spaceBetween">
+                  <Text text="NET" class="text-xs text-zinc-400 font-mono w-12" />
+                  <ProgressBar value="23" max="100" variant="success" class="flex-1 h-2 rounded-full" />
+                  <Text text="23%" class="text-xs text-zinc-500 font-mono w-8 text-right" />
+                </Row>
+              </Column>
+              <Divider class="border-zinc-800" />
+              <Column gap="1">
+                <Row gap="2" align="center" justify="spaceBetween">
+                  <Text text="Uptime" class="text-xs text-zinc-500" />
+                  <Text text="99.8%" class="text-xs text-green-400 font-mono" />
+                </Row>
+                <Row gap="2" align="center" justify="spaceBetween">
+                  <Text text="Last deploy" class="text-xs text-zinc-500" />
+                  <Text text="2h ago" class="text-xs text-zinc-400 font-mono" />
+                </Row>
+                <Row gap="2" align="center" justify="spaceBetween">
+                  <Text text="Active tasks" class="text-xs text-zinc-500" />
+                  <Text text="24" class="text-xs text-zinc-400 font-mono" />
+                </Row>
+              </Column>
+            </Column>
+          </Container>
+        </Column>
+      </Row>
+
+      <!-- Recent activity -->
+      <Column gap="3">
+        <Text text="Recent Activity" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider" />
+        <Container class="rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden">
+          <Column gap="0">
+            <Container class="px-5 py-3 border-b border-zinc-800/50">
+              <Row gap="4" align="center">
+                <Icon name="alert-circle" size="14" class="text-red-400 flex-shrink-0" />
+                <Text text="db-replica heartbeat timeout — connection lost" class="text-sm text-zinc-300 flex-1" />
+                <Text text="5m ago" class="text-xs text-zinc-600 font-mono" />
+              </Row>
+            </Container>
+            <Container class="px-5 py-3 border-b border-zinc-800/50">
+              <Row gap="4" align="center">
+                <Icon name="alert-triangle" size="14" class="text-yellow-400 flex-shrink-0" />
+                <Text text="worker-03 memory usage exceeded 85%" class="text-sm text-zinc-300 flex-1" />
+                <Text text="12m ago" class="text-xs text-zinc-600 font-mono" />
+              </Row>
+            </Container>
+            <Container class="px-5 py-3 border-b border-zinc-800/50">
+              <Row gap="4" align="center">
+                <Icon name="check-circle" size="14" class="text-green-400 flex-shrink-0" />
+                <Text text="api-server-01 deploy completed successfully" class="text-sm text-zinc-300 flex-1" />
+                <Text text="2h ago" class="text-xs text-zinc-600 font-mono" />
+              </Row>
+            </Container>
+            <Container class="px-5 py-3">
+              <Row gap="4" align="center">
+                <Icon name="info" size="14" class="text-blue-400 flex-shrink-0" />
+                <Text text="Scheduled maintenance window: Sunday 02:00–04:00 UTC" class="text-sm text-zinc-300 flex-1" />
+                <Text text="1d ago" class="text-xs text-zinc-600 font-mono" />
+              </Row>
+            </Container>
+          </Column>
+        </Container>
+      </Column>
+    </Column>
+  </Container>
+</body>

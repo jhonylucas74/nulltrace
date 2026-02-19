@@ -1,0 +1,158 @@
+<head>
+  <title>ProgressBar / Badge — NTML Components</title>
+</head>
+<body>
+  <Container class="min-h-screen bg-zinc-950 text-zinc-200 flex flex-col font-sans antialiased">
+    <Column gap="0" class="min-h-screen w-full">
+      <Container class="border-b border-zinc-800 px-6 py-4 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-10">
+        <Row gap="8" align="center" justify="spaceBetween" wrap="true" class="w-full max-w-6xl mx-auto">
+          <Link href="/" class="transition-colors duration-200 rounded-lg px-2 py-1 -ml-2 hover:bg-zinc-800/50">
+            <Row gap="3" align="center">
+              <Icon name="file-code" size="32" class="w-8 h-8 text-amber-400" />
+              <Text text="NTML" class="text-lg font-semibold text-zinc-100 tracking-tight" />
+            </Row>
+          </Link>
+          <Row gap="1" wrap="true">
+            <Link href="/getting-started"><Text text="Getting started" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/components"><Text text="Components" class="text-sm text-amber-400 font-medium px-3 py-2 rounded-md bg-amber-500/10 transition-colors duration-200" /></Link>
+            <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/tailwind-reference"><Text text="Tailwind" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/lua-api"><Text text="Lua API" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+          </Row>
+        </Row>
+      </Container>
+      <Row gap="0" class="flex-1 w-full max-w-6xl mx-auto px-6 py-12">
+        <Container class="w-52 flex-shrink-0 hidden md:block pr-8 border-r border-zinc-800">
+          <Column gap="1" class="sticky top-24">
+            <Link href="/components"><Text text="← Components" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200 mb-2" /></Link>
+            <Text text="Layout" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-2 mb-1" />
+            <Link href="/components/container"><Text text="Container" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/row-column"><Text text="Row / Column" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/flex"><Text text="Flex" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/grid"><Text text="Grid / Stack" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Text text="Content" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-3 mb-1" />
+            <Link href="/components/text"><Text text="Text / Heading" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/image"><Text text="Image / Icon" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Text text="Interactive" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-3 mb-1" />
+            <Link href="/components/button"><Text text="Button" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/input"><Text text="Input · Checkbox · Radio · Select" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/link"><Text text="Link" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Text text="Display" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-3 mb-1" />
+            <Link href="/components/progress"><Text text="ProgressBar · Badge" class="text-sm text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components/layout-utils"><Text text="Divider · Spacer" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Text text="Document" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mt-3 mb-1" />
+            <Link href="/components/content"><Text text="Code · Markdown · List · Table..." class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+          </Column>
+        </Container>
+        <Column gap="10" class="flex-1 min-w-0 max-w-3xl pl-0 md:pl-12">
+          <Link href="/components"><Text text="← All components" class="text-sm text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
+          <Column gap="4">
+            <Row gap="3" align="center">
+              <Text text="Display" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 py-1 bg-zinc-800 rounded" />
+            </Row>
+            <Heading level="1" text="ProgressBar · Badge" class="text-3xl md:text-4xl font-bold text-zinc-100 tracking-tight" />
+            <Text text="ProgressBar shows a filled bar to indicate completion or quantity. Badge is a small status label. Both support semantic color variants." class="text-zinc-400 leading-relaxed text-lg" />
+          </Column>
+          <Column gap="8">
+            <Column gap="4">
+              <Heading level="2" text="ProgressBar props" class="text-xl font-semibold text-zinc-100" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[value    number   (required) — current value
+max      number              — maximum value (default: 100)
+variant  default|success|warning|danger  — color scheme
+id       string              — ui.set_value(id, newValue)
+class    string              — Tailwind utility classes]]></Code>
+            </Column>
+            <Column gap="4">
+              <Heading level="2" text="ProgressBar examples" class="text-xl font-semibold text-zinc-100" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<!-- Health / energy bars -->
+<Column gap="3">
+  <Row gap="3" align="center">
+    <Text text="HP" class="text-xs text-zinc-400 w-6 font-mono" />
+    <ProgressBar value="85" max="100" variant="success" class="flex-1 h-2 rounded-full" />
+    <Text text="85%" class="text-xs text-zinc-500 w-8 text-right font-mono" />
+  </Row>
+  <Row gap="3" align="center">
+    <Text text="EN" class="text-xs text-zinc-400 w-6 font-mono" />
+    <ProgressBar value="40" max="100" variant="warning" class="flex-1 h-2 rounded-full" />
+    <Text text="40%" class="text-xs text-zinc-500 w-8 text-right font-mono" />
+  </Row>
+  <Row gap="3" align="center">
+    <Text text="SH" class="text-xs text-zinc-400 w-6 font-mono" />
+    <ProgressBar value="10" max="100" variant="danger" class="flex-1 h-2 rounded-full" />
+    <Text text="10%" class="text-xs text-zinc-500 w-8 text-right font-mono" />
+  </Row>
+</Column>
+
+<!-- Upload / progress indicator -->
+<Column gap="2">
+  <Row gap="3" align="center" justify="spaceBetween">
+    <Text text="Uploading..." class="text-sm text-zinc-400" />
+    <Text id="upload-pct" text="0%" class="text-sm text-zinc-400 font-mono" />
+  </Row>
+  <ProgressBar id="upload-bar" value="0" max="100" variant="default" class="h-1.5" />
+</Column>]]></Code>
+            </Column>
+            <Column gap="4">
+              <Heading level="2" text="Update from Lua" class="text-xl font-semibold text-zinc-100" />
+              <Code language="lua" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[-- Update progress bar value
+ui.set_value("upload-bar", 75)
+ui.set_text("upload-pct", "75%")]]></Code>
+            </Column>
+            <Column gap="4">
+              <Heading level="2" text="Badge props" class="text-xl font-semibold text-zinc-100" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[text     string   (required) — badge label
+variant  default|success|warning|danger|info  — color scheme
+class    string              — Tailwind utility classes]]></Code>
+            </Column>
+            <Column gap="4">
+              <Heading level="2" text="Badge examples" class="text-xl font-semibold text-zinc-100" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<!-- Status badges -->
+<Row gap="2" wrap="true">
+  <Badge text="Online" variant="success" />
+  <Badge text="Idle" variant="default" />
+  <Badge text="Warning" variant="warning" />
+  <Badge text="Critical" variant="danger" />
+  <Badge text="Info" variant="info" />
+</Row>
+
+<!-- Notification counter -->
+<Row gap="2" align="center">
+  <Icon name="bell" size="20" class="text-zinc-400" />
+  <Badge text="3" variant="danger" />
+</Row>
+
+<!-- In a list row -->
+<Row gap="3" align="center" justify="spaceBetween">
+  <Text text="api-server" class="text-sm font-mono text-zinc-300" />
+  <Badge text="Vulnerable" variant="warning" />
+</Row>]]></Code>
+            </Column>
+          </Column>
+          <Container class="pt-10 mt-2 border-t border-zinc-800">
+            <Row justify="spaceBetween">
+              <Link href="/components/link">
+                <Row gap="2" align="center">
+                  <Text text="←" class="text-amber-400" />
+                  <Text text="Link" class="text-sm font-medium text-zinc-300 hover:text-amber-400 transition-colors duration-200" />
+                </Row>
+              </Link>
+              <Link href="/components/layout-utils">
+                <Row gap="2" align="center">
+                  <Text text="Divider &amp; Spacer" class="text-sm font-medium text-zinc-300 hover:text-amber-400 transition-colors duration-200" />
+                  <Text text="→" class="text-amber-400" />
+                </Row>
+              </Link>
+            </Row>
+          </Container>
+          <Container class="pt-4 mt-2">
+            <Text text="NTML Documentation · NullTrace" class="text-xs text-zinc-500" />
+          </Container>
+        </Column>
+      </Row>
+    </Column>
+  </Container>
+</body>
