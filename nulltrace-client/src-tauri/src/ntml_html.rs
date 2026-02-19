@@ -1,6 +1,9 @@
 //! Converts NTML YAML to safe HTML for iframe srcDoc.
 //! No script, no inline event handlers; only structure and styles.
 
+/// Tailwind-compatible utility CSS for NTML docs (embedded at compile time).
+const NTML_TAILWIND_CSS: &str = include_str!("../ntml_tailwind.css");
+
 use nulltrace_ntml::components::*;
 use nulltrace_ntml::style::{
     Alignment, BorderStyle, Cursor, Dimension, Display, FontFamily, FontWeight, Overflow,
@@ -93,13 +96,12 @@ pub fn ntml_to_html_with_imports_and_patches(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{}</title>
-<style>
-body {{ margin: 0; padding: 0; font-family: sans-serif; }}
-</style>
+<style>{}</style>
 </head>
 <body>
 "#,
-        escape_html(title)
+        escape_html(title),
+        NTML_TAILWIND_CSS
     )
     .map_err(|e| e.to_string())?;
 
@@ -833,12 +835,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let id = ct
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
-            write!(out, "<div{} style=\"{}\">", id, style)?;
+            let attrs = build_attrs(ct.id.as_deref(), ct.style.as_ref());
+            write!(out, "<div{} style=\"{}\">", attrs, style)?;
             if let Some(children) = &ct.children {
                 for ch in children {
                     component_to_html(ch, out, patches, base_url)?;
@@ -872,12 +870,8 @@ fn component_to_html(
             if let Some(g) = f.gap {
                 style.push_str(&format!("gap:{}px;", g));
             }
-            let id = f
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
-            write!(out, "<div{} style=\"{}\">", id, style)?;
+            let attrs = build_attrs(f.id.as_deref(), f.style.as_ref());
+            write!(out, "<div{} style=\"{}\">", attrs, style)?;
             if let Some(children) = &f.children {
                 for ch in children {
                     component_to_html(ch, out, patches, base_url)?;
@@ -898,15 +892,11 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let id = t
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
+            let attrs = build_attrs(t.id.as_deref(), t.style.as_ref());
             write!(
                 out,
                 "<span{} style=\"{}\">{}</span>",
-                id,
+                attrs,
                 style,
                 escape_html(text)
             )?;
@@ -924,11 +914,7 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let id = b
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
+            let attrs = build_attrs(b.id.as_deref(), b.style.as_ref());
             let has_lua_action = !disabled && !b.action.contains(':');
             let data_action = if has_lua_action {
                 format!(" data-action=\"{}\"", escape_html(&b.action))
@@ -945,7 +931,7 @@ fn component_to_html(
             write!(
                 out,
                 "<button{} type=\"button\"{}{} style=\"{}\"{}>",
-                id, data_action, onclick, style, disabled_attr
+                attrs, data_action, onclick, style, disabled_attr
             )?;
             if let Some(children) = &b.children {
                 for ch in children {
@@ -980,11 +966,7 @@ fn component_to_html(
                 .map(style_to_css)
                 .unwrap_or_default();
             style.insert_str(0, &fit_css);
-            let id = img
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
+            let attrs = build_attrs(img.id.as_deref(), img.style.as_ref());
             let alt = img
                 .alt
                 .as_ref()
@@ -993,7 +975,7 @@ fn component_to_html(
             write!(
                 out,
                 "<img{} src=\"{}\" alt=\"{}\" style=\"{}\">",
-                id,
+                attrs,
                 escape_html(&src),
                 alt,
                 style
@@ -1019,15 +1001,11 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let id = lnk
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
+            let attrs = build_attrs(lnk.id.as_deref(), lnk.style.as_ref());
             write!(
                 out,
                 "<a{} href=\"{}\" data-ntml-url=\"{}\" data-ntml-target=\"{}\" style=\"color:inherit;text-decoration:underline;cursor:pointer;{}\" onclick=\"event.preventDefault();var u=this.getAttribute('data-ntml-url');var t=this.getAttribute('data-ntml-target');if(u)window.parent.postMessage({{type:'ntml-navigate',url:u,target:t||'same'}},'*')\">",
-                id,
+                attrs,
                 escape_html(&href_resolved),
                 escape_html(&href_resolved),
                 target_val,
@@ -1061,12 +1039,8 @@ fn component_to_html(
             if let Some(g) = r.gap {
                 style.push_str(&format!("gap:{}px;", g));
             }
-            let id = r
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
-            write!(out, "<div{} style=\"{}\">", id, style)?;
+            let attrs = build_attrs(r.id.as_deref(), r.style.as_ref());
+            write!(out, "<div{} style=\"{}\">", attrs, style)?;
             if let Some(children) = &r.children {
                 for ch in children {
                     component_to_html(ch, out, patches, base_url)?;
@@ -1093,12 +1067,8 @@ fn component_to_html(
             if let Some(g) = col.gap {
                 style.push_str(&format!("gap:{}px;", g));
             }
-            let id = col
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
-            write!(out, "<div{} style=\"{}\">", id, style)?;
+            let attrs = build_attrs(col.id.as_deref(), col.style.as_ref());
+            write!(out, "<div{} style=\"{}\">", attrs, style)?;
             if let Some(children) = &col.children {
                 for ch in children {
                     component_to_html(ch, out, patches, base_url)?;
@@ -1130,12 +1100,8 @@ fn component_to_html(
                     }
                 }
             }
-            let id = g
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
-            write!(out, "<div{} style=\"{}\">", id, style)?;
+            let attrs = build_attrs(g.id.as_deref(), g.style.as_ref());
+            write!(out, "<div{} style=\"{}\">", attrs, style)?;
             if let Some(children) = &g.children {
                 for ch in children {
                     component_to_html(ch, out, patches, base_url)?;
@@ -1159,12 +1125,8 @@ fn component_to_html(
             } else {
                 "position:absolute;inset:0;display:flex;".to_string()
             };
-            let id = s
-                .id
-                .as_ref()
-                .map(|sid| format!(" id=\"{}\"", escape_html(sid)))
-                .unwrap_or_default();
-            write!(out, "<div{} style=\"{}\">", id, style)?;
+            let attrs = build_attrs(s.id.as_deref(), s.style.as_ref());
+            write!(out, "<div{} style=\"{}\">", attrs, style)?;
             write!(out, "<div style=\"{}\">", inner_style)?;
             if let Some(children) = &s.children {
                 for ch in children {
@@ -1189,20 +1151,16 @@ fn component_to_html(
                     "hr"
                 ),
             };
-            let id = d
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
+            let attrs = build_attrs(d.id.as_deref(), d.style.as_ref());
             let combined = if style.is_empty() {
                 base_style.to_string()
             } else {
                 format!("{}{}", base_style, style)
             };
             if tag == "hr" {
-                write!(out, "<hr{} style=\"{}\">", id, combined)?;
+                write!(out, "<hr{} style=\"{}\">", attrs, combined)?;
             } else {
-                write!(out, "<div{} style=\"{}\"></div>", id, combined)?;
+                write!(out, "<div{} style=\"{}\"></div>", attrs, combined)?;
             }
         }
         Component::Spacer(sp) => {
@@ -1229,15 +1187,11 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let id = pb
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
+            let attrs = build_attrs(pb.id.as_deref(), pb.style.as_ref());
             write!(
                 out,
                 "<div{} style=\"background:#eee;border-radius:4px;overflow:hidden;{}\"><div style=\"width:{}%;height:20px;background:#4a9;{}\"></div></div>",
-                id, style, pct, style
+                attrs, style, pct, style
             )?;
         }
         Component::Badge(b) => {
@@ -1253,15 +1207,11 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let id = b
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
+            let attrs = build_attrs(b.id.as_deref(), b.style.as_ref());
             write!(
                 out,
                 "<span{} style=\"display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;{}\">{}</span>",
-                id,
+                attrs,
                 style,
                 escape_html(text)
             )?;
@@ -1272,11 +1222,7 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let id = inp
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
+            let attrs = build_attrs(inp.id.as_deref(), inp.style.as_ref());
             let ph = inp
                 .placeholder
                 .as_ref()
@@ -1290,7 +1236,7 @@ fn component_to_html(
             write!(
                 out,
                 "<input{} type=\"text\" name=\"{}\" placeholder=\"{}\" value=\"{}\" style=\"{}\" readonly disabled>",
-                id,
+                attrs,
                 escape_html(&inp.name),
                 ph,
                 val,
@@ -1303,16 +1249,12 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let id = cb
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
+            let attrs = build_attrs(cb.id.as_deref(), cb.style.as_ref());
             let checked = cb.checked.unwrap_or(false);
             write!(
                 out,
                 "<label{} style=\"{}\"><input type=\"checkbox\" name=\"{}\" {} disabled> {}</label>",
-                id,
+                attrs,
                 style,
                 escape_html(&cb.name),
                 if checked { "checked" } else { "" },
@@ -1325,16 +1267,12 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let id = r
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
+            let attrs = build_attrs(r.id.as_deref(), r.style.as_ref());
             let checked = r.checked.unwrap_or(false);
             write!(
                 out,
                 "<label{} style=\"{}\"><input type=\"radio\" name=\"{}\" value=\"{}\" {} disabled> {}</label>",
-                id,
+                attrs,
                 style,
                 escape_html(&r.name),
                 escape_html(&r.value),
@@ -1348,12 +1286,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let id = sel
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
-            write!(out, "<select{} name=\"{}\" style=\"{}\" disabled>", id, escape_html(&sel.name), style)?;
+            let attrs = build_attrs(sel.id.as_deref(), sel.style.as_ref());
+            write!(out, "<select{} name=\"{}\" style=\"{}\" disabled>", attrs, escape_html(&sel.name), style)?;
             for opt in &sel.options {
                 write!(
                     out,
@@ -1366,27 +1300,33 @@ fn component_to_html(
         }
         Component::Icon(ic) => {
             let size = ic.size.unwrap_or(16.0);
+            let size_px = size as i32;
             let style = ic
                 .style
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let id = ic
-                .id
-                .as_ref()
-                .map(|s| format!(" id=\"{}\"", escape_html(s)))
-                .unwrap_or_default();
+            let attrs = build_attrs(ic.id.as_deref(), ic.style.as_ref());
             let title_attr = if ic.name.is_empty() {
                 String::new()
             } else {
                 format!(" title=\"{}\"", escape_html(&ic.name))
             };
             let mut combined = format!(
-                "display:inline-block;width:{}px;height:{}px;flex-shrink:0;",
+                "display:inline-block;width:{}px;height:{}px;flex-shrink:0;vertical-align:middle;",
                 size, size
             );
             combined.push_str(&style);
-            write!(out, "<span{}{} style=\"{}\"></span>", id, title_attr, combined)?;
+            // data-lucide: frontend resolves this to Lucide icon SVG
+            write!(
+                out,
+                "<span data-lucide=\"{}\" data-size=\"{}\"{}{} style=\"{}\"></span>",
+                escape_html(&ic.name),
+                size_px,
+                attrs,
+                title_attr,
+                combined
+            )?;
         }
         Component::Code(co) => {
             let style_css = co

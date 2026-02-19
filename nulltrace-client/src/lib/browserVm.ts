@@ -62,13 +62,28 @@ export interface ParsedHttpResponse {
 
 /**
  * Parses raw HTTP response string (from curl stdout) into status, headers, and body.
+ * Splits only on the HTTP header/body boundary (CRLF CRLF or first empty line),
+ * so that a body containing blank lines (e.g. YAML with "head:\n\nbody:") is not truncated.
  */
 export function parseHttpResponse(raw: string): ParsedHttpResponse | null {
   if (!raw || !raw.trim()) return null;
 
-  const parts = raw.split(/\r?\n\r?\n/, 2);
-  const head = parts[0] ?? "";
-  const body = parts[1] ?? "";
+  let head: string;
+  let body: string;
+  const crlfBoundary = raw.indexOf("\r\n\r\n");
+  if (crlfBoundary >= 0) {
+    head = raw.slice(0, crlfBoundary);
+    body = raw.slice(crlfBoundary + 4);
+  } else {
+    // No CRLF CRLF: find first empty line so we don't split on \n\n inside body (e.g. NTML YAML)
+    const lines = raw.split(/\r?\n/);
+    let i = 0;
+    for (; i < lines.length; i++) {
+      if (lines[i].trim() === "") break;
+    }
+    head = lines.slice(0, i).join("\n");
+    body = lines.slice(i + 1).join("\n");
+  }
 
   const lines = head.split(/\r?\n/);
   const statusLine = lines[0] ?? "";

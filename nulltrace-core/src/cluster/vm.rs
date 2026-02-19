@@ -23,9 +23,11 @@ pub struct VirtualMachine {
     pub lua: Lua,
 }
 
-/// Ticks per second from CPU cores. Budget is reset every 0.5s, so effective TPS per VM = 2 * this value (40 × 2 = 80).
-pub fn ticks_per_second_from_cpu(_cpu_cores: i16) -> u32 {
-    40
+/// Ticks per second from CPU cores. Base 40 (minimum for 1 core), scaled by cores.
+/// Budget is reset every 0.5s, so effective TPS per VM = 2 * this value (e.g. 2 cores → 80 × 2 = 160).
+pub fn ticks_per_second_from_cpu(cpu_cores: i16) -> u32 {
+    let cores = cpu_cores.max(1) as u32;
+    40 * cores
 }
 
 impl VirtualMachine {

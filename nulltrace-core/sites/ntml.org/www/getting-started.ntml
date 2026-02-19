@@ -1,5 +1,5 @@
 head:
-  title: "HTTP — NTML"
+  title: "Getting started — NTML"
 
 body:
   Container:
@@ -49,7 +49,7 @@ body:
                                     - Text:
                                         text: "Getting started"
                                         style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                                          classes: "text-sm text-orange-400 font-medium"
                               - Link:
                                   href: "/components"
                                   children:
@@ -84,7 +84,7 @@ body:
                                     - Text:
                                         text: "HTTP"
                                         style:
-                                          classes: "text-sm text-orange-400 font-medium"
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
                               - Link:
                                   href: "/best-practices"
                                   children:
@@ -123,7 +123,7 @@ body:
                                     - Text:
                                         text: "Getting started"
                                         style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                                          classes: "text-sm text-orange-400"
                               - Link:
                                   href: "/components"
                                   children:
@@ -158,7 +158,7 @@ body:
                                     - Text:
                                         text: "HTTP"
                                         style:
-                                          classes: "text-sm text-orange-400"
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
                               - Link:
                                   href: "/best-practices"
                                   children:
@@ -187,71 +187,59 @@ body:
                                     classes: "text-sm text-orange-500 hover:text-orange-400"
                         - Heading:
                             level: 1
-                            text: "HTTP protocol (Lua)"
+                            text: "Getting started"
                             style:
                               classes: "text-3xl font-bold text-zinc-100"
                         - Text:
-                            text: "The http table builds and parses HTTP requests and responses. Use with net.send/recv or net.connect for in-VM servers and clients."
+                            text: "NTML documents are YAML. You can use the classic format (single root component) or the full format (head + body) for metadata, scripts, and imports."
                             style:
                               classes: "text-zinc-400 leading-relaxed"
                         - Heading:
                             level: 2
-                            text: "Functions"
+                            text: "Hello world (classic format)"
                             style:
-                              classes: "text-xl font-semibold text-zinc-100 mt-6"
+                              classes: "text-xl font-semibold text-zinc-100"
+                        - Code:
+                            text: |
+                              Container:
+                                style:
+                                  classes: "p-6 bg-zinc-800 rounded-lg"
+                                children:
+                                  - Text:
+                                      text: "Hello, NTML!"
+                                      style:
+                                        classes: "text-lg text-zinc-200"
+                            language: yaml
+                            block: true
+                            style:
+                              classes: "bg-zinc-800 border border-zinc-700 rounded-lg p-4 text-sm text-zinc-300 overflow-x-auto"
                         - Text:
-                            text: "http.build_request(method, path, body?) — GET, POST, etc. Returns raw string. http.parse_request(data) — returns { method, path, headers, body }. http.build_response(status, body?) — returns raw response. http.parse_response(data) — returns { status, reason, headers, body }."
+                            text: "One root component at the document root. No head or body section."
                             style:
                               classes: "text-zinc-400 text-sm"
                         - Heading:
                             level: 2
-                            text: "Server pattern"
+                            text: "Full format (head + body)"
                             style:
-                              classes: "text-xl font-semibold text-zinc-100 mt-6"
-                        - Code:
-                            text: |
-                              net.listen(80)
-                              while true do
-                                local pkt = net.recv()
-                                if pkt and pkt.dst_port == 80 then
-                                  local req = http.parse_request(pkt.data)
-                                  local res = http.build_response(200, "OK")
-                                  net.send(pkt.src_ip, pkt.src_port, res)
-                                end
-                              end
-                            language: lua
-                            block: true
-                            style:
-                              classes: "bg-zinc-800 border border-zinc-700 rounded-lg p-4 text-sm text-zinc-300 overflow-x-auto"
-                        - Heading:
-                            level: 2
-                            text: "Client pattern"
-                            style:
-                              classes: "text-xl font-semibold text-zinc-100 mt-6"
-                        - Code:
-                            text: |
-                              local conn = net.connect(host, 80)
-                              conn:send(http.build_request("GET", "/", nil))
-                              while true do
-                                local r = conn:recv()
-                                if r then
-                                  local res = http.parse_response(r.data)
-                                  break
-                                end
-                              end
-                              conn:close()
-                            language: lua
-                            block: true
-                            style:
-                              classes: "bg-zinc-800 border border-zinc-700 rounded-lg p-4 text-sm text-zinc-300 overflow-x-auto"
+                              classes: "text-xl font-semibold text-zinc-100"
                         - Text:
-                            text: "localhost and 127.x.x.x resolve to loopback (same VM)."
+                            text: "When you need a page title, scripts, or imported components, use the full format. See Document format for details."
                             style:
-                              classes: "text-zinc-500 text-sm"
-                        - Link:
-                            href: "/lua-api"
+                              classes: "text-zinc-400 leading-relaxed"
+                        - Row:
+                            gap: 4
                             children:
-                              - Text:
-                                  text: "Lua API (ui, http.get/post) →"
-                                  style:
-                                    classes: "text-orange-500 hover:text-orange-400 text-sm"
+                              - Link:
+                                  href: "/document-format"
+                                  children:
+                                    - Text:
+                                        text: "Document format"
+                                        style:
+                                          classes: "text-orange-500 hover:text-orange-400"
+                              - Link:
+                                  href: "/components"
+                                  children:
+                                    - Text:
+                                        text: "Components"
+                                        style:
+                                          classes: "text-orange-500 hover:text-orange-400"

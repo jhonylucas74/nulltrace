@@ -1,114 +1,271 @@
-Container:
-  style:
-    padding: 24
-    backgroundColor: "#1a1a2e"
-    minHeight: 400
-  children:
-    - Column:
-        gap: 24
-        style:
-          width: 100%
-        children:
-          - Container:
-              style:
-                padding: 20
-                backgroundColor: "#6b4cdf"
-                borderRadius: 8
-              children:
-                - Text:
-                    text: "What is NTML"
-                    style:
-                      fontSize: 32
-                      color: "#ffffff"
-                      textAlign: center
-                      fontWeight: 700
-          - Text:
-              text: "NTML (NullTrace Markup Language) is a secure, YAML-based UI description language for the NullTrace game. Type-safe, designer-friendly, and sandboxed—no script injection or XSS. Build interfaces with layout primitives (Flex, Grid), components (Text, Button, Input), and CSS-like styling."
-              style:
-                fontSize: 16
-                color: "#e0e0e0"
-                textAlign: center
-                lineHeight: 1.6
-          - Divider:
-              orientation: horizontal
-              style:
-                backgroundColor: "#333333"
-                height: 1
-                marginVertical: 8
-          - Text:
-              text: "Documentation"
-              style:
-                fontSize: 18
-                color: "#e0e0e0"
-                fontWeight: 700
-          - Row:
-              gap: 12
-              wrap: true
-              style:
-                width: 100%
-              children:
-                - Link:
-                    href: "/components"
-                    children:
-                      - Text:
-                          text: "Components"
-                          style:
-                            fontSize: 14
-                            color: "#6b4cdf"
-                - Link:
-                    href: "/styling"
-                    children:
-                      - Text:
-                          text: "Styling"
-                          style:
-                            fontSize: 14
-                            color: "#6b4cdf"
-                - Link:
-                    href: "/document-format"
-                    children:
-                      - Text:
-                          text: "Document Format"
-                          style:
-                            fontSize: 14
-                            color: "#6b4cdf"
-                - Link:
-                    href: "/examples"
-                    children:
-                      - Text:
-                          text: "Examples"
-                          style:
-                            fontSize: 14
-                            color: "#6b4cdf"
-                - Link:
-                    href: "/lua-api"
-                    children:
-                      - Text:
-                          text: "Lua API"
-                          style:
-                            fontSize: 14
-                            color: "#6b4cdf"
-                - Link:
-                    href: "/best-practices"
-                    children:
-                      - Text:
-                          text: "Best Practices"
-                          style:
-                            fontSize: 14
-                            color: "#6b4cdf"
-                - Link:
-                    href: "/http"
-                    children:
-                      - Text:
-                          text: "HTTP"
-                          style:
-                            fontSize: 14
-                            color: "#6b4cdf"
-          - Link:
-              href: "/robot.txt"
-              target: new
-              children:
-                - Text:
-                    text: "robot.txt (new tab)"
-                    style:
-                      fontSize: 12
-                      color: "#a0a0a0"
+head:
+  title: "NTML — Documentation"
+
+body:
+  Container:
+    style:
+      classes: "min-h-screen bg-zinc-900 text-zinc-200 flex flex-col"
+    children:
+      - Column:
+          gap: 0
+          style:
+            classes: "min-h-screen w-full"
+          children:
+            - Container:
+                style:
+                  classes: "border-b border-zinc-700 px-6 py-4"
+                children:
+                  - Row:
+                      gap: 8
+                      align: center
+                      justify: spaceBetween
+                      wrap: true
+                      style:
+                        classes: "w-full max-w-6xl mx-auto"
+                      children:
+                        - Link:
+                            href: "/"
+                            children:
+                              - Row:
+                                  gap: 2
+                                  align: center
+                                  children:
+                                    - Icon:
+                                        name: "file-code"
+                                        size: 32
+                                        style:
+                                          classes: "w-8 h-8 text-orange-500"
+                                    - Text:
+                                        text: "NTML"
+                                        style:
+                                          classes: "text-xl font-bold text-zinc-100"
+                        - Row:
+                            gap: 6
+                            wrap: true
+                            children:
+                              - Link:
+                                  href: "/getting-started"
+                                  children:
+                                    - Text:
+                                        text: "Getting started"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/components"
+                                  children:
+                                    - Text:
+                                        text: "Components"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/styling"
+                                  children:
+                                    - Text:
+                                        text: "Styling"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/document-format"
+                                  children:
+                                    - Text:
+                                        text: "Document format"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/lua-api"
+                                  children:
+                                    - Text:
+                                        text: "Lua API"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/http"
+                                  children:
+                                    - Text:
+                                        text: "HTTP"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/best-practices"
+                                  children:
+                                    - Text:
+                                        text: "Best practices"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/examples"
+                                  children:
+                                    - Text:
+                                        text: "Examples"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+            - Row:
+                gap: 0
+                style:
+                  classes: "flex-1 w-full max-w-6xl mx-auto px-6 py-8"
+                children:
+                  - Container:
+                      style:
+                        classes: "w-48 flex-shrink-0 hidden md:block"
+                      children:
+                        - Column:
+                            gap: 1
+                            style:
+                              classes: "sticky top-4"
+                            children:
+                              - Text:
+                                  text: "Docs"
+                                  style:
+                                    classes: "text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2"
+                              - Link:
+                                  href: "/getting-started"
+                                  children:
+                                    - Text:
+                                        text: "Getting started"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/components"
+                                  children:
+                                    - Text:
+                                        text: "Components"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/styling"
+                                  children:
+                                    - Text:
+                                        text: "Styling"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/document-format"
+                                  children:
+                                    - Text:
+                                        text: "Document format"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/lua-api"
+                                  children:
+                                    - Text:
+                                        text: "Lua API"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/http"
+                                  children:
+                                    - Text:
+                                        text: "HTTP"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/best-practices"
+                                  children:
+                                    - Text:
+                                        text: "Best practices"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                              - Link:
+                                  href: "/examples"
+                                  children:
+                                    - Text:
+                                        text: "Examples"
+                                        style:
+                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
+                  - Column:
+                      gap: 8
+                      style:
+                        classes: "flex-1 min-w-0 max-w-3xl"
+                      children:
+                        - Column:
+                            gap: 4
+                            children:
+                              - Heading:
+                                  level: 1
+                                  text: "NTML"
+                                  style:
+                                    classes: "text-4xl font-bold text-zinc-100"
+                              - Text:
+                                  text: "A secure, YAML-based UI language for NullTrace. Type-safe, designer-friendly, and sandboxed—no script injection or XSS."
+                                  style:
+                                    classes: "text-lg text-zinc-400 leading-relaxed"
+                        - Column:
+                            gap: 4
+                            children:
+                              - Heading:
+                                  level: 2
+                                  text: "What is NTML?"
+                                  style:
+                                    classes: "text-2xl font-semibold text-zinc-100"
+                              - Text:
+                                  text: "NullTrace Markup Language (NTML) is a declarative language for building user interfaces in the NullTrace game. It provides layout primitives (Flex, Grid), components (Text, Button, Input), CSS-like styling with optional Tailwind utility classes, and optional Lua scripting for dynamic behavior. All documents are validated server-side for security and consistency."
+                                  style:
+                                    classes: "text-zinc-400 leading-relaxed"
+                        - Column:
+                            gap: 3
+                            children:
+                              - Text:
+                                  text: "Documentation"
+                                  style:
+                                    classes: "text-sm font-semibold text-zinc-500 uppercase tracking-wider"
+                              - Row:
+                                  gap: 3
+                                  wrap: true
+                                  children:
+                                    - Link:
+                                        href: "/getting-started"
+                                        children:
+                                          - Text:
+                                              text: "Getting started"
+                                              style:
+                                                classes: "text-orange-500 hover:text-orange-400"
+                                    - Link:
+                                        href: "/components"
+                                        children:
+                                          - Text:
+                                              text: "Components"
+                                              style:
+                                                classes: "text-orange-500 hover:text-orange-400"
+                                    - Link:
+                                        href: "/styling"
+                                        children:
+                                          - Text:
+                                              text: "Styling"
+                                              style:
+                                                classes: "text-orange-500 hover:text-orange-400"
+                                    - Link:
+                                        href: "/document-format"
+                                        children:
+                                          - Text:
+                                              text: "Document format"
+                                              style:
+                                                classes: "text-orange-500 hover:text-orange-400"
+                                    - Link:
+                                        href: "/lua-api"
+                                        children:
+                                          - Text:
+                                              text: "Lua API"
+                                              style:
+                                                classes: "text-orange-500 hover:text-orange-400"
+                                    - Link:
+                                        href: "/http"
+                                        children:
+                                          - Text:
+                                              text: "HTTP"
+                                              style:
+                                                classes: "text-orange-500 hover:text-orange-400"
+                                    - Link:
+                                        href: "/best-practices"
+                                        children:
+                                          - Text:
+                                              text: "Best practices"
+                                              style:
+                                                classes: "text-orange-500 hover:text-orange-400"
+                                    - Link:
+                                        href: "/examples"
+                                        children:
+                                          - Text:
+                                              text: "Examples"
+                                              style:
+                                                classes: "text-orange-500 hover:text-orange-400"

@@ -16,6 +16,7 @@ import {
   resolveScriptUrl,
   getBaseHost,
 } from "../lib/browserVm";
+import { renderLucideIconToSvg } from "../lib/lucideNtmlIcons";
 import { useAuth } from "../contexts/AuthContext";
 import styles from "./Browser.module.css";
 
@@ -70,6 +71,7 @@ export default function Browser() {
   const [favorites, setFavorites] = useState<Omit<HistoryEntry, "timestamp">[]>([]);
   const [addressBarValue, setAddressBarValue] = useState(DEFAULT_BROWSER_URL);
   const addressInputRef = useRef<HTMLInputElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const showHistoryPage = activeTab?.url === BROWSER_HISTORY_URL;
@@ -78,6 +80,33 @@ export default function Browser() {
   useEffect(() => {
     if (activeTab) setAddressBarValue(activeTab.url);
   }, [activeTab?.id, activeTab?.url]);
+
+  // Resolve [data-lucide] placeholders in NTML-rendered iframe to Lucide SVG icons.
+  useEffect(() => {
+    if (activeTab?.contentType !== "html" || !activeTab?.content) return;
+    const timer = window.setTimeout(() => {
+      const iframe = iframeRef.current;
+      if (!iframe?.contentDocument) return;
+      const doc = iframe.contentDocument;
+      const placeholders = doc.querySelectorAll<HTMLElement>("[data-lucide]");
+      placeholders.forEach((el) => {
+        const name = el.getAttribute("data-lucide");
+        const size = Math.max(1, parseInt(el.getAttribute("data-size") ?? "24", 10));
+        const className = el.getAttribute("class") ?? undefined;
+        if (!name) return;
+        const svgString = renderLucideIconToSvg(name, size, className ?? undefined);
+        if (!svgString) return;
+        const wrap = doc.createElement("div");
+        wrap.innerHTML = svgString;
+        const svg = wrap.firstElementChild;
+        if (svg) {
+          svg.setAttribute("style", el.getAttribute("style") ?? "");
+          el.parentNode?.replaceChild(svg, el);
+        }
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeTab?.id, activeTab?.content, activeTab?.contentType]);
 
   const fetchVmUrl = useCallback(
     async (tabId: string, url: string) => {
@@ -583,8 +612,10 @@ export default function Browser() {
           <div className={styles.textContent}>Loading...</div>
         ) : (
           <iframe
+            ref={iframeRef}
             title="Page content"
             className={styles.iframe}
+            sandbox="allow-scripts allow-same-origin"
             srcDoc={activeTab?.content ?? ""}
           />
         )}
