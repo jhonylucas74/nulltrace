@@ -546,11 +546,7 @@ fn validate_column(column: &Column, depth: usize, font_families: &[String]) -> N
 
 fn validate_text(text: &Text, font_families: &[String]) -> NtmlResult<()> {
     validate_data_attributes(&text.data)?;
-    if text.text.is_empty() {
-        return Err(NtmlError::ValidationError(
-            "Text component must have non-empty text".to_string(),
-        ));
-    }
+    // Empty text is allowed (e.g. for cells updated via ui.set_text)
     validate_style(&text.style, font_families)
 }
 
@@ -597,6 +593,22 @@ fn validate_button(button: &Button, depth: usize, font_families: &[String]) -> N
     validate_children(&button.children, depth, font_families)
 }
 
+fn validate_lua_action_name(name: &str, component: &str, property: &str) -> NtmlResult<()> {
+    if name.is_empty() {
+        return Err(NtmlError::InvalidProperty {
+            component: component.to_string(),
+            property: property.to_string(),
+            reason: "must be non-empty".to_string(),
+        });
+    }
+    if name.contains(':') {
+        return Err(NtmlError::InvalidAction {
+            action: name.to_string(),
+        });
+    }
+    Ok(())
+}
+
 fn validate_input(input: &Input, font_families: &[String]) -> NtmlResult<()> {
     validate_data_attributes(&input.data)?;
     if input.name.is_empty() {
@@ -604,6 +616,9 @@ fn validate_input(input: &Input, font_families: &[String]) -> NtmlResult<()> {
             component: "Input".to_string(),
             property: "name".to_string(),
         });
+    }
+    if let Some(ref oc) = input.onchange {
+        validate_lua_action_name(oc, "Input", "onchange")?;
     }
     validate_style(&input.style, font_families)
 }
@@ -615,6 +630,9 @@ fn validate_checkbox(checkbox: &Checkbox, font_families: &[String]) -> NtmlResul
             component: "Checkbox".to_string(),
             property: "name".to_string(),
         });
+    }
+    if let Some(ref oc) = checkbox.onchange {
+        validate_lua_action_name(oc, "Checkbox", "onchange")?;
     }
     validate_style(&checkbox.style, font_families)
 }
@@ -633,6 +651,9 @@ fn validate_radio(radio: &Radio, font_families: &[String]) -> NtmlResult<()> {
             property: "value".to_string(),
         });
     }
+    if let Some(ref oc) = radio.onchange {
+        validate_lua_action_name(oc, "Radio", "onchange")?;
+    }
     validate_style(&radio.style, font_families)
 }
 
@@ -648,6 +669,9 @@ fn validate_select(select: &Select, font_families: &[String]) -> NtmlResult<()> 
         return Err(NtmlError::ValidationError(
             "Select component must have at least one option".to_string(),
         ));
+    }
+    if let Some(ref oc) = select.onchange {
+        validate_lua_action_name(oc, "Select", "onchange")?;
     }
     validate_style(&select.style, font_families)
 }
@@ -883,6 +907,7 @@ mod tests {
     fn test_validate_id_uniqueness() {
         let comp = Component::Container(Container {
             id: Some("foo".to_string()),
+            visible: None,
             style: None,
             children: Some(vec![
                 Component::Text(Text {

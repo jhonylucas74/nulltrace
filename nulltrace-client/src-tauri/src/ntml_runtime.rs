@@ -20,7 +20,14 @@ pub enum Patch {
     SetText { id: String, text: String },
     SetVisible { id: String, visible: bool },
     SetValue { id: String, value: f64 },
+    SetInputValue { id: String, value: String },
     SetDisabled { id: String, disabled: bool },
+    /// Replace the element's entire CSS class string.
+    SetClass { id: String, class: String },
+    /// Append one or more space-separated class tokens to the element's class.
+    AddClass { id: String, class: String },
+    /// Remove one or more space-separated class tokens from the element's class.
+    RemoveClass { id: String, class: String },
 }
 
 /// Import content for re-rendering with patches.
@@ -34,11 +41,15 @@ pub struct TabImport {
 pub struct TabLuaState {
     pub lua: Lua,
     pub patches: Arc<Mutex<Vec<Patch>>>,
+    /// Accumulated patches across handler runs (visibility, text, etc.) so UI state persists.
+    pub accumulated_patches: Arc<Mutex<Vec<Patch>>>,
     pub base_url: String,
     /// Serialized component tree for ui.get_value (Input/Checkbox/Select by name).
     pub component_yaml: String,
     /// Fetched imports for re-rendering with patches.
     pub imports: Vec<TabImport>,
+    /// Form values for current handler invocation (set before run_handler, read by ui.get_value).
+    pub form_values: Arc<Mutex<Option<std::collections::HashMap<String, String>>>>,
 }
 
 /// Global storage for tab states. Key = tab_id.
@@ -53,6 +64,7 @@ pub fn new_tab_state_store() -> TabStateStore {
 fn create_tab_lua(
     patches: Arc<Mutex<Vec<Patch>>>,
     _base_url: String,
+    form_values: Arc<Mutex<Option<std::collections::HashMap<String, String>>>>,
 ) -> Result<Lua, mlua::Error> {
     let lua = Lua::new();
     let _ = lua.sandbox(true);
@@ -113,10 +125,52 @@ fn create_tab_lua(
             Ok(())
         })?,
     )?;
-    // ui.get_value(name) - reads from component tree; for now returns nil (Phase 3 will implement)
+    let p5 = patches.clone();
+    ui.set(
+        "set_input_value",
+        lua.create_function(move |_, (id, value): (String, String)| {
+            p5.lock().unwrap().push(Patch::SetInputValue { id, value });
+            Ok(())
+        })?,
+    )?;
+    let p6 = patches.clone();
+    ui.set(
+        "set_class",
+        lua.create_function(move |_, (id, class): (String, String)| {
+            p6.lock().unwrap().push(Patch::SetClass { id, class });
+            Ok(())
+        })?,
+    )?;
+    let p7 = patches.clone();
+    ui.set(
+        "add_class",
+        lua.create_function(move |_, (id, class): (String, String)| {
+            p7.lock().unwrap().push(Patch::AddClass { id, class });
+            Ok(())
+        })?,
+    )?;
+    let p8 = patches.clone();
+    ui.set(
+        "remove_class",
+        lua.create_function(move |_, (id, class): (String, String)| {
+            p8.lock().unwrap().push(Patch::RemoveClass { id, class });
+            Ok(())
+        })?,
+    )?;
+    // ui.get_value(name) - reads from form_values passed at handler invocation
+    let fv = form_values.clone();
     ui.set(
         "get_value",
-        lua.create_function(|_, _name: String| Ok(mlua::Value::Nil))?,
+        lua.create_function(move |lua, name: String| {
+            let guard = fv.lock().unwrap();
+            let val = guard
+                .as_ref()
+                .and_then(|m| m.get(&name).cloned());
+            match val {
+                Some(s) => Ok(mlua::Value::String(lua.create_string(&s)?)),
+                None => Ok(mlua::Value::Nil),
+            }
+        })?,
     )?;
     lua.globals().set("ui", ui)?;
 
@@ -140,7 +194,10 @@ pub fn create_tab_state(
     imports: Vec<TabImport>,
 ) -> Result<(), String> {
     let patches = Arc::new(Mutex::new(Vec::new()));
-    let lua = create_tab_lua(patches.clone(), base_url.clone()).map_err(|e| e.to_string())?;
+    let accumulated_patches = Arc::new(Mutex::new(Vec::new()));
+    let form_values = Arc::new(Mutex::new(None));
+    let lua = create_tab_lua(patches.clone(), base_url.clone(), form_values.clone())
+        .map_err(|e| e.to_string())?;
 
     // Load scripts in order
     let mut all_script = String::new();
@@ -159,9 +216,11 @@ pub fn create_tab_state(
         TabLuaState {
             lua,
             patches,
+            accumulated_patches,
             base_url,
             component_yaml,
             imports,
+            form_values,
         },
     );
     Ok(())
@@ -194,18 +253,74 @@ pub fn render_with_patches(
     )
 }
 
+/// Merges new patches into accumulated state and renders. UI state (visibility, text, etc.) persists across handler runs.
+pub fn render_with_accumulated_patches(
+    store: &TabStateStore,
+    tab_id: &str,
+    new_patches: &[Patch],
+) -> Result<String, String> {
+    let state = store
+        .get(tab_id)
+        .ok_or_else(|| format!("Tab {} not found", tab_id))?;
+
+    let patches = {
+        let mut acc = state.accumulated_patches.lock().unwrap();
+        acc.extend(new_patches.iter().cloned());
+        acc.clone()
+    };
+
+    let ntml_imports: Vec<crate::ntml_html::NtmlImport> = state
+        .imports
+        .iter()
+        .map(|i| crate::ntml_html::NtmlImport {
+            alias: i.alias.clone(),
+            content: i.content.clone(),
+        })
+        .collect();
+
+    crate::ntml_html::ntml_to_html_with_imports_and_patches(
+        &state.component_yaml,
+        &ntml_imports,
+        &patches,
+        Some(&state.base_url),
+    )
+}
+
 /// Runs a Lua handler by name. Returns collected patches or error.
 /// Uses timeout (200ms) and instruction yield (core style).
 pub fn run_handler(
     store: &TabStateStore,
     tab_id: &str,
     action: &str,
+    form_values: Option<std::collections::HashMap<String, String>>,
+    event_data: Option<std::collections::HashMap<String, String>>,
 ) -> Result<Vec<Patch>, String> {
     let state = store
         .get_mut(tab_id)
         .ok_or_else(|| format!("Tab {} not found", tab_id))?;
 
     state.patches.lock().unwrap().clear();
+
+    // Set form_values for ui.get_value
+    *state.form_values.lock().unwrap() = form_values;
+
+    // Set event_row, event_col, event_data for Lua handlers
+    if let Some(ref ed) = event_data {
+        if let Some(r) = ed.get("row") {
+            let _ = state.lua.globals().set("event_row", r.parse::<i32>().unwrap_or(0));
+        }
+        if let Some(c) = ed.get("col") {
+            let _ = state.lua.globals().set("event_col", c.parse::<i32>().unwrap_or(0));
+        }
+        let table = state.lua.create_table().map_err(|e| e.to_string())?;
+        for (k, v) in ed {
+            table.set(k.clone(), v.clone()).map_err(|e| e.to_string())?;
+        }
+        let _ = state.lua.globals().set("event_data", table);
+    } else {
+        let _ = state.lua.globals().set("event_row", 0i32);
+        let _ = state.lua.globals().set("event_col", 0i32);
+    }
 
     let func = state
         .lua
@@ -271,6 +386,10 @@ pub fn run_handler(
     });
 
     let patches = state.patches.lock().unwrap().clone();
+
+    // Clear form_values after handler
+    *state.form_values.lock().unwrap() = None;
+
     Ok(patches)
 }
 

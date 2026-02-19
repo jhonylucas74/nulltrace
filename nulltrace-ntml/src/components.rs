@@ -62,6 +62,8 @@ pub struct Container {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub visible: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<Style>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<Component>>,
@@ -342,6 +344,8 @@ pub struct Input {
     pub disabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<Style>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onchange: Option<String>,
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub data: DataAttributes,
 }
@@ -368,6 +372,8 @@ pub struct Checkbox {
     pub disabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<Style>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onchange: Option<String>,
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub data: DataAttributes,
 }
@@ -387,6 +393,8 @@ pub struct Radio {
     pub disabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<Style>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onchange: Option<String>,
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub data: DataAttributes,
 }
@@ -404,6 +412,8 @@ pub struct Select {
     pub disabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<Style>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onchange: Option<String>,
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub data: DataAttributes,
 }

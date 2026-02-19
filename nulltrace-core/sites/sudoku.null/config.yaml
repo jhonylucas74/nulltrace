@@ -1,0 +1,10 @@
+# VM config for site sudoku.null (folder name = dns_name)
+hostname: sudoku-server
+dns_name: sudoku.null
+# Fixed IP distinct from ntml.org (10.0.1.100)
+ip: 10.0.1.101
+cpu_cores: 2
+memory_mb: 2048
+disk_mb: 20480
+bootstrap: |
+  httpd /var/www

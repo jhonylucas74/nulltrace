@@ -372,9 +372,25 @@ export default function Browser() {
     const handler = (e: MessageEvent) => {
       const d = e.data;
       if (d?.type === "ntml-action" && typeof d.action === "string") {
+        const doc = iframeRef.current?.contentDocument;
+        const formValues: Record<string, string> = {};
+        if (doc) {
+          doc.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input[name], select[name]").forEach((el) => {
+            const name = el.getAttribute("name");
+            if (!name) return;
+            if (el instanceof HTMLInputElement && el.type === "checkbox") {
+              formValues[name] = el.checked ? "true" : "false";
+            } else {
+              formValues[name] = el.value;
+            }
+          });
+        }
+        const eventData = d.eventData && typeof d.eventData === "object" ? d.eventData : undefined;
         invoke<{ html: string }>("ntml_run_handler", {
           tabId: activeTabId,
           action: d.action,
+          formValues: Object.keys(formValues).length > 0 ? formValues : undefined,
+          eventData,
         })
           .then((res) => {
             setTabs((prev) =>

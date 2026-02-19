@@ -106,10 +106,12 @@ fn ntml_create_tab_state(
 fn ntml_run_handler(
     tab_id: String,
     action: String,
+    form_values: Option<std::collections::HashMap<String, String>>,
+    event_data: Option<std::collections::HashMap<String, String>>,
     store: tauri::State<ntml_runtime::TabStateStore>,
 ) -> Result<ntml_run_handler_result::NtmlRunHandlerResult, String> {
-    let patches = ntml_runtime::run_handler(&store, &tab_id, &action)?;
-    let html = ntml_runtime::render_with_patches(&store, &tab_id, &patches)?;
+    let patches = ntml_runtime::run_handler(&store, &tab_id, &action, form_values, event_data)?;
+    let html = ntml_runtime::render_with_accumulated_patches(&store, &tab_id, &patches)?;
     Ok(ntml_run_handler_result::NtmlRunHandlerResult { patches, html })
 }
 

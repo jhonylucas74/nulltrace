@@ -811,6 +811,10 @@ fn parse_container_node<'a>(
 ) -> NtmlResult<Container> {
     Ok(Container {
         id: get_id(node),
+        visible: node
+            .attribute("visible")
+            .map(|s| parse_bool(s, "visible"))
+            .transpose()?,
         style: parse_style_from_node(node)?,
         children: parse_children_nodes(node, import_aliases)?,
         data: parse_data_attributes(node)?,
@@ -1080,6 +1084,7 @@ fn parse_input_node(node: Node) -> NtmlResult<Input> {
             .map(|s| parse_bool(s, "disabled"))
             .transpose()?,
         style: parse_style_from_node(node)?,
+        onchange: node.attribute("onchange").map(|s| s.to_string()),
         data: parse_data_attributes(node)?,
     })
 }
@@ -1104,6 +1109,7 @@ fn parse_checkbox_node(node: Node) -> NtmlResult<Checkbox> {
             .map(|s| parse_bool(s, "disabled"))
             .transpose()?,
         style: parse_style_from_node(node)?,
+        onchange: node.attribute("onchange").map(|s| s.to_string()),
         data: parse_data_attributes(node)?,
     })
 }
@@ -1135,6 +1141,7 @@ fn parse_radio_node(node: Node) -> NtmlResult<Radio> {
             .map(|s| parse_bool(s, "disabled"))
             .transpose()?,
         style: parse_style_from_node(node)?,
+        onchange: node.attribute("onchange").map(|s| s.to_string()),
         data: parse_data_attributes(node)?,
     })
 }
@@ -1187,6 +1194,7 @@ fn parse_select_node(node: Node) -> NtmlResult<Select> {
             .map(|s| parse_bool(s, "disabled"))
             .transpose()?,
         style: parse_style_from_node(node)?,
+        onchange: node.attribute("onchange").map(|s| s.to_string()),
         data: parse_data_attributes(node)?,
     })
 }

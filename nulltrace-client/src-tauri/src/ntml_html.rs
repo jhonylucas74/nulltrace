@@ -20,7 +20,15 @@ pub struct PatchOverride {
     pub text: Option<String>,
     pub visible: Option<bool>,
     pub value: Option<f64>,
+    /// Input value (string) for Input components.
+    pub input_value: Option<String>,
     pub disabled: Option<bool>,
+    /// Full class replacement (set_class). If set, replaces style.classes entirely.
+    pub class_replace: Option<String>,
+    /// Class tokens to append (add_class).
+    pub class_add: Vec<String>,
+    /// Class tokens to remove (remove_class).
+    pub class_remove: Vec<String>,
 }
 
 /// Build PatchOverride map from ntml_runtime patches.
@@ -37,8 +45,24 @@ pub fn patches_to_map(patches: &[crate::ntml_runtime::Patch]) -> HashMap<String,
             crate::ntml_runtime::Patch::SetValue { id, value } => {
                 map.entry(id.clone()).or_default().value = Some(*value);
             }
+            crate::ntml_runtime::Patch::SetInputValue { id, value } => {
+                map.entry(id.clone()).or_default().input_value = Some(value.clone());
+            }
             crate::ntml_runtime::Patch::SetDisabled { id, disabled } => {
                 map.entry(id.clone()).or_default().disabled = Some(*disabled);
+            }
+            crate::ntml_runtime::Patch::SetClass { id, class } => {
+                let po = map.entry(id.clone()).or_default();
+                po.class_replace = Some(class.clone());
+                // Reset add/remove when a full replace is issued
+                po.class_add.clear();
+                po.class_remove.clear();
+            }
+            crate::ntml_runtime::Patch::AddClass { id, class } => {
+                map.entry(id.clone()).or_default().class_add.push(class.clone());
+            }
+            crate::ntml_runtime::Patch::RemoveClass { id, class } => {
+                map.entry(id.clone()).or_default().class_remove.push(class.clone());
             }
         }
     }
@@ -164,6 +188,7 @@ fn substitute_props_in_component(
             ..t.clone()
         }),
         Component::Container(ct) => Component::Container(Container {
+            visible: ct.visible,
             style: ct
                 .style
                 .as_ref()
@@ -430,13 +455,62 @@ fn sanitize_html_fragment(html: &str) -> String {
     out
 }
 
-/// Build id and class attributes from component id and style (for Tailwind etc.).
-fn build_attrs(id: Option<&str>, style: Option<&Style>) -> String {
+/// Compute the final class string for an element, merging style + patch overrides.
+/// Priority: set_class replaces style.classes; add_class appends; remove_class removes tokens.
+fn compute_class(
+    id: Option<&str>,
+    style: Option<&Style>,
+    patches: &HashMap<String, PatchOverride>,
+) -> Option<String> {
+    let po = id.and_then(|i| patches.get(i));
+    // Base: class_replace takes priority over style.classes
+    let base: Option<&str> = po
+        .and_then(|p| p.class_replace.as_deref())
+        .or_else(|| style.and_then(|s| s.classes.as_deref()));
+
+    let has_mutations = po.map(|p| !p.class_add.is_empty() || !p.class_remove.is_empty()).unwrap_or(false);
+
+    if !has_mutations {
+        return base.map(|s| s.to_string());
+    }
+
+    let po = po.unwrap();
+    // Build ordered token list from base (dedup via seen set)
+    let mut tokens: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if let Some(b) = base {
+        for tok in b.split_whitespace() {
+            if seen.insert(tok.to_string()) {
+                tokens.push(tok.to_string());
+            }
+        }
+    }
+    // Add tokens
+    for chunk in &po.class_add {
+        for tok in chunk.split_whitespace() {
+            if seen.insert(tok.to_string()) {
+                tokens.push(tok.to_string());
+            }
+        }
+    }
+    // Remove tokens
+    let mut remove_set: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for chunk in &po.class_remove {
+        for tok in chunk.split_whitespace() {
+            remove_set.insert(tok);
+        }
+    }
+    tokens.retain(|t| !remove_set.contains(t.as_str()));
+
+    if tokens.is_empty() { None } else { Some(tokens.join(" ")) }
+}
+
+/// Build id and class attributes.
+fn build_attrs(id: Option<&str>, class: Option<&str>) -> String {
     let id_part = id
         .map(|s| format!(" id=\"{}\"", escape_html(s)))
         .unwrap_or_default();
-    let class_part = style
-        .and_then(|s| s.classes.as_ref())
+    let class_part = class
         .map(|c| format!(" class=\"{}\"", escape_html(c)))
         .unwrap_or_default();
     format!("{}{}", id_part, class_part)
@@ -826,10 +900,14 @@ fn component_to_html(
     base_url: Option<&str>,
 ) -> std::fmt::Result {
     if let Some(id) = get_component_id(c) {
-        if let Some(ov) = patches.get(id) {
-            if ov.visible == Some(false) {
-                return Ok(());
-            }
+        let patch_visible = patches.get(id).and_then(|ov| ov.visible);
+        let attr_visible = match c {
+            Component::Container(ct) => ct.visible,
+            _ => None,
+        };
+        let visible = patch_visible.or(attr_visible).unwrap_or(true);
+        if !visible {
+            return Ok(());
         }
     }
     match c {
@@ -839,7 +917,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(ct.id.as_deref(), ct.style.as_ref());
+            let cls = compute_class(ct.id.as_deref(), ct.style.as_ref(), patches);
+            let attrs = build_attrs(ct.id.as_deref(), cls.as_deref());
             write!(out, "<div{} style=\"{}\">", attrs, style)?;
             if let Some(children) = &ct.children {
                 for ch in children {
@@ -874,7 +953,8 @@ fn component_to_html(
             if let Some(g) = f.gap {
                 style.push_str(&format!("gap:{}px;", g));
             }
-            let attrs = build_attrs(f.id.as_deref(), f.style.as_ref());
+            let cls = compute_class(f.id.as_deref(), f.style.as_ref(), patches);
+            let attrs = build_attrs(f.id.as_deref(), cls.as_deref());
             write!(out, "<div{} style=\"{}\">", attrs, style)?;
             if let Some(children) = &f.children {
                 for ch in children {
@@ -896,7 +976,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(t.id.as_deref(), t.style.as_ref());
+            let cls = compute_class(t.id.as_deref(), t.style.as_ref(), patches);
+            let attrs = build_attrs(t.id.as_deref(), cls.as_deref());
             write!(
                 out,
                 "<span{} style=\"{}\">{}</span>",
@@ -918,15 +999,20 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(b.id.as_deref(), b.style.as_ref());
+            let cls = compute_class(b.id.as_deref(), b.style.as_ref(), patches);
+            let attrs = build_attrs(b.id.as_deref(), cls.as_deref());
             let has_lua_action = !disabled && !b.action.contains(':');
-            let data_action = if has_lua_action {
-                format!(" data-action=\"{}\"", escape_html(&b.action))
-            } else {
-                String::new()
-            };
+            let mut data_attrs = String::new();
+            if has_lua_action {
+                data_attrs.push_str(&format!(" data-action=\"{}\"", escape_html(&b.action)));
+            }
+            for (k, v) in &b.data {
+                if k.starts_with("data-") {
+                    data_attrs.push_str(&format!(" {}=\"{}\"", k, escape_html(v)));
+                }
+            }
             let onclick = if has_lua_action {
-                " onclick=\"var a=this.getAttribute('data-action');if(a)window.parent.postMessage({type:'ntml-action',action:a},'*')\""
+                " onclick=\"var a=this.getAttribute('data-action');if(a){var ed={};for(var i=0;i<this.attributes.length;i++){var x=this.attributes[i];if(x.name.indexOf('data-')===0)ed[x.name.slice(5)]=x.value}window.parent.postMessage({type:'ntml-action',action:a,eventData:ed},'*')}\""
                     .to_string()
             } else {
                 String::new()
@@ -935,7 +1021,7 @@ fn component_to_html(
             write!(
                 out,
                 "<button{} type=\"button\"{}{} style=\"{}\"{}>",
-                attrs, data_action, onclick, style, disabled_attr
+                attrs, data_attrs, onclick, style, disabled_attr
             )?;
             if let Some(children) = &b.children {
                 for ch in children {
@@ -970,7 +1056,8 @@ fn component_to_html(
                 .map(style_to_css)
                 .unwrap_or_default();
             style.insert_str(0, &fit_css);
-            let attrs = build_attrs(img.id.as_deref(), img.style.as_ref());
+            let cls = compute_class(img.id.as_deref(), img.style.as_ref(), patches);
+            let attrs = build_attrs(img.id.as_deref(), cls.as_deref());
             let alt = img
                 .alt
                 .as_ref()
@@ -1005,7 +1092,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(lnk.id.as_deref(), lnk.style.as_ref());
+            let cls = compute_class(lnk.id.as_deref(), lnk.style.as_ref(), patches);
+            let attrs = build_attrs(lnk.id.as_deref(), cls.as_deref());
             write!(
                 out,
                 "<a{} href=\"{}\" data-ntml-url=\"{}\" data-ntml-target=\"{}\" style=\"color:inherit;cursor:pointer;text-decoration:none;{}\" onclick=\"event.preventDefault();var u=this.getAttribute('data-ntml-url');var t=this.getAttribute('data-ntml-target');if(u)window.parent.postMessage({{type:'ntml-navigate',url:u,target:t||'same'}},'*')\">",
@@ -1043,7 +1131,8 @@ fn component_to_html(
             if let Some(g) = r.gap {
                 style.push_str(&format!("gap:{}px;", g));
             }
-            let attrs = build_attrs(r.id.as_deref(), r.style.as_ref());
+            let cls = compute_class(r.id.as_deref(), r.style.as_ref(), patches);
+            let attrs = build_attrs(r.id.as_deref(), cls.as_deref());
             write!(out, "<div{} style=\"{}\">", attrs, style)?;
             if let Some(children) = &r.children {
                 for ch in children {
@@ -1071,7 +1160,8 @@ fn component_to_html(
             if let Some(g) = col.gap {
                 style.push_str(&format!("gap:{}px;", g));
             }
-            let attrs = build_attrs(col.id.as_deref(), col.style.as_ref());
+            let cls = compute_class(col.id.as_deref(), col.style.as_ref(), patches);
+            let attrs = build_attrs(col.id.as_deref(), cls.as_deref());
             write!(out, "<div{} style=\"{}\">", attrs, style)?;
             if let Some(children) = &col.children {
                 for ch in children {
@@ -1104,7 +1194,8 @@ fn component_to_html(
                     }
                 }
             }
-            let attrs = build_attrs(g.id.as_deref(), g.style.as_ref());
+            let cls = compute_class(g.id.as_deref(), g.style.as_ref(), patches);
+            let attrs = build_attrs(g.id.as_deref(), cls.as_deref());
             write!(out, "<div{} style=\"{}\">", attrs, style)?;
             if let Some(children) = &g.children {
                 for ch in children {
@@ -1129,7 +1220,8 @@ fn component_to_html(
             } else {
                 "position:absolute;inset:0;display:flex;".to_string()
             };
-            let attrs = build_attrs(s.id.as_deref(), s.style.as_ref());
+            let cls = compute_class(s.id.as_deref(), s.style.as_ref(), patches);
+            let attrs = build_attrs(s.id.as_deref(), cls.as_deref());
             write!(out, "<div{} style=\"{}\">", attrs, style)?;
             write!(out, "<div style=\"{}\">", inner_style)?;
             if let Some(children) = &s.children {
@@ -1155,7 +1247,8 @@ fn component_to_html(
                     "hr"
                 ),
             };
-            let attrs = build_attrs(d.id.as_deref(), d.style.as_ref());
+            let cls = compute_class(d.id.as_deref(), d.style.as_ref(), patches);
+            let attrs = build_attrs(d.id.as_deref(), cls.as_deref());
             let combined = if style.is_empty() {
                 base_style.to_string()
             } else {
@@ -1191,7 +1284,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(pb.id.as_deref(), pb.style.as_ref());
+            let cls = compute_class(pb.id.as_deref(), pb.style.as_ref(), patches);
+            let attrs = build_attrs(pb.id.as_deref(), cls.as_deref());
             write!(
                 out,
                 "<div{} style=\"background:#eee;border-radius:4px;overflow:hidden;{}\"><div style=\"width:{}%;height:20px;background:#4a9;{}\"></div></div>",
@@ -1211,7 +1305,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(b.id.as_deref(), b.style.as_ref());
+            let cls = compute_class(b.id.as_deref(), b.style.as_ref(), patches);
+            let attrs = build_attrs(b.id.as_deref(), cls.as_deref());
             write!(
                 out,
                 "<span{} style=\"display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;{}\">{}</span>",
@@ -1221,82 +1316,201 @@ fn component_to_html(
             )?;
         }
         Component::Input(inp) => {
+            let disabled = inp
+                .id
+                .as_ref()
+                .and_then(|id| patches.get(id))
+                .and_then(|ov| ov.disabled)
+                .or(inp.disabled)
+                .unwrap_or(false);
             let style = inp
                 .style
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(inp.id.as_deref(), inp.style.as_ref());
+            let cls = compute_class(inp.id.as_deref(), inp.style.as_ref(), patches);
+            let attrs = build_attrs(inp.id.as_deref(), cls.as_deref());
             let ph = inp
                 .placeholder
                 .as_ref()
                 .map(|s| escape_html(s))
                 .unwrap_or_else(|| "".to_string());
             let val = inp
-                .value
+                .id
                 .as_ref()
+                .and_then(|id| patches.get(id))
+                .and_then(|ov| ov.input_value.as_ref())
                 .map(|s| escape_html(s))
+                .or_else(|| inp.value.as_ref().map(|s| escape_html(s)))
                 .unwrap_or_else(|| "".to_string());
+            let input_type = inp
+                .input_type
+                .as_ref()
+                .map(|t| match t {
+                    nulltrace_ntml::components::InputType::Text => "text",
+                    nulltrace_ntml::components::InputType::Password => "password",
+                    nulltrace_ntml::components::InputType::Number => "number",
+                })
+                .unwrap_or("text");
+            let onchange_attr = if !disabled {
+                inp.onchange
+                    .as_ref()
+                    .filter(|a| !a.is_empty() && !a.contains(':'))
+                    .map(|a| {
+                        format!(
+                            " onchange=\"window.parent.postMessage({{type:'ntml-action',action:'{}'}},'*')\"",
+                            escape_html(a)
+                        )
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let disabled_attr = if disabled { " disabled" } else { "" };
+            let maxlength_attr = inp
+                .max_length
+                .map(|n| format!(" maxlength=\"{}\"", n))
+                .unwrap_or_default();
             write!(
                 out,
-                "<input{} type=\"text\" name=\"{}\" placeholder=\"{}\" value=\"{}\" style=\"{}\" readonly disabled>",
+                "<input{} type=\"{}\" name=\"{}\" placeholder=\"{}\" value=\"{}\" style=\"{}\"{}{}{}>",
                 attrs,
+                input_type,
                 escape_html(&inp.name),
                 ph,
                 val,
-                style
+                style,
+                onchange_attr,
+                disabled_attr,
+                maxlength_attr
             )?;
         }
         Component::Checkbox(cb) => {
+            let disabled = cb
+                .id
+                .as_ref()
+                .and_then(|id| patches.get(id))
+                .and_then(|ov| ov.disabled)
+                .or(cb.disabled)
+                .unwrap_or(false);
             let style = cb
                 .style
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(cb.id.as_deref(), cb.style.as_ref());
+            let cls = compute_class(cb.id.as_deref(), cb.style.as_ref(), patches);
+            let attrs = build_attrs(cb.id.as_deref(), cls.as_deref());
             let checked = cb.checked.unwrap_or(false);
+            let onchange_attr = if !disabled {
+                cb.onchange
+                    .as_ref()
+                    .filter(|a| !a.is_empty() && !a.contains(':'))
+                    .map(|a| {
+                        format!(
+                            " onchange=\"window.parent.postMessage({{type:'ntml-action',action:'{}'}},'*')\"",
+                            escape_html(a)
+                        )
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let disabled_attr = if disabled { " disabled" } else { "" };
             write!(
                 out,
-                "<label{} style=\"{}\"><input type=\"checkbox\" name=\"{}\" {} disabled> {}</label>",
+                "<label{} style=\"{}\"><input type=\"checkbox\" name=\"{}\" {}{}{}> {}</label>",
                 attrs,
                 style,
                 escape_html(&cb.name),
-                if checked { "checked" } else { "" },
+                if checked { "checked " } else { "" },
+                onchange_attr,
+                disabled_attr,
                 escape_html(cb.label.as_deref().unwrap_or(""))
             )?;
         }
         Component::Radio(r) => {
+            let disabled = r
+                .id
+                .as_ref()
+                .and_then(|id| patches.get(id))
+                .and_then(|ov| ov.disabled)
+                .or(r.disabled)
+                .unwrap_or(false);
             let style = r
                 .style
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(r.id.as_deref(), r.style.as_ref());
+            let cls = compute_class(r.id.as_deref(), r.style.as_ref(), patches);
+            let attrs = build_attrs(r.id.as_deref(), cls.as_deref());
             let checked = r.checked.unwrap_or(false);
+            let onchange_attr = if !disabled {
+                r.onchange
+                    .as_ref()
+                    .filter(|a| !a.is_empty() && !a.contains(':'))
+                    .map(|a| {
+                        format!(
+                            " onchange=\"window.parent.postMessage({{type:'ntml-action',action:'{}'}},'*')\"",
+                            escape_html(a)
+                        )
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let disabled_attr = if disabled { " disabled" } else { "" };
             write!(
                 out,
-                "<label{} style=\"{}\"><input type=\"radio\" name=\"{}\" value=\"{}\" {} disabled> {}</label>",
+                "<label{} style=\"{}\"><input type=\"radio\" name=\"{}\" value=\"{}\" {}{}{}> {}</label>",
                 attrs,
                 style,
                 escape_html(&r.name),
                 escape_html(&r.value),
-                if checked { "checked" } else { "" },
+                if checked { "checked " } else { "" },
+                onchange_attr,
+                disabled_attr,
                 escape_html(r.label.as_deref().unwrap_or(""))
             )?;
         }
         Component::Select(sel) => {
+            let disabled = sel
+                .id
+                .as_ref()
+                .and_then(|id| patches.get(id))
+                .and_then(|ov| ov.disabled)
+                .or(sel.disabled)
+                .unwrap_or(false);
             let style = sel
                 .style
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(sel.id.as_deref(), sel.style.as_ref());
-            write!(out, "<select{} name=\"{}\" style=\"{}\" disabled>", attrs, escape_html(&sel.name), style)?;
+            let cls = compute_class(sel.id.as_deref(), sel.style.as_ref(), patches);
+            let attrs = build_attrs(sel.id.as_deref(), cls.as_deref());
+            let onchange_attr = if !disabled {
+                sel.onchange
+                    .as_ref()
+                    .filter(|a| !a.is_empty() && !a.contains(':'))
+                    .map(|a| {
+                        format!(
+                            " onchange=\"window.parent.postMessage({{type:'ntml-action',action:'{}'}},'*')\"",
+                            escape_html(a)
+                        )
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let disabled_attr = if disabled { " disabled" } else { "" };
+            let val = sel.value.as_deref().unwrap_or("");
+            write!(out, "<select{} name=\"{}\" style=\"{}\"{}{}>", attrs, escape_html(&sel.name), style, onchange_attr, disabled_attr)?;
             for opt in &sel.options {
+                let sel_attr = if opt.value == val { " selected" } else { "" };
                 write!(
                     out,
-                    "<option value=\"{}\">{}</option>",
+                    "<option value=\"{}\"{}>{}</option>",
                     escape_html(&opt.value),
+                    sel_attr,
                     escape_html(&opt.label)
                 )?;
             }
@@ -1310,7 +1524,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(ic.id.as_deref(), ic.style.as_ref());
+            let cls = compute_class(ic.id.as_deref(), ic.style.as_ref(), patches);
+            let attrs = build_attrs(ic.id.as_deref(), cls.as_deref());
             let title_attr = if ic.name.is_empty() {
                 String::new()
             } else {
@@ -1338,7 +1553,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(co.id.as_deref(), co.style.as_ref());
+            let cls = compute_class(co.id.as_deref(), co.style.as_ref(), patches);
+            let attrs = build_attrs(co.id.as_deref(), cls.as_deref());
             let lang_class = co
                 .language
                 .as_ref()
@@ -1357,7 +1573,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(m.id.as_deref(), m.style.as_ref());
+            let cls = compute_class(m.id.as_deref(), m.style.as_ref(), patches);
+            let attrs = build_attrs(m.id.as_deref(), cls.as_deref());
             let inner = markdown_to_sanitized_html(&m.content);
             write!(out, "<div{} class=\"ntml-markdown\" style=\"{}\">{}</div>", attrs, style_css, inner)?;
         }
@@ -1367,7 +1584,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(list.id.as_deref(), list.style.as_ref());
+            let cls = compute_class(list.id.as_deref(), list.style.as_ref(), patches);
+            let attrs = build_attrs(list.id.as_deref(), cls.as_deref());
             let tag = if list.ordered == Some(true) { "ol" } else { "ul" };
             write!(out, "<{}{} style=\"{}\">", tag, attrs, style_css)?;
             if let Some(children) = &list.children {
@@ -1383,7 +1601,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(li.id.as_deref(), li.style.as_ref());
+            let cls = compute_class(li.id.as_deref(), li.style.as_ref(), patches);
+            let attrs = build_attrs(li.id.as_deref(), cls.as_deref());
             write!(out, "<li{} style=\"{}\">", attrs, style_css)?;
             if let Some(children) = &li.children {
                 for ch in children {
@@ -1398,7 +1617,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(h.id.as_deref(), h.style.as_ref());
+            let cls = compute_class(h.id.as_deref(), h.style.as_ref(), patches);
+            let attrs = build_attrs(h.id.as_deref(), cls.as_deref());
             let tag = match h.level {
                 1 => "h1",
                 2 => "h2",
@@ -1412,7 +1632,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(t.id.as_deref(), t.style.as_ref());
+            let cls = compute_class(t.id.as_deref(), t.style.as_ref(), patches);
+            let attrs = build_attrs(t.id.as_deref(), cls.as_deref());
             write!(out, "<table{} style=\"{}\">", attrs, style_css)?;
             if !t.headers.is_empty() {
                 write!(out, "<thead><tr>")?;
@@ -1437,7 +1658,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(bq.id.as_deref(), bq.style.as_ref());
+            let cls = compute_class(bq.id.as_deref(), bq.style.as_ref(), patches);
+            let attrs = build_attrs(bq.id.as_deref(), cls.as_deref());
             write!(out, "<blockquote{} style=\"{}\">", attrs, style_css)?;
             if let Some(children) = &bq.children {
                 for ch in children {
@@ -1452,7 +1674,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(pre.id.as_deref(), pre.style.as_ref());
+            let cls = compute_class(pre.id.as_deref(), pre.style.as_ref(), patches);
+            let attrs = build_attrs(pre.id.as_deref(), cls.as_deref());
             write!(out, "<pre{} style=\"{}\">{}</pre>", attrs, style_css, escape_html(&pre.text))?;
         }
         Component::Details(d) => {
@@ -1461,7 +1684,8 @@ fn component_to_html(
                 .as_ref()
                 .map(style_to_css)
                 .unwrap_or_default();
-            let attrs = build_attrs(d.id.as_deref(), d.style.as_ref());
+            let cls = compute_class(d.id.as_deref(), d.style.as_ref(), patches);
+            let attrs = build_attrs(d.id.as_deref(), cls.as_deref());
             let open_attr = if d.open == Some(true) { " open" } else { "" };
             write!(out, "<details{}{} style=\"{}\">", attrs, open_attr, style_css)?;
             write!(out, "<summary>{}</summary>", escape_html(&d.summary))?;

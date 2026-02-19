@@ -10,6 +10,7 @@ export const BROWSER_HISTORY_URL = "browser://history";
 const PAGE_TITLES: Record<string, string> = {
   "search.example": "Search",
   "ntml.org": "NTML",
+  "sudoku.null": "Sudoku",
   "about:blank": "Blank",
   [BROWSER_HISTORY_URL]: "History",
 };
@@ -223,6 +224,7 @@ export function httpErrorHtml(status: number, reason?: string): string {
 const PAGES: Record<string, string> = {
   "search.example": SEARCH_PAGE_HTML,
   "ntml.org": BLANK_HTML, // Fetched from VM; placeholder until loaded
+  "sudoku.null": BLANK_HTML, // Fetched from VM; placeholder until loaded
   "about:blank": BLANK_HTML,
   [BROWSER_HISTORY_URL]: BLANK_HTML, // Rendered by Browser component, not iframe
 };
