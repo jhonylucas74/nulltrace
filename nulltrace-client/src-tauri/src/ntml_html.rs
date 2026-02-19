@@ -276,6 +276,59 @@ fn substitute_props_in_component(
             }),
             ..lnk.clone()
         }),
+        Component::Code(co) => Component::Code(Code {
+            style: co.style.as_ref().map(|s| substitute_props_in_style(s, props)),
+            ..co.clone()
+        }),
+        Component::Markdown(m) => Component::Markdown(Markdown {
+            style: m.style.as_ref().map(|s| substitute_props_in_style(s, props)),
+            ..m.clone()
+        }),
+        Component::List(l) => Component::List(List {
+            style: l.style.as_ref().map(|s| substitute_props_in_style(s, props)),
+            children: l.children.as_ref().map(|ch| {
+                ch.iter()
+                    .map(|c| substitute_props_in_component(c, props))
+                    .collect()
+            }),
+            ..l.clone()
+        }),
+        Component::ListItem(li) => Component::ListItem(ListItem {
+            style: li.style.as_ref().map(|s| substitute_props_in_style(s, props)),
+            children: li.children.as_ref().map(|ch| {
+                ch.iter()
+                    .map(|c| substitute_props_in_component(c, props))
+                    .collect()
+            }),
+            ..li.clone()
+        }),
+        Component::Heading(h) => Component::Heading(Heading {
+            style: h.style.as_ref().map(|s| substitute_props_in_style(s, props)),
+            ..h.clone()
+        }),
+        Component::Table(t) => Component::Table(t.clone()),
+        Component::Blockquote(bq) => Component::Blockquote(Blockquote {
+            style: bq.style.as_ref().map(|s| substitute_props_in_style(s, props)),
+            children: bq.children.as_ref().map(|ch| {
+                ch.iter()
+                    .map(|c| substitute_props_in_component(c, props))
+                    .collect()
+            }),
+            ..bq.clone()
+        }),
+        Component::Pre(p) => Component::Pre(Pre {
+            style: p.style.as_ref().map(|s| substitute_props_in_style(s, props)),
+            ..p.clone()
+        }),
+        Component::Details(d) => Component::Details(Details {
+            style: d.style.as_ref().map(|s| substitute_props_in_style(s, props)),
+            children: d.children.as_ref().map(|ch| {
+                ch.iter()
+                    .map(|c| substitute_props_in_component(c, props))
+                    .collect()
+            }),
+            ..d.clone()
+        }),
         Component::ImportedComponent(_) => c.clone(),
     }
 }
@@ -305,6 +358,82 @@ fn escape_html(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+/// Allowed HTML tags for markdown output (safe subset).
+const MARKDOWN_ALLOWED_TAGS: &[&str] = &[
+    "h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td",
+    "a", "strong", "em", "code", "pre", "blockquote", "hr", "br", "span", "div",
+];
+
+/// Render markdown to sanitized HTML (safe tags only, no script URLs).
+fn markdown_to_sanitized_html(md: &str) -> String {
+    use pulldown_cmark::{Options, Parser};
+    let mut opts = Options::empty();
+    opts.insert(Options::ENABLE_TABLES);
+    opts.insert(Options::ENABLE_STRIKETHROUGH);
+    let parser = Parser::new_ext(md, opts);
+    let mut html = String::new();
+    pulldown_cmark::html::push_html(&mut html, parser);
+    // Remove script URLs from href and strip disallowed tags
+    let html = html.replace("javascript:", "");
+    sanitize_html_fragment(&html)
+}
+
+/// Keep only allowed tags; escape others so they display as text.
+fn sanitize_html_fragment(html: &str) -> String {
+    let allowed: std::collections::HashSet<&str> = MARKDOWN_ALLOWED_TAGS.iter().copied().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    let bytes = html.as_bytes();
+    while i < bytes.len() {
+        if bytes[i] == b'<' {
+            let start = i;
+            i += 1;
+            if i >= bytes.len() {
+                out.push_str(&escape_html(std::str::from_utf8(&bytes[start..]).unwrap_or("")));
+                break;
+            }
+            let closing = bytes[i] == b'/';
+            if closing {
+                i += 1;
+            }
+            let tag_start = i;
+            while i < bytes.len() && bytes[i] != b'>' && bytes[i] != b' ' && bytes[i] != b'\t' && bytes[i] != b'\n' && bytes[i] != b'\r' {
+                i += 1;
+            }
+            let tag = std::str::from_utf8(&bytes[tag_start..i]).unwrap_or("").to_lowercase();
+            let tag_clean = tag.trim_end_matches('/');
+            if allowed.contains(&tag_clean) {
+                while i < bytes.len() && bytes[i] != b'>' {
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    i += 1;
+                }
+                out.push_str(std::str::from_utf8(&bytes[start..i]).unwrap_or(""));
+                continue;
+            }
+            out.push_str("&lt;");
+            i = start + 1;
+            continue;
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
+/// Build id and class attributes from component id and style (for Tailwind etc.).
+fn build_attrs(id: Option<&str>, style: Option<&Style>) -> String {
+    let id_part = id
+        .map(|s| format!(" id=\"{}\"", escape_html(s)))
+        .unwrap_or_default();
+    let class_part = style
+        .and_then(|s| s.classes.as_ref())
+        .map(|c| format!(" class=\"{}\"", escape_html(c)))
+        .unwrap_or_default();
+    format!("{}{}", id_part, class_part)
 }
 
 fn style_to_css(style: &Style) -> String {
@@ -671,6 +800,15 @@ fn get_component_id(c: &Component) -> Option<&str> {
         Component::Divider(x) => x.id.as_deref(),
         Component::Spacer(_) => None,
         Component::Link(x) => x.id.as_deref(),
+        Component::Code(x) => x.id.as_deref(),
+        Component::Markdown(x) => x.id.as_deref(),
+        Component::List(x) => x.id.as_deref(),
+        Component::ListItem(x) => x.id.as_deref(),
+        Component::Heading(x) => x.id.as_deref(),
+        Component::Table(x) => x.id.as_deref(),
+        Component::Blockquote(x) => x.id.as_deref(),
+        Component::Pre(x) => x.id.as_deref(),
+        Component::Details(x) => x.id.as_deref(),
         Component::ImportedComponent(x) => x.id.as_deref(),
     }
 }
@@ -1249,6 +1387,146 @@ fn component_to_html(
             );
             combined.push_str(&style);
             write!(out, "<span{}{} style=\"{}\"></span>", id, title_attr, combined)?;
+        }
+        Component::Code(co) => {
+            let style_css = co
+                .style
+                .as_ref()
+                .map(style_to_css)
+                .unwrap_or_default();
+            let attrs = build_attrs(co.id.as_deref(), co.style.as_ref());
+            let lang_class = co
+                .language
+                .as_ref()
+                .map(|l| format!(" class=\"language-{}\"", escape_html(l)))
+                .unwrap_or_default();
+            let text_esc = escape_html(&co.text);
+            if co.block == Some(true) {
+                write!(out, "<pre{} style=\"{}\"><code{}>{}</code></pre>", attrs, style_css, lang_class, text_esc)?;
+            } else {
+                write!(out, "<code{} style=\"{}\">{}</code>", attrs, style_css, text_esc)?;
+            }
+        }
+        Component::Markdown(m) => {
+            let style_css = m
+                .style
+                .as_ref()
+                .map(style_to_css)
+                .unwrap_or_default();
+            let attrs = build_attrs(m.id.as_deref(), m.style.as_ref());
+            let inner = markdown_to_sanitized_html(&m.content);
+            write!(out, "<div{} class=\"ntml-markdown\" style=\"{}\">{}</div>", attrs, style_css, inner)?;
+        }
+        Component::List(list) => {
+            let style_css = list
+                .style
+                .as_ref()
+                .map(style_to_css)
+                .unwrap_or_default();
+            let attrs = build_attrs(list.id.as_deref(), list.style.as_ref());
+            let tag = if list.ordered == Some(true) { "ol" } else { "ul" };
+            write!(out, "<{}{} style=\"{}\">", tag, attrs, style_css)?;
+            if let Some(children) = &list.children {
+                for ch in children {
+                    component_to_html(ch, out, patches, base_url)?;
+                }
+            }
+            write!(out, "</{}>", tag)?;
+        }
+        Component::ListItem(li) => {
+            let style_css = li
+                .style
+                .as_ref()
+                .map(style_to_css)
+                .unwrap_or_default();
+            let attrs = build_attrs(li.id.as_deref(), li.style.as_ref());
+            write!(out, "<li{} style=\"{}\">", attrs, style_css)?;
+            if let Some(children) = &li.children {
+                for ch in children {
+                    component_to_html(ch, out, patches, base_url)?;
+                }
+            }
+            write!(out, "</li>")?;
+        }
+        Component::Heading(h) => {
+            let style_css = h
+                .style
+                .as_ref()
+                .map(style_to_css)
+                .unwrap_or_default();
+            let attrs = build_attrs(h.id.as_deref(), h.style.as_ref());
+            let tag = match h.level {
+                1 => "h1",
+                2 => "h2",
+                _ => "h3",
+            };
+            write!(out, "<{}{} style=\"{}\">{}</{}>", tag, attrs, style_css, escape_html(&h.text), tag)?;
+        }
+        Component::Table(t) => {
+            let style_css = t
+                .style
+                .as_ref()
+                .map(style_to_css)
+                .unwrap_or_default();
+            let attrs = build_attrs(t.id.as_deref(), t.style.as_ref());
+            write!(out, "<table{} style=\"{}\">", attrs, style_css)?;
+            if !t.headers.is_empty() {
+                write!(out, "<thead><tr>")?;
+                for hdr in &t.headers {
+                    write!(out, "<th>{}</th>", escape_html(hdr))?;
+                }
+                write!(out, "</tr></thead>")?;
+            }
+            write!(out, "<tbody>")?;
+            for row in &t.rows {
+                write!(out, "<tr>")?;
+                for cell in row {
+                    write!(out, "<td>{}</td>", escape_html(cell))?;
+                }
+                write!(out, "</tr>")?;
+            }
+            write!(out, "</tbody></table>")?;
+        }
+        Component::Blockquote(bq) => {
+            let style_css = bq
+                .style
+                .as_ref()
+                .map(style_to_css)
+                .unwrap_or_default();
+            let attrs = build_attrs(bq.id.as_deref(), bq.style.as_ref());
+            write!(out, "<blockquote{} style=\"{}\">", attrs, style_css)?;
+            if let Some(children) = &bq.children {
+                for ch in children {
+                    component_to_html(ch, out, patches, base_url)?;
+                }
+            }
+            write!(out, "</blockquote>")?;
+        }
+        Component::Pre(pre) => {
+            let style_css = pre
+                .style
+                .as_ref()
+                .map(style_to_css)
+                .unwrap_or_default();
+            let attrs = build_attrs(pre.id.as_deref(), pre.style.as_ref());
+            write!(out, "<pre{} style=\"{}\">{}</pre>", attrs, style_css, escape_html(&pre.text))?;
+        }
+        Component::Details(d) => {
+            let style_css = d
+                .style
+                .as_ref()
+                .map(style_to_css)
+                .unwrap_or_default();
+            let attrs = build_attrs(d.id.as_deref(), d.style.as_ref());
+            let open_attr = if d.open == Some(true) { " open" } else { "" };
+            write!(out, "<details{}{} style=\"{}\">", attrs, open_attr, style_css)?;
+            write!(out, "<summary>{}</summary>", escape_html(&d.summary))?;
+            if let Some(children) = &d.children {
+                for ch in children {
+                    component_to_html(ch, out, patches, base_url)?;
+                }
+            }
+            write!(out, "</details>")?;
         }
         Component::ImportedComponent(_) => {
             write!(out, "<div style=\"color:#999;\">[Imported component - not rendered]</div>")?;

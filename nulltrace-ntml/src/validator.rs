@@ -172,6 +172,15 @@ fn get_component_id(component: &Component) -> Option<String> {
         Component::Divider(c) => c.id.clone(),
         Component::Spacer(_) => None,
         Component::Link(c) => c.id.clone(),
+        Component::Code(c) => c.id.clone(),
+        Component::Markdown(c) => c.id.clone(),
+        Component::List(c) => c.id.clone(),
+        Component::ListItem(c) => c.id.clone(),
+        Component::Heading(c) => c.id.clone(),
+        Component::Table(c) => c.id.clone(),
+        Component::Blockquote(c) => c.id.clone(),
+        Component::Pre(c) => c.id.clone(),
+        Component::Details(c) => c.id.clone(),
         Component::ImportedComponent(c) => c.id.clone(),
     }
 }
@@ -186,6 +195,10 @@ fn get_component_children(component: &Component) -> Option<&Vec<Component>> {
         Component::Column(c) => c.children.as_ref(),
         Component::Button(c) => c.children.as_ref(),
         Component::Link(c) => c.children.as_ref(),
+        Component::List(c) => c.children.as_ref(),
+        Component::ListItem(c) => c.children.as_ref(),
+        Component::Blockquote(c) => c.children.as_ref(),
+        Component::Details(c) => c.children.as_ref(),
         _ => None,
     }
 }
@@ -221,6 +234,15 @@ fn validate_component_recursive(
         Component::Divider(c) => validate_divider(c, font_families),
         Component::Spacer(c) => validate_spacer(c),
         Component::Link(c) => validate_link(c, depth, font_families),
+        Component::Code(c) => validate_code(c, font_families),
+        Component::Markdown(c) => validate_markdown(c, font_families),
+        Component::List(c) => validate_list(c, depth, font_families),
+        Component::ListItem(c) => validate_list_item(c, depth, font_families),
+        Component::Heading(c) => validate_heading(c, font_families),
+        Component::Table(c) => validate_table(c, font_families),
+        Component::Blockquote(c) => validate_blockquote(c, depth, font_families),
+        Component::Pre(c) => validate_pre(c, font_families),
+        Component::Details(c) => validate_details(c, depth, font_families),
         Component::ImportedComponent(_) => Ok(()), // props validated at runtime
     }
 }
@@ -299,6 +321,20 @@ fn validate_style(style: &Option<Style>, font_families: &[String]) -> NtmlResult
                 return Err(NtmlError::InvalidStyle {
                     property: "flex".to_string(),
                     reason: "must be non-negative".to_string(),
+                });
+            }
+        }
+
+        // Validate classes (safe chars only: alphanumeric, space, -, _, :, /, .)
+        if let Some(ref classes) = style.classes {
+            static CLASSES_REGEX: OnceLock<Regex> = OnceLock::new();
+            let re = CLASSES_REGEX.get_or_init(|| {
+                Regex::new(r"^[a-zA-Z0-9_\-\s:./]+$").unwrap()
+            });
+            if !re.is_match(classes) {
+                return Err(NtmlError::InvalidStyle {
+                    property: "classes".to_string(),
+                    reason: "must contain only safe characters (alphanumeric, spaces, -, _, :, /, .)".to_string(),
                 });
             }
         }
@@ -666,6 +702,74 @@ fn validate_link(link: &Link, depth: usize, font_families: &[String]) -> NtmlRes
     }
     validate_style(&link.style, font_families)?;
     validate_children(&link.children, depth, font_families)
+}
+
+fn validate_code(code: &Code, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&code.data)?;
+    validate_style(&code.style, font_families)?;
+    Ok(())
+}
+
+fn validate_markdown(markdown: &Markdown, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&markdown.data)?;
+    validate_style(&markdown.style, font_families)?;
+    Ok(())
+}
+
+fn validate_list(list: &List, depth: usize, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&list.data)?;
+    validate_style(&list.style, font_families)?;
+    validate_children(&list.children, depth, font_families)
+}
+
+fn validate_list_item(list_item: &ListItem, depth: usize, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&list_item.data)?;
+    validate_style(&list_item.style, font_families)?;
+    validate_children(&list_item.children, depth, font_families)
+}
+
+fn validate_heading(heading: &Heading, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&heading.data)?;
+    if heading.level < 1 || heading.level > 3 {
+        return Err(NtmlError::InvalidProperty {
+            component: "Heading".to_string(),
+            property: "level".to_string(),
+            reason: "must be 1, 2, or 3".to_string(),
+        });
+    }
+    if heading.text.is_empty() {
+        return Err(NtmlError::InvalidProperty {
+            component: "Heading".to_string(),
+            property: "text".to_string(),
+            reason: "must not be empty".to_string(),
+        });
+    }
+    validate_style(&heading.style, font_families)?;
+    Ok(())
+}
+
+fn validate_table(table: &Table, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&table.data)?;
+    validate_style(&table.style, font_families)?;
+    Ok(())
+}
+
+fn validate_blockquote(blockquote: &Blockquote, depth: usize, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&blockquote.data)?;
+    validate_style(&blockquote.style, font_families)?;
+    validate_children(&blockquote.children, depth, font_families)
+}
+
+fn validate_pre(pre: &Pre, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&pre.data)?;
+    validate_style(&pre.style, font_families)?;
+    Ok(())
+}
+
+fn validate_details(details: &Details, depth: usize, font_families: &[String]) -> NtmlResult<()> {
+    validate_data_attributes(&details.data)?;
+    validate_style(&details.style, font_families)?;
+    validate_children(&details.children, depth, font_families)
 }
 
 #[cfg(test)]

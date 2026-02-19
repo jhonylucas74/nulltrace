@@ -6,8 +6,8 @@
 
 - ✅ **Robust Parser and Validator**: Parses and validates NTML with clear error messages
 - ✅ **Type-Safe**: All component structures are strongly typed
-- ✅ **Rich Component System**: Container, Flex, Grid, Text, Button, Input, and much more
-- ✅ **CSS-like Style System**: Full support for style properties
+- ✅ **Rich Component System**: Container, Flex, Grid, Text, Button, Input, Code, Markdown, List, Heading, Table, Blockquote, Pre, Details, and more
+- ✅ **CSS-like Style System**: Full support for style properties and optional `style.classes` (e.g. Tailwind)
 - ✅ **Theme System**: Reusable theme variables
 - ✅ **Security Validation**: Prevents injections and exploits
 - ✅ **CLI Tool**: `ntml-validate` for file validation
@@ -274,6 +274,90 @@ Spacer:
   size: 16  # or "auto"
 ```
 
+### Document & code components
+
+#### Code
+Inline or block code with optional `language` for syntax highlighting.
+
+```yaml
+Code:
+  text: "local x = 1"
+  language: lua
+  block: true
+```
+
+#### Markdown
+Renders markdown content as HTML (headings, lists, tables, etc.).
+
+```yaml
+Markdown:
+  content: |
+    ## Hello
+    - item 1
+```
+
+#### List / ListItem
+Ordered or unordered list.
+
+```yaml
+List:
+  ordered: false
+  children:
+    - ListItem:
+        children:
+          - Text:
+              text: "Item 1"
+```
+
+#### Heading
+Semantic h1, h2, h3.
+
+```yaml
+Heading:
+  level: 1
+  text: "Page Title"
+```
+
+#### Table
+Data table with headers and rows.
+
+```yaml
+Table:
+  headers: [Name, Score]
+  rows:
+    - [Alice, "100"]
+    - [Bob, "85"]
+```
+
+#### Blockquote
+Quoted block.
+
+```yaml
+Blockquote:
+  children:
+    - Text:
+        text: "Quote text"
+```
+
+#### Pre
+Preformatted text.
+
+```yaml
+Pre:
+  text: "  preformatted"
+```
+
+#### Details
+Collapsible section.
+
+```yaml
+Details:
+  summary: "Expand"
+  children:
+    - Text:
+        text: "Hidden content"
+```
+
 ## 🎨 Style System
 
 NTML supports CSS-like style properties:
@@ -370,6 +454,13 @@ style:
   overflow: auto              # visible | hidden | scroll | auto
   cursor: pointer             # default | pointer | not-allowed | text
 ```
+
+### CSS classes (Tailwind)
+```yaml
+style:
+  classes: "p-4 bg-gray-100 rounded"   # Optional; space-separated class names
+```
+When set, the rendered HTML gets a `class` attribute (sanitized). Include Tailwind or your CSS so classes apply.
 
 ## 🎨 Theme System
 

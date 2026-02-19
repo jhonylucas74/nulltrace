@@ -1,0 +1,10 @@
+# VM config for site ntml.org (folder name = dns_name)
+hostname: ntml-server
+dns_name: ntml.org
+cpu_cores: 2
+memory_mb: 2048
+disk_mb: 20480
+# Owner: VM is owned by the "webserver" player (resolved at runtime).
+# Bootstrap: one line per command, written to /etc/bootstrap and run on VM start.
+bootstrap: |
+  httpd /var/www

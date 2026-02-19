@@ -1,0 +1,76 @@
+Container:
+  style:
+    padding: 24
+    backgroundColor: "#1a1a2e"
+    minHeight: 400
+  children:
+    - Column:
+        gap: 24
+        style:
+          width: 100%
+        children:
+          - Link:
+              href: "/"
+              children:
+                - Text:
+                    text: "< Home"
+                    style:
+                      fontSize: 14
+                      color: "#6b4cdf"
+          - Text:
+              text: "HTTP Protocol for Lua"
+              style:
+                fontSize: 28
+                color: "#e0e0e0"
+                fontWeight: 700
+          - Text:
+              text: "The http table builds and parses HTTP requests and responses. Works over net.send/recv or net.connect."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+          - Divider:
+              orientation: horizontal
+              style:
+                backgroundColor: "#333333"
+                height: 1
+          - Text:
+              text: "http.build_request(method, path, body?) — GET, POST, etc. Returns raw string."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "http.parse_request(data) — Returns { method, path, headers, body }."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "http.build_response(status, body?) — Returns raw response."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "http.parse_response(data) — Returns { status, reason, headers, body }."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Server: net.listen(80); loop net.recv(); parse_request; build_response; net.send(src_ip, src_port, res)."
+              style:
+                fontSize: 14
+                color: "#e0e0e0"
+                fontFamily: "monospace"
+          - Text:
+              text: "Client: conn = net.connect(host, 80); conn:send(req); loop conn:recv(); parse_response."
+              style:
+                fontSize: 14
+                color: "#e0e0e0"
+                fontFamily: "monospace"
+          - Text:
+              text: "localhost and 127.x.x.x resolve to loopback (same VM)."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"

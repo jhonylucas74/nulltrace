@@ -1,0 +1,52 @@
+Container:
+  style:
+    padding: 24
+    backgroundColor: "#1a1a2e"
+    minHeight: 400
+  children:
+    - Column:
+        gap: 24
+        style:
+          width: 100%
+        children:
+          - Link:
+              href: "/"
+              children:
+                - Text:
+                    text: "< Home"
+                    style:
+                      fontSize: 14
+                      color: "#6b4cdf"
+          - Text:
+              text: "Document Format"
+              style:
+                fontSize: 28
+                color: "#e0e0e0"
+                fontWeight: 700
+          - Text:
+              text: "NTML supports two formats: classic (single root) and full (head + body)."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+          - Divider:
+              orientation: horizontal
+              style:
+                backgroundColor: "#333333"
+                height: 1
+          - Text:
+              text: "Classic: One root component at document root. No head."
+              style:
+                fontSize: 14
+                color: "#e0e0e0"
+                fontWeight: 600
+          - Text:
+              text: "Full: head (title, description, author, tags, fonts, scripts, imports) + body (root component)."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+          - Text:
+              text: "head.fonts — Google Fonts by family and weights. head.scripts — Lua scripts. head.imports — Reusable NTML components."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+                fontFamily: "monospace"

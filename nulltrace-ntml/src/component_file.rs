@@ -10,6 +10,7 @@ pub const BUILTIN_COMPONENTS: &[&str] = &[
     "Container", "Flex", "Grid", "Stack", "Row", "Column",
     "Text", "Image", "Icon", "Button", "Input", "Checkbox",
     "Radio", "Select", "ProgressBar", "Badge", "Divider", "Spacer", "Link",
+    "Code", "Markdown", "List", "ListItem", "Heading", "Table", "Blockquote", "Pre", "Details",
 ];
 
 /// A parsed NTML component file (reusable component definition)

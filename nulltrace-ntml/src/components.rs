@@ -27,6 +27,15 @@ pub enum Component {
     Divider(Divider),
     Spacer(Spacer),
     Link(Link),
+    Code(Code),
+    Markdown(Markdown),
+    List(List),
+    ListItem(ListItem),
+    Heading(Heading),
+    Table(Table),
+    Blockquote(Blockquote),
+    Pre(Pre),
+    Details(Details),
     /// An instance of an imported component declared in head.imports (v0.2.0)
     ImportedComponent(ImportedComponentInstance),
 }
@@ -490,4 +499,128 @@ pub struct Spacer {
 pub enum SpacerSize {
     Fixed(f64),
     Auto(String), // "auto"
+}
+
+/// Code component - inline or block code with optional syntax highlighting
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Code {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<Style>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub data: DataAttributes,
+}
+
+/// Markdown component - renders markdown content as HTML
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Markdown {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<Style>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub data: DataAttributes,
+}
+
+/// List component - ordered or unordered list
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct List {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ordered: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<Style>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<Component>>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub data: DataAttributes,
+}
+
+/// ListItem - only valid as direct child of List
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<Style>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<Component>>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub data: DataAttributes,
+}
+
+/// Heading - semantic h1, h2, h3 (level 1, 2, or 3)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Heading {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// 1, 2, or 3 for h1, h2, h3
+    pub level: u8,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<Style>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub data: DataAttributes,
+}
+
+/// Table - headers and rows (grid of strings)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Table {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub headers: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<Style>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub data: DataAttributes,
+}
+
+/// Blockquote - quoted block
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Blockquote {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<Style>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<Component>>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub data: DataAttributes,
+}
+
+/// Pre - preformatted text (no syntax highlighting)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Pre {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<Style>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub data: DataAttributes,
+}
+
+/// Details - collapsible section with summary
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Details {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<Style>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<Component>>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub data: DataAttributes,
 }

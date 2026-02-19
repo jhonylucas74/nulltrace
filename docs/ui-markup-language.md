@@ -32,7 +32,7 @@ ComponentName:
 
 ### Styling
 
-Styles follow CSS conventions but are validated and sanitized. All style properties are optional and have sensible defaults.
+Styles follow CSS conventions but are validated and sanitized. All style properties are optional and have sensible defaults. You can also pass **CSS utility classes** (e.g. Tailwind) via `style.classes`; the renderer outputs a `class` attribute so any CSS loaded in the page (e.g. Tailwind) can apply.
 
 ### Layout System
 
@@ -466,6 +466,154 @@ Flex:
 
 ---
 
+### Document & list components
+
+#### `Code`
+Inline or block code, with optional syntax highlighting.
+
+**Properties:**
+- `text`: String (required) — code content
+- `language`: String (optional) — e.g. `lua`, `python` (for highlighting)
+- `block`: Boolean (optional, default: false) — if true, rendered as `<pre><code>`
+- `id`, `style`: Optional
+
+**Example:**
+```yaml
+Code:
+  text: "local x = 1"
+  language: lua
+  block: true
+  style:
+    fontFamily: monospace
+```
+
+#### `Markdown`
+Renders markdown content as HTML (headings, lists, tables, etc.). Content is parsed and sanitized.
+
+**Properties:**
+- `content`: String (required) — markdown source
+- `id`, `style`: Optional
+
+**Example:**
+```yaml
+Markdown:
+  content: |
+    ## Title
+    - Item 1
+    - Item 2
+    | A | B |
+    |---|---|
+    | 1 | 2 |
+```
+
+#### `List` and `ListItem`
+Ordered or unordered list.
+
+**List properties:**
+- `ordered`: Boolean (default: false) — false = `<ul>`, true = `<ol>`
+- `children`: Array of ListItem components
+- `id`, `style`: Optional
+
+**ListItem properties:**
+- `children`: Array of components (e.g. Text, Link)
+- `id`, `style`: Optional
+
+**Example:**
+```yaml
+List:
+  ordered: false
+  children:
+    - ListItem:
+        children:
+          - Text:
+              text: "First"
+    - ListItem:
+        children:
+          - Text:
+              text: "Second"
+```
+
+#### `Heading`
+Semantic heading (h1, h2, h3).
+
+**Properties:**
+- `level`: 1 | 2 | 3 (required)
+- `text`: String (required)
+- `id`, `style`: Optional
+
+**Example:**
+```yaml
+Heading:
+  level: 1
+  text: "Page Title"
+```
+
+#### `Table`
+Data table with header row and body rows.
+
+**Properties:**
+- `headers`: Array of strings (column headers)
+- `rows`: Array of arrays of strings (each inner array is a row)
+- `id`, `style`: Optional
+
+**Example:**
+```yaml
+Table:
+  headers: [Name, Score]
+  rows:
+    - [Alice, "100"]
+    - [Bob, "85"]
+```
+
+#### `Blockquote`
+Quoted block of content.
+
+**Properties:**
+- `children`: Array of components
+- `id`, `style`: Optional
+
+**Example:**
+```yaml
+Blockquote:
+  children:
+    - Text:
+        text: "To be or not to be."
+```
+
+#### `Pre`
+Preformatted text (no syntax highlighting).
+
+**Properties:**
+- `text`: String (required)
+- `id`, `style`: Optional
+
+**Example:**
+```yaml
+Pre:
+  text: "  indented\n  lines"
+```
+
+#### `Details`
+Collapsible section with a summary.
+
+**Properties:**
+- `summary`: String (required) — visible toggle label
+- `children`: Array of components (expandable body)
+- `open`: Boolean (optional, default: false) — whether expanded by default
+- `id`, `style`: Optional
+
+**Example:**
+```yaml
+Details:
+  summary: "Click to expand"
+  open: false
+  children:
+    - Text:
+        text: "Hidden content here."
+```
+
+---
+
 ## Style Reference
 
 ### Dimension Properties
@@ -589,6 +737,14 @@ overflow: "hidden"           # "visible", "hidden", "scroll", "auto"
 ```yaml
 cursor: "pointer"            # "default", "pointer", "not-allowed", "text"
 ```
+
+### CSS Classes (Tailwind / utility classes)
+
+```yaml
+classes: "p-4 bg-gray-100 rounded-lg"   # Optional; space-separated CSS class names
+```
+
+When set, the rendered HTML element receives a `class` attribute with the given string (sanitized). Use this for Tailwind or other utility-class frameworks. The document must include the corresponding CSS (e.g. Tailwind) for classes to take effect.
 
 ---
 
@@ -996,10 +1152,12 @@ The in-app **Browser** renders NTML pages served by VMs (e.g. ntml.org) by conve
 ### Supported Features
 
 - **All layout components:** Container, Flex, Row, Column, Grid, Stack
-- **All content components:** Text, Image, Icon
+- **All content components:** Text, Image, Icon, Code, Markdown, Pre
+- **List components:** List, ListItem
+- **Document components:** Heading, Table, Blockquote, Details (collapsible with summary)
 - **All interactive components:** Button, Link, Input, Checkbox, Radio, Select
 - **All display components:** ProgressBar, Badge, Divider, Spacer
-- **Full style support:** All properties in the Style Reference (dimensions, spacing, typography, borders, shadow, position, flex, display, overflow, cursor)
+- **Full style support:** All properties in the Style Reference (dimensions, spacing, typography, borders, shadow, position, flex, display, overflow, cursor) plus **`style.classes`** for CSS utility classes (e.g. Tailwind)
 - **Layout props:** Flex/Row/Column `justify`, `align`, `wrap`; Grid `columns` and `rows`; Stack `alignment`; Divider `orientation`; Spacer `size: "auto"`
 
 ### Image Resolution

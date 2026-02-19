@@ -158,7 +158,7 @@ impl VmService {
         Ok(recs)
     }
 
-    /// Returns the VM owned by the given player (owner_id), if any.
+    /// Returns the VM owned by the given player (owner_id), if any. Only one VM per owner in game mode.
     pub async fn get_vm_by_owner_id(&self, owner_id: Uuid) -> Result<Option<VmRecord>, sqlx::Error> {
         let rec = sqlx::query_as::<_, VmRecord>(
             r#"
@@ -173,6 +173,23 @@ impl VmService {
         .await?;
 
         Ok(rec)
+    }
+
+    /// Returns all VMs owned by the given player (e.g. for site VMs owned by webserver).
+    pub async fn get_vms_by_owner_id(&self, owner_id: Uuid) -> Result<Vec<VmRecord>, sqlx::Error> {
+        let recs = sqlx::query_as::<_, VmRecord>(
+            r#"
+            SELECT id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
+                   ip, subnet, gateway, mac, owner_id, created_at, updated_at
+            FROM vms WHERE owner_id = $1
+            ORDER BY created_at
+            "#,
+        )
+        .bind(owner_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(recs)
     }
 }
 

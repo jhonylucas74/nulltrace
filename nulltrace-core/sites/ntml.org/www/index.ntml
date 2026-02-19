@@ -1,0 +1,114 @@
+Container:
+  style:
+    padding: 24
+    backgroundColor: "#1a1a2e"
+    minHeight: 400
+  children:
+    - Column:
+        gap: 24
+        style:
+          width: 100%
+        children:
+          - Container:
+              style:
+                padding: 20
+                backgroundColor: "#6b4cdf"
+                borderRadius: 8
+              children:
+                - Text:
+                    text: "What is NTML"
+                    style:
+                      fontSize: 32
+                      color: "#ffffff"
+                      textAlign: center
+                      fontWeight: 700
+          - Text:
+              text: "NTML (NullTrace Markup Language) is a secure, YAML-based UI description language for the NullTrace game. Type-safe, designer-friendly, and sandboxed—no script injection or XSS. Build interfaces with layout primitives (Flex, Grid), components (Text, Button, Input), and CSS-like styling."
+              style:
+                fontSize: 16
+                color: "#e0e0e0"
+                textAlign: center
+                lineHeight: 1.6
+          - Divider:
+              orientation: horizontal
+              style:
+                backgroundColor: "#333333"
+                height: 1
+                marginVertical: 8
+          - Text:
+              text: "Documentation"
+              style:
+                fontSize: 18
+                color: "#e0e0e0"
+                fontWeight: 700
+          - Row:
+              gap: 12
+              wrap: true
+              style:
+                width: 100%
+              children:
+                - Link:
+                    href: "/components"
+                    children:
+                      - Text:
+                          text: "Components"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+                - Link:
+                    href: "/styling"
+                    children:
+                      - Text:
+                          text: "Styling"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+                - Link:
+                    href: "/document-format"
+                    children:
+                      - Text:
+                          text: "Document Format"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+                - Link:
+                    href: "/examples"
+                    children:
+                      - Text:
+                          text: "Examples"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+                - Link:
+                    href: "/lua-api"
+                    children:
+                      - Text:
+                          text: "Lua API"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+                - Link:
+                    href: "/best-practices"
+                    children:
+                      - Text:
+                          text: "Best Practices"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+                - Link:
+                    href: "/http"
+                    children:
+                      - Text:
+                          text: "HTTP"
+                          style:
+                            fontSize: 14
+                            color: "#6b4cdf"
+          - Link:
+              href: "/robot.txt"
+              target: new
+              children:
+                - Text:
+                    text: "robot.txt (new tab)"
+                    style:
+                      fontSize: 12
+                      color: "#a0a0a0"

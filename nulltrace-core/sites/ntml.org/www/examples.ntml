@@ -1,0 +1,86 @@
+Container:
+  style:
+    padding: 24
+    backgroundColor: "#1a1a2e"
+    minHeight: 400
+  children:
+    - Column:
+        gap: 24
+        style:
+          width: 100%
+        children:
+          - Link:
+              href: "/"
+              children:
+                - Text:
+                    text: "< Home"
+                    style:
+                      fontSize: 14
+                      color: "#6b4cdf"
+          - Text:
+              text: "Examples"
+              style:
+                fontSize: 28
+                color: "#e0e0e0"
+                fontWeight: 700
+          - Text:
+              text: "Complete NTML patterns: Player Status Card, Inventory Grid, Login Form, Modal, Card List."
+              style:
+                fontSize: 14
+                color: "#a0a0a0"
+          - Divider:
+              orientation: horizontal
+              style:
+                backgroundColor: "#333333"
+                height: 1
+          - Container:
+              style:
+                padding: 16
+                backgroundColor: "#252540"
+                borderRadius: 8
+              children:
+                - Text:
+                    text: "Player Status Card"
+                    style:
+                      fontSize: 16
+                      color: "#e0e0e0"
+                      fontWeight: 600
+                - Text:
+                    text: "Container with Flex for avatar+name, Column for stats, ProgressBar for health/mana, Row of Buttons."
+                    style:
+                      fontSize: 14
+                      color: "#a0a0a0"
+          - Container:
+              style:
+                padding: 16
+                backgroundColor: "#252540"
+                borderRadius: 8
+              children:
+                - Text:
+                    text: "Login Form"
+                    style:
+                      fontSize: 16
+                      color: "#e0e0e0"
+                      fontWeight: 600
+                - Text:
+                    text: "Column with Input (username, password), Checkbox (remember), Button (login)."
+                    style:
+                      fontSize: 14
+                      color: "#a0a0a0"
+          - Container:
+              style:
+                padding: 16
+                backgroundColor: "#252540"
+                borderRadius: 8
+              children:
+                - Text:
+                    text: "Modal"
+                    style:
+                      fontSize: 16
+                      color: "#e0e0e0"
+                      fontWeight: 600
+                - Text:
+                    text: "Stack with overlay Container (opacity) + centered dialog Container."
+                    style:
+                      fontSize: 14
+                      color: "#a0a0a0"

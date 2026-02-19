@@ -426,11 +426,99 @@ Espaço vazio.
 **Propriedades:**
 - `size` (obrigatório): Número ou `"auto"`
 
+### Categoria: Documento e código
+
+#### Code
+
+Código inline ou em bloco, com highlight de sintaxe opcional.
+
+**Propriedades:**
+- `id` (opcional): String única
+- `text` (obrigatório): String (conteúdo do código)
+- `language` (opcional): String (ex.: `lua`, `python`)
+- `block` (opcional): Boolean (default: false) — se true, renderiza como `<pre><code>`
+- `style` (opcional): Objeto Style
+
+#### Markdown
+
+Renderiza conteúdo em markdown como HTML (títulos, listas, tabelas, etc.). O conteúdo é parseado e sanitizado.
+
+**Propriedades:**
+- `id` (opcional): String única
+- `content` (obrigatório): String (fonte markdown)
+- `style` (opcional): Objeto Style
+
+#### List e ListItem
+
+Lista ordenada ou não ordenada.
+
+**List — Propriedades:**
+- `id` (opcional): String única
+- `ordered` (opcional): Boolean (default: false) — false = `<ul>`, true = `<ol>`
+- `children` (obrigatório): Array de ListItem
+- `style` (opcional): Objeto Style
+
+**ListItem — Propriedades:**
+- `id` (opcional): String única
+- `children` (obrigatório): Array de Components
+- `style` (opcional): Objeto Style
+
+#### Heading
+
+Título semântico (h1, h2, h3).
+
+**Propriedades:**
+- `id` (opcional): String única
+- `level` (obrigatório): 1 | 2 | 3
+- `text` (obrigatório): String não-vazia
+- `style` (opcional): Objeto Style
+
+#### Table
+
+Tabela de dados com linha de cabeçalho e linhas de corpo.
+
+**Propriedades:**
+- `id` (opcional): String única
+- `headers` (obrigatório): Array de strings (cabeçalhos das colunas)
+- `rows` (obrigatório): Array de arrays de strings (cada array interno é uma linha)
+- `style` (opcional): Objeto Style
+
+#### Blockquote
+
+Bloco de citação.
+
+**Propriedades:**
+- `id` (opcional): String única
+- `children` (obrigatório): Array de Components
+- `style` (opcional): Objeto Style
+
+#### Pre
+
+Texto pré-formatado (sem highlight de sintaxe).
+
+**Propriedades:**
+- `id` (opcional): String única
+- `text` (obrigatório): String
+- `style` (opcional): Objeto Style
+
+#### Details
+
+Seção colapsável com resumo.
+
+**Propriedades:**
+- `id` (opcional): String única
+- `summary` (obrigatório): String (rótulo do toggle)
+- `children` (obrigatório): Array de Components (corpo expansível)
+- `open` (opcional): Boolean (default: false) — se expandido por padrão
+- `style` (opcional): Objeto Style
+
 ## Sistema de Estilos
 
 ### Objeto Style
 
-Todas as propriedades de estilo são opcionais.
+Todas as propriedades de estilo são opcionais. Além das propriedades listadas abaixo, o objeto Style aceita:
+
+- **`classes`** (opcional): String com nomes de classes CSS separados por espaço (ex.: para Tailwind). O renderizador emite o atributo `class` no HTML (valor sanitizado). O documento deve incluir o CSS correspondente (ex.: Tailwind) para que as classes tenham efeito.
 
 ### Dimensões
 
@@ -575,6 +663,15 @@ interface DisplayStyles {
   cursor?: "default" | "pointer" | "not-allowed" | "text"
 }
 ```
+
+### Classes CSS (Tailwind)
+
+```typescript
+// No objeto Style
+classes?: string   // Ex.: "p-4 bg-gray-100 rounded"
+```
+
+**Validação:** Se presente, `classes` deve conter apenas caracteres seguros (alfanuméricos, espaços, `-`, `_`, `:`, `/`, `.`) para evitar injeção em atributos.
 
 ## Sistema de Temas
 

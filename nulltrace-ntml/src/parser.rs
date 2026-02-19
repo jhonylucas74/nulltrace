@@ -124,6 +124,15 @@ pub fn parse_component_value_ctx(value: &Value, import_aliases: &[String]) -> Nt
         "Divider" => parse_divider(component_props).map(Component::Divider),
         "Spacer" => parse_spacer(component_props).map(Component::Spacer),
         "Link" => parse_link(component_props, import_aliases).map(Component::Link),
+        "Code" => parse_code(component_props).map(Component::Code),
+        "Markdown" => parse_markdown(component_props).map(Component::Markdown),
+        "List" => parse_list(component_props, import_aliases).map(Component::List),
+        "ListItem" => parse_list_item(component_props, import_aliases).map(Component::ListItem),
+        "Heading" => parse_heading(component_props).map(Component::Heading),
+        "Table" => parse_table(component_props).map(Component::Table),
+        "Blockquote" => parse_blockquote(component_props, import_aliases).map(Component::Blockquote),
+        "Pre" => parse_pre(component_props).map(Component::Pre),
+        "Details" => parse_details(component_props, import_aliases).map(Component::Details),
         other => {
             if import_aliases.iter().any(|a| a == other) {
                 parse_imported_component(other, component_props).map(Component::ImportedComponent)
@@ -1169,6 +1178,187 @@ fn parse_link(value: &Value, import_aliases: &[String]) -> NtmlResult<Link> {
         children,
         data,
     })
+}
+
+fn parse_code(value: &Value) -> NtmlResult<Code> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Code".to_string(),
+        reason: "properties must be an object".to_string(),
+    })?;
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
+    let text = obj
+        .get(&Value::String("text".to_string()))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| NtmlError::MissingProperty {
+            component: "Code".to_string(),
+            property: "text".to_string(),
+        })?
+        .to_string();
+    let language = obj.get(&Value::String("language".to_string())).and_then(|v| v.as_str()).map(String::from);
+    let block = obj.get(&Value::String("block".to_string())).and_then(|v| v.as_bool());
+    let style = obj.get(&Value::String("style".to_string())).and_then(|s| serde_yaml::from_value(s.clone()).ok());
+    Ok(Code { id, text, language, block, style, data })
+}
+
+fn parse_markdown(value: &Value) -> NtmlResult<Markdown> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Markdown".to_string(),
+        reason: "properties must be an object".to_string(),
+    })?;
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
+    let content = obj
+        .get(&Value::String("content".to_string()))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| NtmlError::MissingProperty {
+            component: "Markdown".to_string(),
+            property: "content".to_string(),
+        })?
+        .to_string();
+    let style = obj.get(&Value::String("style".to_string())).and_then(|s| serde_yaml::from_value(s.clone()).ok());
+    Ok(Markdown { id, content, style, data })
+}
+
+fn parse_list(value: &Value, import_aliases: &[String]) -> NtmlResult<List> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "List".to_string(),
+        reason: "properties must be an object".to_string(),
+    })?;
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
+    let ordered = obj.get(&Value::String("ordered".to_string())).and_then(|v| v.as_bool());
+    let style = obj.get(&Value::String("style".to_string())).and_then(|s| serde_yaml::from_value(s.clone()).ok());
+    let children = obj.get(&Value::String("children".to_string())).and_then(|c| parse_children(c, import_aliases).ok()).flatten();
+    Ok(List { id, ordered, style, children, data })
+}
+
+fn parse_list_item(value: &Value, import_aliases: &[String]) -> NtmlResult<ListItem> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "ListItem".to_string(),
+        reason: "properties must be an object".to_string(),
+    })?;
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
+    let style = obj.get(&Value::String("style".to_string())).and_then(|s| serde_yaml::from_value(s.clone()).ok());
+    let children = obj.get(&Value::String("children".to_string())).and_then(|c| parse_children(c, import_aliases).ok()).flatten();
+    Ok(ListItem { id, style, children, data })
+}
+
+fn parse_heading(value: &Value) -> NtmlResult<Heading> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Heading".to_string(),
+        reason: "properties must be an object".to_string(),
+    })?;
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
+    let level = obj
+        .get(&Value::String("level".to_string()))
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u8)
+        .ok_or_else(|| NtmlError::MissingProperty {
+            component: "Heading".to_string(),
+            property: "level".to_string(),
+        })?;
+    if level < 1 || level > 3 {
+        return Err(NtmlError::InvalidProperty {
+            component: "Heading".to_string(),
+            property: "level".to_string(),
+            reason: "must be 1, 2, or 3".to_string(),
+        });
+    }
+    let text = obj
+        .get(&Value::String("text".to_string()))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| NtmlError::MissingProperty {
+            component: "Heading".to_string(),
+            property: "text".to_string(),
+        })?
+        .to_string();
+    let style = obj.get(&Value::String("style".to_string())).and_then(|s| serde_yaml::from_value(s.clone()).ok());
+    Ok(Heading { id, level, text, style, data })
+}
+
+fn parse_table(value: &Value) -> NtmlResult<Table> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Table".to_string(),
+        reason: "properties must be an object".to_string(),
+    })?;
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
+    let headers = obj
+        .get(&Value::String("headers".to_string()))
+        .and_then(|v| v.as_sequence())
+        .map(|seq| {
+            seq.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let rows = obj
+        .get(&Value::String("rows".to_string()))
+        .and_then(|v| v.as_sequence())
+        .map(|seq| {
+            seq.iter()
+                .filter_map(|v| v.as_sequence())
+                .map(|row| row.iter().filter_map(|c| c.as_str().map(String::from)).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let style = obj.get(&Value::String("style".to_string())).and_then(|s| serde_yaml::from_value(s.clone()).ok());
+    Ok(Table { id, headers, rows, style, data })
+}
+
+fn parse_blockquote(value: &Value, import_aliases: &[String]) -> NtmlResult<Blockquote> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Blockquote".to_string(),
+        reason: "properties must be an object".to_string(),
+    })?;
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
+    let style = obj.get(&Value::String("style".to_string())).and_then(|s| serde_yaml::from_value(s.clone()).ok());
+    let children = obj.get(&Value::String("children".to_string())).and_then(|c| parse_children(c, import_aliases).ok()).flatten();
+    Ok(Blockquote { id, style, children, data })
+}
+
+fn parse_pre(value: &Value) -> NtmlResult<Pre> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Pre".to_string(),
+        reason: "properties must be an object".to_string(),
+    })?;
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
+    let text = obj
+        .get(&Value::String("text".to_string()))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| NtmlError::MissingProperty {
+            component: "Pre".to_string(),
+            property: "text".to_string(),
+        })?
+        .to_string();
+    let style = obj.get(&Value::String("style".to_string())).and_then(|s| serde_yaml::from_value(s.clone()).ok());
+    Ok(Pre { id, text, style, data })
+}
+
+fn parse_details(value: &Value, import_aliases: &[String]) -> NtmlResult<Details> {
+    let obj = value.as_mapping().ok_or_else(|| NtmlError::InvalidComponent {
+        component: "Details".to_string(),
+        reason: "properties must be an object".to_string(),
+    })?;
+    let id = parse_id(obj);
+    let data = parse_data_attributes(obj)?;
+    let summary = obj
+        .get(&Value::String("summary".to_string()))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| NtmlError::MissingProperty {
+            component: "Details".to_string(),
+            property: "summary".to_string(),
+        })?
+        .to_string();
+    let open = obj.get(&Value::String("open".to_string())).and_then(|v| v.as_bool());
+    let style = obj.get(&Value::String("style".to_string())).and_then(|s| serde_yaml::from_value(s.clone()).ok());
+    let children = obj.get(&Value::String("children".to_string())).and_then(|c| parse_children(c, import_aliases).ok()).flatten();
+    Ok(Details { id, summary, open, style, children, data })
 }
 
 #[cfg(test)]

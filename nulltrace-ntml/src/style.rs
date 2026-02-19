@@ -137,6 +137,10 @@ pub struct Style {
 
     // Cursor property
     pub cursor: Option<Cursor>,
+
+    // CSS classes (e.g. Tailwind utility classes); emitted as HTML class attribute when set
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub classes: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

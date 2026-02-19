@@ -1,0 +1,25 @@
+Container:
+  style:
+    padding: 24
+    backgroundColor: "#1a1a2e"
+  children:
+    - Text:
+        text: "Page not found"
+        style:
+          fontSize: 24
+          color: "#e0e0e0"
+          fontWeight: 700
+    - Text:
+        text: "The requested page does not exist at ntml.org."
+        style:
+          fontSize: 14
+          color: "#a0a0a0"
+    - Link:
+        href: "/"
+        children:
+          - Text:
+              text: "Back to home"
+              style:
+                fontSize: 14
+                color: "#6b4cdf"
+                marginTop: 16
