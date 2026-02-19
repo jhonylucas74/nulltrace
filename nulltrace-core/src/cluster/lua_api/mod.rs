@@ -1,6 +1,7 @@
 pub mod context;
 pub mod fs_api;
 pub mod http_api;
+pub mod httpd_api;
 pub mod io_api;
 pub mod net_api;
 pub mod os_api;
@@ -15,6 +16,7 @@ pub fn register_all(lua: &Lua, fs_service: Arc<FsService>, user_service: Arc<Use
     fs_api::register(lua, fs_service.clone())?;
     net_api::register(lua)?;
     http_api::register(lua)?;
+    httpd_api::register(lua, fs_service.clone())?;
     os_api::register(lua, user_service, fs_service)?;
     io_api::register(lua)?;
     // Expose load(source, chunkname?, mode?) so /bin/lua can run user scripts. Sandbox may not expose it.

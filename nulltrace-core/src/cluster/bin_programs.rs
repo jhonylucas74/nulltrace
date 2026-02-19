@@ -363,25 +363,10 @@ end
 "#;
 
 /// HTTP daemon: listens on port 80, serves files from a folder. Args: [root_path] (default /var/www).
-/// Request path maps to filenames: / -> index, /robot -> robot.txt (if single match), /robot.txt -> exact.
-/// If multiple files share base name (robot.txt, robot.ntml), 404 unless extension specified.
+/// Uses httpd.serve(root, path) for path resolution, file lookup, and 404 fallback.
 pub const HTTPD: &str = r##"
 local args = os.get_args()
 local root = (args and args[1]) or "/var/www"
-local CT = { ntml = "application/x-ntml", txt = "text/plain", html = "text/html" }
-local function content_type(ext)
-  return { ["Content-Type"] = (CT[ext] or "application/octet-stream") }
-end
-local function file_ext(name)
-  local last_dot = nil
-  for i = 1, #name do
-    if name:sub(i, i) == "." then last_dot = i end
-  end
-  if last_dot and last_dot < #name then
-    return name:sub(1, last_dot - 1), name:sub(last_dot + 1)
-  end
-  return name, nil
-end
 
 net.listen(80)
 while true do
@@ -390,60 +375,7 @@ while true do
     local req = http.parse_request(pkt.data)
     if req then
       local path = req.path or "/"
-      while path:sub(1, 1) == "/" and #path > 0 do path = path:sub(2) end
-      if path == "" then path = "index" end
-      local has_dotdot = false
-      for i = 1, #path - 1 do
-        if path:sub(i, i + 1) == ".." then has_dotdot = true; break end
-      end
-      if has_dotdot then path = nil end
-      local body, status, headers = nil, 404, nil
-      if path == nil or path == "" then
-        body = nil
-      else
-        local base, ext = file_ext(path)
-        local entries = fs.ls(root)
-        local files = {}
-        for i = 1, #entries do
-          local e = entries[i]
-          if e.type == "file" then files[#files + 1] = e.name end
-        end
-        if ext then
-          local full = base .. "." .. ext
-          for _, n in ipairs(files) do
-            if n == full then
-              body = fs.read(root .. "/" .. full)
-              if body then
-                status = 200
-                headers = content_type(ext)
-              end
-              break
-            end
-          end
-        else
-          local matches = {}
-          for _, n in ipairs(files) do
-            local fbase, _ = file_ext(n)
-            if fbase == base then matches[#matches + 1] = n end
-          end
-          if #matches == 1 then
-            body = fs.read(root .. "/" .. matches[1])
-            if body then
-              status = 200
-              local _, fext = file_ext(matches[1])
-              headers = content_type(fext)
-            end
-          end
-        end
-      end
-      if status == 404 then
-        body = fs.read(root .. "/404.ntml")
-        if body then headers = content_type("ntml")
-        else
-          body = fs.read(root .. "/404.txt")
-          if body then headers = content_type("txt") else body = "" end
-        end
-      end
+      local body, status, headers = httpd.serve(root, path)
       local res = http.build_response(status, body or "", headers)
       net.send(pkt.src_ip, pkt.src_port, res)
     end
