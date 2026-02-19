@@ -22,6 +22,7 @@ pub mod colors;
 pub mod parser;
 pub mod registry;
 pub mod spacing;
+pub mod variants;
 
 pub use registry::CssRule;
 
@@ -62,6 +63,17 @@ fn render_css(rules: &[CssRule]) -> String {
         "/* NullTrace Tailwind Engine — Phase 1 */\n\
          *, *::before, *::after { box-sizing: border-box; }\n\n",
     );
+
+    // Emit unique @keyframes blocks (Phase 12: animate-spin, etc.)
+    let mut seen_keyframes = std::collections::HashSet::new();
+    for rule in rules {
+        if let Some(ref kf) = rule.keyframes {
+            if seen_keyframes.insert(kf.as_str()) {
+                css.push_str(kf);
+                css.push_str("\n\n");
+            }
+        }
+    }
 
     for rule in rules {
         match &rule.media_query {

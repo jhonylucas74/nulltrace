@@ -438,68 +438,69 @@ Valores da escala de espaçamento + frações + `auto` + `full` + `px` + arbitr�
 ## 7. Typography
 
 ### 7.1 Font Family
-- [ ] `font-sans` → `font-family: ui-sans-serif, system-ui, ...`
-- [ ] `font-serif` → `font-family: ui-serif, Georgia, ...`
-- [ ] `font-mono` → `font-family: ui-monospace, SFMono-Regular, ...`
+- [x] `font-sans` → `font-family: ui-sans-serif, system-ui, ...`
+- [x] `font-serif` → `font-family: ui-serif, Georgia, ...`
+- [x] `font-mono` → `font-family: ui-monospace, SFMono-Regular, ...`
+- [x] `font-[{name}]` → arbitrary font (e.g. `font-[Inter]` for Google Fonts; use `_` for spaces in names: `font-[Open_Sans]`)
 
 ### 7.2 Font Size
-- [ ] `text-xs` → `font-size: 0.75rem; line-height: 1rem`
-- [ ] `text-sm` → `font-size: 0.875rem; line-height: 1.25rem`
-- [ ] `text-base` → `font-size: 1rem; line-height: 1.5rem`
-- [ ] `text-lg` → `font-size: 1.125rem; line-height: 1.75rem`
-- [ ] `text-xl` → `font-size: 1.25rem; line-height: 1.75rem`
-- [ ] `text-2xl` → `font-size: 1.5rem; line-height: 2rem`
-- [ ] `text-3xl` → `font-size: 1.875rem; line-height: 2.25rem`
-- [ ] `text-4xl` → `font-size: 2.25rem; line-height: 2.5rem`
-- [ ] `text-5xl` → `font-size: 3rem; line-height: 1`
-- [ ] `text-6xl` → `font-size: 3.75rem; line-height: 1`
-- [ ] `text-7xl` → `font-size: 4.5rem; line-height: 1`
-- [ ] `text-8xl` → `font-size: 6rem; line-height: 1`
-- [ ] `text-9xl` → `font-size: 8rem; line-height: 1`
-- [ ] `text-[{value}]` → arbitrário
+- [x] `text-xs` → `font-size: 0.75rem; line-height: 1rem`
+- [x] `text-sm` → `font-size: 0.875rem; line-height: 1.25rem`
+- [x] `text-base` → `font-size: 1rem; line-height: 1.5rem`
+- [x] `text-lg` → `font-size: 1.125rem; line-height: 1.75rem`
+- [x] `text-xl` → `font-size: 1.25rem; line-height: 1.75rem`
+- [x] `text-2xl` → `font-size: 1.5rem; line-height: 2rem`
+- [x] `text-3xl` → `font-size: 1.875rem; line-height: 2.25rem`
+- [x] `text-4xl` → `font-size: 2.25rem; line-height: 2.5rem`
+- [x] `text-5xl` → `font-size: 3rem; line-height: 1`
+- [x] `text-6xl` → `font-size: 3.75rem; line-height: 1`
+- [x] `text-7xl` → `font-size: 4.5rem; line-height: 1`
+- [x] `text-8xl` → `font-size: 6rem; line-height: 1`
+- [x] `text-9xl` → `font-size: 8rem; line-height: 1`
+- [x] `text-[{value}]` → arbitrário
 
 ### 7.3 Font Weight
-- [ ] `font-thin` → `font-weight: 100`
-- [ ] `font-extralight` → `font-weight: 200`
-- [ ] `font-light` → `font-weight: 300`
-- [ ] `font-normal` → `font-weight: 400`
-- [ ] `font-medium` → `font-weight: 500`
-- [ ] `font-semibold` → `font-weight: 600`
-- [ ] `font-bold` → `font-weight: 700`
-- [ ] `font-extrabold` → `font-weight: 800`
-- [ ] `font-black` → `font-weight: 900`
+- [x] `font-thin` → `font-weight: 100`
+- [x] `font-extralight` → `font-weight: 200`
+- [x] `font-light` → `font-weight: 300`
+- [x] `font-normal` → `font-weight: 400`
+- [x] `font-medium` → `font-weight: 500`
+- [x] `font-semibold` → `font-weight: 600`
+- [x] `font-bold` → `font-weight: 700`
+- [x] `font-extrabold` → `font-weight: 800`
+- [x] `font-black` → `font-weight: 900`
 
 ### 7.4 Font Style
-- [ ] `italic` → `font-style: italic`
-- [ ] `not-italic` → `font-style: normal`
+- [x] `italic` → `font-style: italic`
+- [x] `not-italic` → `font-style: normal`
 
 ### 7.5 Font Smoothing
-- [ ] `antialiased` → `-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale`
-- [ ] `subpixel-antialiased`
+- [x] `antialiased` → `-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale`
+- [x] `subpixel-antialiased` → `-webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto`
 
 ### 7.6 Letter Spacing
-- [ ] `tracking-tighter` → `letter-spacing: -0.05em`
-- [ ] `tracking-tight` → `letter-spacing: -0.025em`
-- [ ] `tracking-normal` → `letter-spacing: 0em`
-- [ ] `tracking-wide` → `letter-spacing: 0.025em`
-- [ ] `tracking-wider` → `letter-spacing: 0.05em`
-- [ ] `tracking-widest` → `letter-spacing: 0.1em`
+- [x] `tracking-tighter` → `letter-spacing: -0.05em`
+- [x] `tracking-tight` → `letter-spacing: -0.025em`
+- [x] `tracking-normal` → `letter-spacing: 0em`
+- [x] `tracking-wide` → `letter-spacing: 0.025em`
+- [x] `tracking-wider` → `letter-spacing: 0.05em`
+- [x] `tracking-widest` → `letter-spacing: 0.1em`
 
 ### 7.7 Line Height
-- [ ] `leading-none` → `line-height: 1`
-- [ ] `leading-tight` → `line-height: 1.25`
-- [ ] `leading-snug` → `line-height: 1.375`
-- [ ] `leading-normal` → `line-height: 1.5`
-- [ ] `leading-relaxed` → `line-height: 1.625`
-- [ ] `leading-loose` → `line-height: 2`
-- [ ] `leading-{n}` → `line-height: calc(0.25rem * n)`
+- [x] `leading-none` → `line-height: 1`
+- [x] `leading-tight` → `line-height: 1.25`
+- [x] `leading-snug` → `line-height: 1.375`
+- [x] `leading-normal` → `line-height: 1.5`
+- [x] `leading-relaxed` → `line-height: 1.625`
+- [x] `leading-loose` → `line-height: 2`
+- [x] `leading-{n}` → `line-height: calc(0.25rem * n)`
 
 ### 7.8 Text Align
-- [ ] `text-left` → `text-align: left`
-- [ ] `text-center` → `text-align: center`
-- [ ] `text-right` → `text-align: right`
-- [ ] `text-justify` → `text-align: justify`
-- [ ] `text-start`, `text-end`
+- [x] `text-left` → `text-align: left`
+- [x] `text-center` → `text-align: center`
+- [x] `text-right` → `text-align: right`
+- [x] `text-justify` → `text-align: justify`
+- [x] `text-start`, `text-end`
 
 ### 7.9 Text Color
 - [x] `text-{color}-{shade}` → `color: {value}` (paleta completa)
@@ -507,64 +508,66 @@ Valores da escala de espaçamento + frações + `auto` + `full` + `px` + arbitr�
 - [x] `text-{color}-{shade}/{opacity}` → com opacidade
 
 ### 7.10 Text Decoration
-- [ ] `underline` → `text-decoration-line: underline`
-- [ ] `overline` → `text-decoration-line: overline`
-- [ ] `line-through` → `text-decoration-line: line-through`
-- [ ] `no-underline` → `text-decoration-line: none`
-- [ ] `decoration-{color}` → `text-decoration-color`
-- [ ] `decoration-solid`, `decoration-double`, `decoration-dotted`, `decoration-dashed`, `decoration-wavy`
-- [ ] `decoration-auto`, `decoration-from-font`, `decoration-0`, `decoration-1`, `decoration-2`, `decoration-4`, `decoration-8`
-- [ ] `underline-offset-auto`, `underline-offset-0`, `underline-offset-1`, `underline-offset-2`, `underline-offset-4`, `underline-offset-8`
+- [x] `underline` → `text-decoration-line: underline`
+- [x] `overline` → `text-decoration-line: overline`
+- [x] `line-through` → `text-decoration-line: line-through`
+- [x] `no-underline` → `text-decoration-line: none`
+- [x] `decoration-{color}` → `text-decoration-color`
+- [x] `decoration-solid`, `decoration-double`, `decoration-dotted`, `decoration-dashed`, `decoration-wavy`
+- [x] `decoration-auto`, `decoration-from-font`, `decoration-0`, `decoration-1`, `decoration-2`, `decoration-4`, `decoration-8`
+- [x] `underline-offset-auto`, `underline-offset-0`, `underline-offset-1`, `underline-offset-2`, `underline-offset-4`, `underline-offset-8`
 
 ### 7.11 Text Transform
-- [ ] `uppercase` → `text-transform: uppercase`
-- [ ] `lowercase` → `text-transform: lowercase`
-- [ ] `capitalize` → `text-transform: capitalize`
-- [ ] `normal-case` → `text-transform: none`
+- [x] `uppercase` → `text-transform: uppercase`
+- [x] `lowercase` → `text-transform: lowercase`
+- [x] `capitalize` → `text-transform: capitalize`
+- [x] `normal-case` → `text-transform: none`
 
 ### 7.12 Text Overflow
-- [ ] `truncate` → `overflow: hidden; text-overflow: ellipsis; white-space: nowrap`
-- [ ] `text-ellipsis` → `text-overflow: ellipsis`
-- [ ] `text-clip` → `text-overflow: clip`
+- [x] `truncate` → `overflow: hidden; text-overflow: ellipsis; white-space: nowrap`
+- [x] `text-ellipsis` → `text-overflow: ellipsis`
+- [x] `text-clip` → `text-overflow: clip`
 
 ### 7.13 Text Wrap
-- [ ] `text-wrap` → `text-wrap: wrap`
-- [ ] `text-nowrap` → `text-wrap: nowrap`
-- [ ] `text-balance` → `text-wrap: balance`
-- [ ] `text-pretty` → `text-wrap: pretty`
+- [x] `text-wrap` → `text-wrap: wrap`
+- [x] `text-nowrap` → `text-wrap: nowrap`
+- [x] `text-balance` → `text-wrap: balance`
+- [x] `text-pretty` → `text-wrap: pretty`
 
 ### 7.14 Text Indent
-- [ ] `indent-{n}` → `text-indent: calc(0.25rem * n)`
-- [ ] `indent-px`
+- [x] `indent-{n}` → `text-indent: calc(0.25rem * n)`
+- [x] `indent-px`
 
 ### 7.15 Vertical Align
-- [ ] `align-baseline`, `align-top`, `align-middle`, `align-bottom`
-- [ ] `align-text-top`, `align-text-bottom`, `align-sub`, `align-super`
+- [x] `align-baseline`, `align-top`, `align-middle`, `align-bottom`
+- [x] `align-text-top`, `align-text-bottom`, `align-sub`, `align-super`
 
 ### 7.16 White Space
-- [ ] `whitespace-normal`, `whitespace-nowrap`, `whitespace-pre`
-- [ ] `whitespace-pre-line`, `whitespace-pre-wrap`, `whitespace-break-spaces`
+- [x] `whitespace-normal`, `whitespace-nowrap`, `whitespace-pre`
+- [x] `whitespace-pre-line`, `whitespace-pre-wrap`, `whitespace-break-spaces`
 
 ### 7.17 Word Break
-- [ ] `break-normal` → `word-break: normal; overflow-wrap: normal`
-- [ ] `break-words` → `overflow-wrap: break-word`
-- [ ] `break-all` → `word-break: break-all`
-- [ ] `break-keep` → `word-break: keep-all`
+- [x] `break-normal` → `word-break: normal; overflow-wrap: normal`
+- [x] `break-words` → `overflow-wrap: break-word`
+- [x] `break-all` → `word-break: break-all`
+- [x] `break-keep` → `word-break: keep-all`
 
 ### 7.18 Line Clamp
-- [ ] `line-clamp-1` até `line-clamp-6`
-- [ ] `line-clamp-none`
+- [x] `line-clamp-1` até `line-clamp-6`
+- [x] `line-clamp-none`
 
 ### 7.19 List Style
-- [ ] `list-none`, `list-disc`, `list-decimal`
-- [ ] `list-inside`, `list-outside`
-- [ ] `list-image-none`
+- [x] `list-none`, `list-disc`, `list-decimal`
+- [x] `list-inside`, `list-outside`
+- [x] `list-image-none`
 
 ### 7.20 Font Variant Numeric
-- [ ] `normal-nums`, `ordinal`, `slashed-zero`
-- [ ] `lining-nums`, `oldstyle-nums`
-- [ ] `proportional-nums`, `tabular-nums`
-- [ ] `diagonal-fractions`, `stacked-fractions`
+- [x] `normal-nums`, `ordinal`, `slashed-zero`
+- [x] `lining-nums`, `oldstyle-nums`
+- [x] `proportional-nums`, `tabular-nums`
+- [x] `diagonal-fractions`, `stacked-fractions`
+
+**Stage 7 (Typography) — completo**
 
 ---
 
@@ -576,388 +579,370 @@ Valores da escala de espaçamento + frações + `auto` + `full` + `px` + arbitr�
 - [x] `bg-{color}-{shade}/{opacity}` → com opacidade
 
 ### 8.2 Background Image / Gradient
-- [ ] `bg-none` → `background-image: none`
-- [ ] `bg-linear-to-t`, `bg-linear-to-tr`, `bg-linear-to-r`, `bg-linear-to-br`
-- [ ] `bg-linear-to-b`, `bg-linear-to-bl`, `bg-linear-to-l`, `bg-linear-to-tl`
-- [ ] `bg-radial`
-- [ ] `bg-conic`
-- [ ] `from-{color}` → `--tw-gradient-from`
-- [ ] `via-{color}` → `--tw-gradient-via`
-- [ ] `to-{color}` → `--tw-gradient-to`
-- [ ] `from-{n}%`, `via-{n}%`, `to-{n}%` → posição do stop
+- [x] `bg-none` → `background-image: none`
+- [x] `bg-linear-to-t`, `bg-linear-to-tr`, `bg-linear-to-r`, `bg-linear-to-br`
+- [x] `bg-linear-to-b`, `bg-linear-to-bl`, `bg-linear-to-l`, `bg-linear-to-tl`
+- [x] `bg-radial`
+- [x] `bg-conic`
+- [x] `from-{color}` → `--tw-gradient-from`
+- [x] `via-{color}` → `--tw-gradient-via`
+- [x] `to-{color}` → `--tw-gradient-to`
+- [x] `from-{n}%`, `via-{n}%`, `to-{n}%` → posição do stop
 
 ### 8.3 Background Size
-- [ ] `bg-auto` → `background-size: auto`
-- [ ] `bg-cover` → `background-size: cover`
-- [ ] `bg-contain` → `background-size: contain`
+- [x] `bg-auto` → `background-size: auto`
+- [x] `bg-cover` → `background-size: cover`
+- [x] `bg-contain` → `background-size: contain`
 
 ### 8.4 Background Position
-- [ ] `bg-center`, `bg-top`, `bg-bottom`, `bg-left`, `bg-right`
-- [ ] `bg-left-top`, `bg-left-bottom`, `bg-right-top`, `bg-right-bottom`
+- [x] `bg-center`, `bg-top`, `bg-bottom`, `bg-left`, `bg-right`
+- [x] `bg-left-top`, `bg-left-bottom`, `bg-right-top`, `bg-right-bottom`
 
 ### 8.5 Background Repeat
-- [ ] `bg-repeat`, `bg-no-repeat`
-- [ ] `bg-repeat-x`, `bg-repeat-y`, `bg-repeat-round`, `bg-repeat-space`
+- [x] `bg-repeat`, `bg-no-repeat`
+- [x] `bg-repeat-x`, `bg-repeat-y`, `bg-repeat-round`, `bg-repeat-space`
 
 ### 8.6 Background Attachment
-- [ ] `bg-fixed`, `bg-local`, `bg-scroll`
+- [x] `bg-fixed`, `bg-local`, `bg-scroll`
 
 ### 8.7 Background Clip
-- [ ] `bg-clip-border`, `bg-clip-padding`, `bg-clip-content`, `bg-clip-text`
+- [x] `bg-clip-border`, `bg-clip-padding`, `bg-clip-content`, `bg-clip-text`
 
 ### 8.8 Background Origin
-- [ ] `bg-origin-border`, `bg-origin-padding`, `bg-origin-content`
+- [x] `bg-origin-border`, `bg-origin-padding`, `bg-origin-content`
 
 ---
 
 ## 9. Borders
 
 ### 9.1 Border Width
-- [ ] `border` → `border-width: 1px`
-- [ ] `border-0`, `border-2`, `border-4`, `border-8`
-- [ ] `border-t`, `border-r`, `border-b`, `border-l`
-- [ ] `border-t-0`, `border-t-2`, `border-t-4`, `border-t-8`
-- [ ] `border-x`, `border-y`
-- [ ] `border-x-0`, `border-x-2`, etc.
-- [ ] `border-s`, `border-e`, `border-bs`, `border-be`
+- [x] `border` → `border-width: 1px`
+- [x] `border-0`, `border-2`, `border-4`, `border-8`
+- [x] `border-t`, `border-r`, `border-b`, `border-l`
+- [x] `border-t-0`, `border-t-2`, `border-t-4`, `border-t-8`
+- [x] `border-x`, `border-y`
+- [x] `border-x-0`, `border-x-2`, etc.
+- [x] `border-s`, `border-e`, `border-bs`, `border-be`
 
 ### 9.2 Border Color
-- [ ] `border-{color}-{shade}` → `border-color` (paleta completa)
-- [ ] `border-white`, `border-black`, `border-transparent`
-- [ ] `border-t-{color}`, `border-r-{color}`, `border-b-{color}`, `border-l-{color}`
+- [x] `border-{color}-{shade}` → `border-color` (paleta completa)
+- [x] `border-white`, `border-black`, `border-transparent`
+- [x] `border-t-{color}`, `border-r-{color}`, `border-b-{color}`, `border-l-{color}`
 
 ### 9.3 Border Style
-- [ ] `border-solid` → `border-style: solid`
-- [ ] `border-dashed` → `border-style: dashed`
-- [ ] `border-dotted` → `border-style: dotted`
-- [ ] `border-double` → `border-style: double`
-- [ ] `border-hidden` → `border-style: hidden`
-- [ ] `border-none` → `border-style: none`
+- [x] `border-solid` → `border-style: solid`
+- [x] `border-dashed` → `border-style: dashed`
+- [x] `border-dotted` → `border-style: dotted`
+- [x] `border-double` → `border-style: double`
+- [x] `border-hidden` → `border-style: hidden`
+- [x] `border-none` → `border-style: none`
 
 ### 9.4 Border Radius
-- [ ] `rounded-none` → `border-radius: 0`
-- [ ] `rounded-sm` → `border-radius: 0.125rem`
-- [ ] `rounded` → `border-radius: 0.25rem`
-- [ ] `rounded-md` → `border-radius: 0.375rem`
-- [ ] `rounded-lg` → `border-radius: 0.5rem`
-- [ ] `rounded-xl` → `border-radius: 0.75rem`
-- [ ] `rounded-2xl` → `border-radius: 1rem`
-- [ ] `rounded-3xl` → `border-radius: 1.5rem`
-- [ ] `rounded-full` → `border-radius: 9999px`
-- [ ] `rounded-t-{size}`, `rounded-r-{size}`, `rounded-b-{size}`, `rounded-l-{size}`
-- [ ] `rounded-tl-{size}`, `rounded-tr-{size}`, `rounded-bl-{size}`, `rounded-br-{size}`
-- [ ] `rounded-ss-{size}`, `rounded-se-{size}`, `rounded-es-{size}`, `rounded-ee-{size}`
+- [x] `rounded-none` → `border-radius: 0`
+- [x] `rounded-sm` → `border-radius: 0.125rem`
+- [x] `rounded` → `border-radius: 0.25rem`
+- [x] `rounded-md` → `border-radius: 0.375rem`
+- [x] `rounded-lg` → `border-radius: 0.5rem`
+- [x] `rounded-xl` → `border-radius: 0.75rem`
+- [x] `rounded-2xl` → `border-radius: 1rem`
+- [x] `rounded-3xl` → `border-radius: 1.5rem`
+- [x] `rounded-full` → `border-radius: 9999px`
+- [x] `rounded-t-{size}`, `rounded-r-{size}`, `rounded-b-{size}`, `rounded-l-{size}`
+- [x] `rounded-tl-{size}`, `rounded-tr-{size}`, `rounded-bl-{size}`, `rounded-br-{size}`
+- [x] `rounded-ss-{size}`, `rounded-se-{size}`, `rounded-es-{size}`, `rounded-ee-{size}`
 
 ### 9.5 Outline
-- [ ] `outline-none` → `outline: none`
-- [ ] `outline`, `outline-dashed`, `outline-dotted`, `outline-double`
-- [ ] `outline-0`, `outline-1`, `outline-2`, `outline-4`, `outline-8`
-- [ ] `outline-{color}-{shade}`
-- [ ] `outline-offset-0`, `outline-offset-1`, `outline-offset-2`, `outline-offset-4`, `outline-offset-8`
+- [x] `outline-none` → `outline: none`
+- [x] `outline`, `outline-dashed`, `outline-dotted`, `outline-double`
+- [x] `outline-0`, `outline-1`, `outline-2`, `outline-4`, `outline-8`
+- [x] `outline-{color}-{shade}`
+- [x] `outline-offset-0`, `outline-offset-1`, `outline-offset-2`, `outline-offset-4`, `outline-offset-8`
 
 ### 9.6 Ring
-- [ ] `ring` → `box-shadow: 0 0 0 3px var(--tw-ring-color)`
-- [ ] `ring-0`, `ring-1`, `ring-2`, `ring-4`, `ring-8`
-- [ ] `ring-inset`
-- [ ] `ring-{color}-{shade}`
-- [ ] `ring-offset-0`, `ring-offset-1`, `ring-offset-2`, `ring-offset-4`, `ring-offset-8`
-- [ ] `ring-offset-{color}-{shade}`
+- [x] `ring` → `box-shadow: 0 0 0 3px var(--tw-ring-color)`
+- [x] `ring-0`, `ring-1`, `ring-2`, `ring-4`, `ring-8`
+- [x] `ring-inset`
+- [x] `ring-{color}-{shade}`
+- [x] `ring-offset-0`, `ring-offset-1`, `ring-offset-2`, `ring-offset-4`, `ring-offset-8`
+- [x] `ring-offset-{color}-{shade}`
 
 ### 9.7 Divide
-- [ ] `divide-x`, `divide-x-0`, `divide-x-2`, `divide-x-4`, `divide-x-8`
-- [ ] `divide-y`, `divide-y-0`, `divide-y-2`, `divide-y-4`, `divide-y-8`
-- [ ] `divide-x-reverse`, `divide-y-reverse`
-- [ ] `divide-{color}-{shade}`
-- [ ] `divide-solid`, `divide-dashed`, `divide-dotted`, `divide-double`, `divide-none`
+- [x] `divide-x`, `divide-x-0`, `divide-x-2`, `divide-x-4`, `divide-x-8`
+- [x] `divide-y`, `divide-y-0`, `divide-y-2`, `divide-y-4`, `divide-y-8`
+- [x] `divide-x-reverse`, `divide-y-reverse`
+- [x] `divide-{color}-{shade}`
+- [x] `divide-solid`, `divide-dashed`, `divide-dotted`, `divide-double`, `divide-none`
 
 ---
 
 ## 10. Effects
 
 ### 10.1 Box Shadow
-- [ ] `shadow-2xs`
-- [ ] `shadow-xs`
-- [ ] `shadow-sm`
-- [ ] `shadow` (default)
-- [ ] `shadow-md`
-- [ ] `shadow-lg`
-- [ ] `shadow-xl`
-- [ ] `shadow-2xl`
-- [ ] `shadow-inner`
-- [ ] `shadow-none`
-- [ ] `shadow-{color}-{shade}` → cor do shadow
+- [x] `shadow-2xs`
+- [x] `shadow-xs`
+- [x] `shadow-sm`
+- [x] `shadow` (default)
+- [x] `shadow-md`
+- [x] `shadow-lg`
+- [x] `shadow-xl`
+- [x] `shadow-2xl`
+- [x] `shadow-inner`
+- [x] `shadow-none`
+- [x] `shadow-{color}-{shade}` → `--tw-shadow-color` (combine com shadow-sm/lg para cor)
 
 ### 10.2 Opacity
-- [ ] `opacity-0`, `opacity-5`, `opacity-10`, `opacity-15`, `opacity-20`, `opacity-25`
-- [ ] `opacity-30`, `opacity-35`, `opacity-40`, `opacity-45`, `opacity-50`
-- [ ] `opacity-55`, `opacity-60`, `opacity-65`, `opacity-70`, `opacity-75`
-- [ ] `opacity-80`, `opacity-85`, `opacity-90`, `opacity-95`, `opacity-100`
+- [x] `opacity-0`, `opacity-5`, `opacity-10`, `opacity-15`, `opacity-20`, `opacity-25`
+- [x] `opacity-30`, `opacity-35`, `opacity-40`, `opacity-45`, `opacity-50`
+- [x] `opacity-55`, `opacity-60`, `opacity-65`, `opacity-70`, `opacity-75`
+- [x] `opacity-80`, `opacity-85`, `opacity-90`, `opacity-95`, `opacity-100`
 
 ### 10.3 Mix Blend Mode
-- [ ] `mix-blend-normal`, `mix-blend-multiply`, `mix-blend-screen`, `mix-blend-overlay`
-- [ ] `mix-blend-darken`, `mix-blend-lighten`, `mix-blend-color-dodge`, `mix-blend-color-burn`
-- [ ] `mix-blend-hard-light`, `mix-blend-soft-light`, `mix-blend-difference`, `mix-blend-exclusion`
-- [ ] `mix-blend-hue`, `mix-blend-saturation`, `mix-blend-color`, `mix-blend-luminosity`
-- [ ] `mix-blend-plus-darker`, `mix-blend-plus-lighter`
+- [x] `mix-blend-normal`, `mix-blend-multiply`, `mix-blend-screen`, `mix-blend-overlay`
+- [x] `mix-blend-darken`, `mix-blend-lighten`, `mix-blend-color-dodge`, `mix-blend-color-burn`
+- [x] `mix-blend-hard-light`, `mix-blend-soft-light`, `mix-blend-difference`, `mix-blend-exclusion`
+- [x] `mix-blend-hue`, `mix-blend-saturation`, `mix-blend-color`, `mix-blend-luminosity`
+- [x] `mix-blend-plus-darker`, `mix-blend-plus-lighter`
 
 ### 10.4 Background Blend Mode
-- [ ] `bg-blend-{value}` (mesmos valores do mix-blend)
+- [x] `bg-blend-{value}` (mesmos valores do mix-blend)
 
 ---
 
 ## 11. Filters
 
 ### 11.1 Filter
-- [ ] `blur-none`, `blur-sm`, `blur`, `blur-md`, `blur-lg`, `blur-xl`, `blur-2xl`, `blur-3xl`
-- [ ] `brightness-0`, `brightness-50`, `brightness-75`, `brightness-90`, `brightness-95`, `brightness-100`, `brightness-105`, `brightness-110`, `brightness-125`, `brightness-150`, `brightness-200`
-- [ ] `contrast-0`, `contrast-50`, `contrast-75`, `contrast-100`, `contrast-125`, `contrast-150`, `contrast-200`
-- [ ] `drop-shadow-none`, `drop-shadow-sm`, `drop-shadow`, `drop-shadow-md`, `drop-shadow-lg`, `drop-shadow-xl`, `drop-shadow-2xl`
-- [ ] `grayscale-0`, `grayscale`
-- [ ] `hue-rotate-0`, `hue-rotate-15`, `hue-rotate-30`, `hue-rotate-60`, `hue-rotate-90`, `hue-rotate-180`
-- [ ] `invert-0`, `invert`
-- [ ] `saturate-0`, `saturate-50`, `saturate-100`, `saturate-150`, `saturate-200`
-- [ ] `sepia-0`, `sepia`
+- [x] `blur-none`, `blur-sm`, `blur`, `blur-md`, `blur-lg`, `blur-xl`, `blur-2xl`, `blur-3xl`
+- [x] `brightness-0`, `brightness-50`, `brightness-75`, `brightness-90`, `brightness-95`, `brightness-100`, `brightness-105`, `brightness-110`, `brightness-125`, `brightness-150`, `brightness-200`
+- [x] `contrast-0`, `contrast-50`, `contrast-75`, `contrast-100`, `contrast-125`, `contrast-150`, `contrast-200`
+- [x] `drop-shadow-none`, `drop-shadow-sm`, `drop-shadow`, `drop-shadow-md`, `drop-shadow-lg`, `drop-shadow-xl`, `drop-shadow-2xl`
+- [x] `grayscale-0`, `grayscale`
+- [x] `hue-rotate-0`, `hue-rotate-15`, `hue-rotate-30`, `hue-rotate-60`, `hue-rotate-90`, `hue-rotate-180`
+- [x] `invert-0`, `invert`
+- [x] `saturate-0`, `saturate-50`, `saturate-100`, `saturate-150`, `saturate-200`
+- [x] `sepia-0`, `sepia`
 
 ### 11.2 Backdrop Filter
-- [ ] `backdrop-blur-{size}` (mesmos tamanhos do blur)
-- [ ] `backdrop-brightness-{value}`
-- [ ] `backdrop-contrast-{value}`
-- [ ] `backdrop-grayscale-{value}`
-- [ ] `backdrop-hue-rotate-{value}`
-- [ ] `backdrop-invert-{value}`
-- [ ] `backdrop-opacity-{value}`
-- [ ] `backdrop-saturate-{value}`
-- [ ] `backdrop-sepia-{value}`
+- [x] `backdrop-blur-{size}` (same sizes as blur)
+- [x] `backdrop-brightness-{value}`
+- [x] `backdrop-contrast-{value}`
+- [x] `backdrop-grayscale-{value}`
+- [x] `backdrop-hue-rotate-{value}`
+- [x] `backdrop-invert-{value}`
+- [x] `backdrop-opacity-{value}`
+- [x] `backdrop-saturate-{value}`
+- [x] `backdrop-sepia-{value}`
 
 ---
 
 ## 12. Transitions & Animation
 
 ### 12.1 Transition Property
-- [ ] `transition-none` → `transition-property: none`
-- [ ] `transition-all` → `transition-property: all`
-- [ ] `transition` → default (color, bg, border, outline, text-decoration, fill, stroke, opacity, shadow, transform)
-- [ ] `transition-colors` → color-related
-- [ ] `transition-opacity` → `transition-property: opacity`
-- [ ] `transition-shadow` → `transition-property: box-shadow`
-- [ ] `transition-transform` → transform-related
+- [x] `transition-none` → `transition-property: none`
+- [x] `transition-all` → `transition-property: all`
+- [x] `transition` → default (color, bg, border, outline, text-decoration, fill, stroke, opacity, shadow, transform)
+- [x] `transition-colors` → color-related
+- [x] `transition-opacity` → `transition-property: opacity`
+- [x] `transition-shadow` → `transition-property: box-shadow`
+- [x] `transition-transform` → transform-related
 
 ### 12.2 Transition Duration
-- [ ] `duration-0`, `duration-75`, `duration-100`, `duration-150`, `duration-200`
-- [ ] `duration-300`, `duration-500`, `duration-700`, `duration-1000`
+- [x] `duration-0`, `duration-75`, `duration-100`, `duration-150`, `duration-200`
+- [x] `duration-300`, `duration-500`, `duration-700`, `duration-1000`
 
 ### 12.3 Transition Timing Function
-- [ ] `ease-linear` → `transition-timing-function: linear`
-- [ ] `ease-in` → `cubic-bezier(0.4, 0, 1, 1)`
-- [ ] `ease-out` → `cubic-bezier(0, 0, 0.2, 1)`
-- [ ] `ease-in-out` → `cubic-bezier(0.4, 0, 0.2, 1)`
+- [x] `ease-linear` → `transition-timing-function: linear`
+- [x] `ease-in` → `cubic-bezier(0.4, 0, 1, 1)`
+- [x] `ease-out` → `cubic-bezier(0, 0, 0.2, 1)`
+- [x] `ease-in-out` → `cubic-bezier(0.4, 0, 0.2, 1)`
 
 ### 12.4 Transition Delay
-- [ ] `delay-0`, `delay-75`, `delay-100`, `delay-150`, `delay-200`, `delay-300`, `delay-500`, `delay-700`, `delay-1000`
+- [x] `delay-0`, `delay-75`, `delay-100`, `delay-150`, `delay-200`, `delay-300`, `delay-500`, `delay-700`, `delay-1000`
 
 ### 12.5 Animation
-- [ ] `animate-none` → `animation: none`
-- [ ] `animate-spin` → `animation: spin 1s linear infinite`
-- [ ] `animate-ping` → `animation: ping 1s cubic-bezier(0,0,0.2,1) infinite`
-- [ ] `animate-pulse` → `animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite`
-- [ ] `animate-bounce` → `animation: bounce 1s infinite`
+- [x] `animate-none` → `animation: none`
+- [x] `animate-spin` → `animation: spin 1s linear infinite` + @keyframes spin
+- [x] `animate-ping` → `animation: ping 1s cubic-bezier(0,0,0.2,1) infinite` + @keyframes ping
+- [x] `animate-pulse` → `animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite` + @keyframes pulse
+- [x] `animate-bounce` → `animation: bounce 1s infinite` + @keyframes bounce
 
 ---
 
 ## 13. Transforms
 
 ### 13.1 Scale
-- [ ] `scale-0`, `scale-50`, `scale-75`, `scale-90`, `scale-95`, `scale-100`
-- [ ] `scale-105`, `scale-110`, `scale-125`, `scale-150`
-- [ ] `scale-x-{value}`, `scale-y-{value}`
-- [ ] `-scale-{value}` (negativo = mirror)
+- [x] `scale-0`, `scale-50`, `scale-75`, `scale-90`, `scale-95`, `scale-100`
+- [x] `scale-105`, `scale-110`, `scale-125`, `scale-150`
+- [x] `scale-x-{value}`, `scale-y-{value}`
+- [x] `-scale-{value}` (negative = mirror)
 
 ### 13.2 Rotate
-- [ ] `rotate-0`, `rotate-1`, `rotate-2`, `rotate-3`, `rotate-6`, `rotate-12`
-- [ ] `rotate-45`, `rotate-90`, `rotate-180`
-- [ ] `-rotate-{value}` (negativo)
-- [ ] `rotate-x-{value}`, `rotate-y-{value}` (3D)
+- [x] `rotate-0`, `rotate-1`, `rotate-2`, `rotate-3`, `rotate-6`, `rotate-12`
+- [x] `rotate-45`, `rotate-90`, `rotate-180`
+- [x] `-rotate-{value}` (negative)
+- [x] `rotate-x-{value}`, `rotate-y-{value}` (3D)
 
 ### 13.3 Translate
-- [ ] `translate-x-{n}` → `translate: calc(0.25rem * n)`
-- [ ] `translate-y-{n}`
-- [ ] `translate-x-1/2`, `translate-x-full`, `translate-x-px`
-- [ ] `-translate-x-{n}`, `-translate-y-{n}` (negativo)
-- [ ] `translate-z-{n}` (3D)
+- [x] `translate-x-{n}` → spacing scale (0.25rem × n)
+- [x] `translate-y-{n}`
+- [x] `translate-x-1/2`, `translate-x-full`, `translate-x-px` (and 1/3, 2/3, 1/4, 3/4, 1/6, 5/6)
+- [x] `-translate-x-{n}`, `-translate-y-{n}` (negative)
+- [x] `translate-z-{n}` (3D)
 
 ### 13.4 Skew
-- [ ] `skew-x-0`, `skew-x-1`, `skew-x-2`, `skew-x-3`, `skew-x-6`, `skew-x-12`
-- [ ] `skew-y-0`, `skew-y-1`, etc.
-- [ ] `-skew-x-{value}`, `-skew-y-{value}`
+- [x] `skew-x-0`, `skew-x-1`, `skew-x-2`, `skew-x-3`, `skew-x-6`, `skew-x-12`
+- [x] `skew-y-0`, `skew-y-1`, etc.
+- [x] `-skew-x-{value}`, `-skew-y-{value}`
 
 ### 13.5 Transform Origin
-- [ ] `origin-center`, `origin-top`, `origin-top-right`, `origin-right`
-- [ ] `origin-bottom-right`, `origin-bottom`, `origin-bottom-left`
-- [ ] `origin-left`, `origin-top-left`
+- [x] `origin-center`, `origin-top`, `origin-top-right`, `origin-right`
+- [x] `origin-bottom-right`, `origin-bottom`, `origin-bottom-left`
+- [x] `origin-left`, `origin-top-left`
 
 ### 13.6 Perspective
-- [ ] `perspective-none`, `perspective-dramatic`, `perspective-near`, `perspective-normal`, `perspective-midrange`, `perspective-distant`
+- [x] `perspective-none`, `perspective-dramatic`, `perspective-near`, `perspective-normal`, `perspective-midrange`, `perspective-distant`
 
 ---
 
 ## 14. Interactivity
 
 ### 14.1 Cursor
-- [ ] `cursor-auto`, `cursor-default`, `cursor-pointer`, `cursor-wait`
-- [ ] `cursor-text`, `cursor-move`, `cursor-help`, `cursor-not-allowed`
-- [ ] `cursor-none`, `cursor-context-menu`, `cursor-progress`
-- [ ] `cursor-cell`, `cursor-crosshair`, `cursor-vertical-text`, `cursor-alias`
-- [ ] `cursor-copy`, `cursor-no-drop`, `cursor-grab`, `cursor-grabbing`
-- [ ] `cursor-all-scroll`, `cursor-col-resize`, `cursor-row-resize`
-- [ ] `cursor-n-resize`, `cursor-e-resize`, `cursor-s-resize`, `cursor-w-resize`
-- [ ] `cursor-ne-resize`, `cursor-nw-resize`, `cursor-se-resize`, `cursor-sw-resize`
-- [ ] `cursor-ew-resize`, `cursor-ns-resize`, `cursor-nesw-resize`, `cursor-nwse-resize`
-- [ ] `cursor-zoom-in`, `cursor-zoom-out`
+- [x] `cursor-auto`, `cursor-default`, `cursor-pointer`, `cursor-wait`
+- [x] `cursor-text`, `cursor-move`, `cursor-help`, `cursor-not-allowed`
+- [x] `cursor-none`, `cursor-context-menu`, `cursor-progress`
+- [x] `cursor-cell`, `cursor-crosshair`, `cursor-vertical-text`, `cursor-alias`
+- [x] `cursor-copy`, `cursor-no-drop`, `cursor-grab`, `cursor-grabbing`
+- [x] `cursor-all-scroll`, `cursor-col-resize`, `cursor-row-resize`
+- [x] `cursor-n-resize`, `cursor-e-resize`, `cursor-s-resize`, `cursor-w-resize`
+- [x] `cursor-ne-resize`, `cursor-nw-resize`, `cursor-se-resize`, `cursor-sw-resize`
+- [x] `cursor-ew-resize`, `cursor-ns-resize`, `cursor-nesw-resize`, `cursor-nwse-resize`
+- [x] `cursor-zoom-in`, `cursor-zoom-out`
 
 ### 14.2 Pointer Events
-- [ ] `pointer-events-none` → `pointer-events: none`
-- [ ] `pointer-events-auto` → `pointer-events: auto`
+- [x] `pointer-events-none` → `pointer-events: none`
+- [x] `pointer-events-auto` → `pointer-events: auto`
 
 ### 14.3 Resize
-- [ ] `resize-none`, `resize`, `resize-y`, `resize-x`
+- [x] `resize-none`, `resize`, `resize-y`, `resize-x`
 
 ### 14.4 User Select
-- [ ] `select-none`, `select-text`, `select-all`, `select-auto`
+- [x] `select-none`, `select-text`, `select-all`, `select-auto`
 
 ### 14.5 Scroll
-- [ ] `scroll-auto` → `scroll-behavior: auto`
-- [ ] `scroll-smooth` → `scroll-behavior: smooth`
-- [ ] `scroll-m-{n}`, `scroll-p-{n}` (e variantes direcionais)
-- [ ] `snap-none`, `snap-x`, `snap-y`, `snap-both` → `scroll-snap-type`
-- [ ] `snap-mandatory`, `snap-proximity`
-- [ ] `snap-start`, `snap-end`, `snap-center`, `snap-align-none`
-- [ ] `snap-normal`, `snap-always`
+- [x] `scroll-auto` → `scroll-behavior: auto`
+- [x] `scroll-smooth` → `scroll-behavior: smooth`
+- [x] `scroll-m-{n}`, `scroll-p-{n}` (and directional variants: mt, mr, mb, ml, mx, my, ms, me, pt, pr, pb, pl, px, py, ps, pe)
+- [x] `snap-none`, `snap-x`, `snap-y`, `snap-both` → `scroll-snap-type`
+- [x] `snap-mandatory`, `snap-proximity`
+- [x] `snap-start`, `snap-end`, `snap-center`, `snap-align-none`
+- [x] `snap-normal`, `snap-always`
 
 ### 14.6 Touch Action
-- [ ] `touch-auto`, `touch-none`, `touch-pan-x`, `touch-pan-left`, `touch-pan-right`
-- [ ] `touch-pan-y`, `touch-pan-up`, `touch-pan-down`, `touch-pinch-zoom`, `touch-manipulation`
+- [x] `touch-auto`, `touch-none`, `touch-pan-x`, `touch-pan-left`, `touch-pan-right`
+- [x] `touch-pan-y`, `touch-pan-up`, `touch-pan-down`, `touch-pinch-zoom`, `touch-manipulation`
 
 ### 14.7 Will Change
-- [ ] `will-change-auto`, `will-change-scroll`, `will-change-contents`, `will-change-transform`
+- [x] `will-change-auto`, `will-change-scroll`, `will-change-contents`, `will-change-transform`
 
 ### 14.8 Appearance
-- [ ] `appearance-none` → `appearance: none`
-- [ ] `appearance-auto` → `appearance: auto`
+- [x] `appearance-none` → `appearance: none`
+- [x] `appearance-auto` → `appearance: auto`
 
 ### 14.9 Caret Color
-- [ ] `caret-{color}-{shade}` → `caret-color`
-- [ ] `caret-transparent`, `caret-current`
+- [x] `caret-{color}-{shade}` → `caret-color`
+- [x] `caret-transparent`, `caret-current`
 
 ### 14.10 Accent Color
-- [ ] `accent-{color}-{shade}` → `accent-color`
-- [ ] `accent-auto`
+- [x] `accent-{color}-{shade}` → `accent-color`
+- [x] `accent-auto`
 
----
-
-## 15. SVG
-
-- [ ] `fill-none` → `fill: none`
-- [ ] `fill-{color}-{shade}` → `fill: {color}`
-- [ ] `fill-current`, `fill-inherit`, `fill-transparent`, `fill-black`, `fill-white`
-- [ ] `stroke-none` → `stroke: none`
-- [ ] `stroke-{color}-{shade}` → `stroke: {color}`
-- [ ] `stroke-0`, `stroke-1`, `stroke-2` → `stroke-width`
 
 ---
 
 ## 16. Tables
 
-- [ ] `border-collapse` → `border-collapse: collapse`
-- [ ] `border-separate` → `border-collapse: separate`
-- [ ] `border-spacing-{n}` → `border-spacing`
-- [ ] `border-spacing-x-{n}`, `border-spacing-y-{n}`
-- [ ] `table-auto` → `table-layout: auto`
-- [ ] `table-fixed` → `table-layout: fixed`
-- [ ] `caption-top` → `caption-side: top`
-- [ ] `caption-bottom` → `caption-side: bottom`
+- [x] `border-collapse` → `border-collapse: collapse`
+- [x] `border-separate` → `border-collapse: separate`
+- [x] `border-spacing-{n}` → `border-spacing`
+- [x] `border-spacing-x-{n}`, `border-spacing-y-{n}`
+- [x] `table-auto` → `table-layout: auto`
+- [x] `table-fixed` → `table-layout: fixed`
+- [x] `caption-top` → `caption-side: top`
+- [x] `caption-bottom` → `caption-side: bottom`
 
----
-
-## 17. Accessibility
-
-- [ ] `sr-only` → visualmente oculto, acessível a screen readers
-- [ ] `not-sr-only` → reverte `sr-only`
-- [ ] `forced-color-adjust-auto`, `forced-color-adjust-none`
 
 ---
 
 ## 18. Misc / Utilitários Extras
 
 ### 18.1 Content
-- [ ] `content-none` → `content: none`
-- [ ] `content-['']`, `content-[{value}]`
+- [x] `content-none` → `content: none`
+- [x] `content-['']`, `content-[{value}]` (arbitrary values, `_` → space)
 
 ### 18.2 Overscroll
-- [ ] `overscroll-auto`, `overscroll-contain`, `overscroll-none`
-- [ ] `overscroll-x-{value}`, `overscroll-y-{value}`
+- [x] `overscroll-auto`, `overscroll-contain`, `overscroll-none`
+- [x] `overscroll-x-auto`, `overscroll-x-contain`, `overscroll-x-none`
+- [x] `overscroll-y-auto`, `overscroll-y-contain`, `overscroll-y-none`
 
-### 18.3 Screen Reader
-- [ ] `sr-only`, `not-sr-only` (ver seção 17)
 
 ---
 
 ## 19. Variantes (Modificadores)
 
 ### 19.1 Responsivas
-- [ ] `sm:`, `md:`, `lg:`, `xl:`, `2xl:` → `@media (min-width: ...)`
-- [ ] `max-sm:`, `max-md:`, `max-lg:`, `max-xl:`, `max-2xl:` → `@media (max-width: ...)`
+- [x] `sm:`, `md:`, `lg:`, `xl:`, `2xl:` → `@media (min-width: ...)`
+- [x] `max-sm:`, `max-md:`, `max-lg:`, `max-xl:`, `max-2xl:` → `@media (max-width: ...)`
 
 ### 19.2 Estado de Elemento
-- [ ] `hover:` → `:hover`
-- [ ] `focus:` → `:focus`
-- [ ] `focus-within:` → `:focus-within`
-- [ ] `focus-visible:` → `:focus-visible`
-- [ ] `active:` → `:active`
-- [ ] `visited:` → `:visited`
-- [ ] `disabled:` → `:disabled`
-- [ ] `enabled:` → `:enabled`
-- [ ] `checked:` → `:checked`
-- [ ] `indeterminate:` → `:indeterminate`
-- [ ] `required:` → `:required`
-- [ ] `valid:` → `:valid`
-- [ ] `invalid:` → `:invalid`
-- [ ] `placeholder:` → `::placeholder`
-- [ ] `first:` → `:first-child`
-- [ ] `last:` → `:last-child`
-- [ ] `only:` → `:only-child`
-- [ ] `odd:` → `:nth-child(odd)`
-- [ ] `even:` → `:nth-child(even)`
-- [ ] `empty:` → `:empty`
+- [x] `hover:` → `:hover`
+- [x] `focus:` → `:focus`
+- [x] `focus-within:` → `:focus-within`
+- [x] `focus-visible:` → `:focus-visible`
+- [x] `active:` → `:active`
+- [x] `visited:` → `:visited`
+- [x] `disabled:` → `:disabled`
+- [x] `enabled:` → `:enabled`
+- [x] `checked:` → `:checked`
+- [x] `indeterminate:` → `:indeterminate`
+- [x] `required:` → `:required`
+- [x] `valid:` → `:valid`
+- [x] `invalid:` → `:invalid`
+- [x] `placeholder:` → `::placeholder`
+- [x] `first:` → `:first-child`
+- [x] `last:` → `:last-child`
+- [x] `only:` → `:only-child`
+- [x] `odd:` → `:nth-child(odd)`
+- [x] `even:` → `:nth-child(even)`
+- [x] `empty:` → `:empty`
 
 ### 19.3 Pseudo-elementos
-- [ ] `before:` → `::before`
-- [ ] `after:` → `::after`
-- [ ] `placeholder:` → `::placeholder`
-- [ ] `selection:` → `::selection`
-- [ ] `first-line:` → `::first-line`
-- [ ] `first-letter:` → `::first-letter`
-- [ ] `marker:` → `::marker`
+- [x] `before:` → `::before`
+- [x] `after:` → `::after`
+- [x] `placeholder:` → `::placeholder`
+- [x] `selection:` → `::selection`
+- [x] `first-line:` → `::first-line`
+- [x] `first-letter:` → `::first-letter`
+- [x] `marker:` → `::marker`
 
 ### 19.4 Dark Mode
-- [ ] `dark:` → `@media (prefers-color-scheme: dark)` ou classe `.dark`
+- [x] `dark:` → `@media (prefers-color-scheme: dark)`
 
 ### 19.5 Motion
-- [ ] `motion-safe:` → `@media (prefers-reduced-motion: no-preference)`
-- [ ] `motion-reduce:` → `@media (prefers-reduced-motion: reduce)`
+- [x] `motion-safe:` → `@media (prefers-reduced-motion: no-preference)`
+- [x] `motion-reduce:` → `@media (prefers-reduced-motion: reduce)`
 
 ### 19.6 Print
-- [ ] `print:` → `@media print`
+- [x] `print:` → `@media print`
 
 ### 19.7 Group / Peer
-- [ ] `group-hover:`, `group-focus:`, `group-active:`, `group-disabled:`
-- [ ] `peer-hover:`, `peer-focus:`, `peer-checked:`, `peer-disabled:`
+- [x] `group-hover:`, `group-focus:`, `group-active:`, `group-disabled:`, `group-focus-within:`
+- [x] `peer-hover:`, `peer-focus:`, `peer-checked:`, `peer-disabled:`, `peer-focus-within:`
 
 ### 19.8 Container Queries
-- [ ] `@sm:`, `@md:`, `@lg:`, `@xl:`, `@2xl:`, `@3xl:`, `@4xl:`, `@5xl:`, `@6xl:`, `@7xl:`
+- [x] `@sm:`, `@md:`, `@lg:`, `@xl:`, `@2xl:`, `@3xl:`, `@4xl:`, `@5xl:`, `@6xl:`, `@7xl:`
 
 ### 19.9 Arbitrary Values
-- [ ] `{property}-[{value}]` → todos os utilitários suportam sintaxe `[]` para valores arbitrários
-- [ ] `{property}-({variable})` → `var(--variable)`
+- [x] `{property}-[{value}]` → many utilities support `[]` arbitrary syntax
+- [ ] `{property}-({variable})` → `var(--variable)` (partial support)
 
 ---
 
