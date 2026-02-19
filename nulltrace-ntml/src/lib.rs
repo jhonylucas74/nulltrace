@@ -47,6 +47,7 @@ pub mod error;
 pub mod head;
 pub mod parser;
 pub mod style;
+pub mod tailwind;
 pub mod theme;
 pub mod validator;
 
