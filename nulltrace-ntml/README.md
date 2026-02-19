@@ -1,13 +1,13 @@
 # NullTrace Markup Language (NTML)
 
-**NTML** is a YAML-based markup language for creating secure and validated user interfaces in the NullTrace game. It allows players to create custom UIs for their in-game programs, with strict validation to prevent exploits.
+**NTML** is an XML-based markup language for creating secure and validated user interfaces in the NullTrace game. It allows players to create custom UIs for their in-game programs, with strict validation to prevent exploits.
 
 ## 🎯 Features
 
 - ✅ **Robust Parser and Validator**: Parses and validates NTML with clear error messages
 - ✅ **Type-Safe**: All component structures are strongly typed
 - ✅ **Rich Component System**: Container, Flex, Grid, Text, Button, Input, Code, Markdown, List, Heading, Table, Blockquote, Pre, Details, and more
-- ✅ **CSS-like Style System**: Full support for style properties and optional `style.classes` (e.g. Tailwind)
+- ✅ **CSS-like Style System**: Full support for style properties and optional `class` attribute (e.g. Tailwind)
 - ✅ **Theme System**: Reusable theme variables
 - ✅ **Security Validation**: Prevents injections and exploits
 - ✅ **CLI Tool**: `ntml-validate` for file validation
@@ -35,17 +35,11 @@ cargo install --path .
 ```rust
 use nulltrace_ntml::parse_ntml;
 
-let yaml = r#"
-Container:
-  style:
-    padding: 16
-    backgroundColor: "#1a1a1a"
-  children:
-    - Text:
-        text: "Hello NullTrace!"
-"#;
+let ntml = r#"<Container style="padding:16; backgroundColor:#1a1a1a">
+  <Text text="Hello NullTrace!" />
+</Container>"#;
 
-match parse_ntml(yaml) {
+match parse_ntml(ntml) {
     Ok(component) => println!("✓ Valid NTML!"),
     Err(e) => eprintln!("✗ Error: {}", e),
 }
@@ -71,69 +65,53 @@ ntml-validate examples/invalid-color.ntml
 #### Container
 Basic rectangular container for grouping elements.
 
-```yaml
-Container:
-  style:
-    padding: 16
-    backgroundColor: "#1a1a1a"
-  children:
-    - Text:
-        text: "Content"
+```xml
+<Container style="padding:16; backgroundColor:#1a1a1a">
+  <Text text="Content" />
+</Container>
 ```
 
 #### Flex
 Flexible layout with control over direction, alignment, and spacing.
 
-```yaml
-Flex:
-  direction: column  # row | column
-  justify: center    # start | center | end | spaceBetween | spaceAround | spaceEvenly
-  align: center      # start | center | end | stretch
-  gap: 12
-  wrap: false
-  children:
-    - Text:
-        text: "Item 1"
+```xml
+<Flex direction="column" justify="center" align="center" gap="12" wrap="false">
+  <Text text="Item 1" />
+</Flex>
 ```
 
 #### Grid
 Grid layout with column and row definitions.
 
-```yaml
-Grid:
-  columns: 3  # or ["1fr", "2fr", "1fr"]
-  gap: 8      # or { row: 8, column: 16 }
-  children:
-    - Badge:
-        text: "Item"
+```xml
+<Grid columns="3" gap="8">
+  <Badge text="Item" />
+</Grid>
 ```
 
 #### Row / Column
 Shortcuts for Flex with predefined direction.
 
-```yaml
-Row:
-  gap: 8
-  align: center
-  children: [...]
+```xml
+<Row gap="8" align="center">
+  <Text text="Left" />
+  <Text text="Right" />
+</Row>
 
-Column:
-  gap: 12
-  justify: spaceBetween
-  children: [...]
+<Column gap="12" justify="spaceBetween">
+  <Text text="Top" />
+  <Text text="Bottom" />
+</Column>
 ```
 
 #### Stack
 Stacks elements on top of each other (z-index).
 
-```yaml
-Stack:
-  alignment: center  # topLeft | topCenter | center | bottomRight | etc
-  children:
-    - Image:
-        src: "background.png"
-    - Text:
-        text: "Overlay text"
+```xml
+<Stack alignment="center">
+  <Image src="background.png" />
+  <Text text="Overlay text" />
+</Stack>
 ```
 
 ### Content Components
@@ -141,38 +119,22 @@ Stack:
 #### Text
 Displays text.
 
-```yaml
-Text:
-  text: "Hello World"
-  style:
-    fontSize: 24
-    fontWeight: bold
-    color: "#00ff00"
+```xml
+<Text text="Hello World" style="fontSize:24; fontWeight:bold; color:#00ff00" />
 ```
 
 #### Image
 Displays an image.
 
-```yaml
-Image:
-  src: "player-avatar.png"
-  alt: "Player avatar"
-  fit: cover  # cover | contain | fill | none | scaleDown
-  style:
-    width: 100
-    height: 100
-    borderRadius: 50
+```xml
+<Image src="player-avatar.png" alt="Player avatar" fit="cover" style="width:100; height:100; borderRadius:50" />
 ```
 
 #### Icon
 Displays an icon.
 
-```yaml
-Icon:
-  name: "heart"
-  size: 24
-  style:
-    color: red
+```xml
+<Icon name="heart" size="24" style="color:red" />
 ```
 
 ### Interactive Components
@@ -180,60 +142,41 @@ Icon:
 #### Button
 Clickable button with action handler.
 
-```yaml
-Button:
-  action: "hack_system"
-  variant: primary  # primary | secondary | danger | ghost
-  disabled: false
-  children:
-    - Text:
-        text: "HACK"
+```xml
+<Button action="hack_system" variant="primary" disabled="false">
+  <Text text="HACK" />
+</Button>
 ```
 
 #### Input
 Text input field.
 
-```yaml
-Input:
-  name: "password"
-  placeholder: "Enter password"
-  type: password  # text | password | number
-  maxLength: 50
+```xml
+<Input name="password" placeholder="Enter password" type="password" maxLength="50" />
 ```
 
 #### Checkbox
 Checkbox input.
 
-```yaml
-Checkbox:
-  name: "agree"
-  label: "I agree to the terms"
-  checked: false
+```xml
+<Checkbox name="agree" label="I agree to the terms" checked="false" />
 ```
 
 #### Radio
 Radio button.
 
-```yaml
-Radio:
-  name: "difficulty"
-  value: "hard"
-  label: "Hard Mode"
-  checked: true
+```xml
+<Radio name="difficulty" value="hard" label="Hard Mode" checked="true" />
 ```
 
 #### Select
 Dropdown menu.
 
-```yaml
-Select:
-  name: "target"
-  options:
-    - label: "Database Server"
-      value: "db1"
-    - label: "Web Server"
-      value: "web1"
-  value: "db1"
+```xml
+<Select name="target" value="db1">
+  <option label="Database Server" value="db1" />
+  <option label="Web Server" value="web1" />
+</Select>
 ```
 
 ### Display Components
@@ -241,37 +184,29 @@ Select:
 #### ProgressBar
 Progress bar (health, mana, etc).
 
-```yaml
-ProgressBar:
-  value: 75
-  max: 100
-  variant: danger  # default | success | warning | danger
-  showLabel: true
+```xml
+<ProgressBar value="75" max="100" variant="danger" showLabel="true" />
 ```
 
 #### Badge
 Small badge or label.
 
-```yaml
-Badge:
-  text: "Level 42"
-  variant: primary  # default | primary | success | warning | danger
+```xml
+<Badge text="Level 42" variant="primary" />
 ```
 
 #### Divider
 Horizontal or vertical divider line.
 
-```yaml
-Divider:
-  orientation: horizontal  # horizontal | vertical
+```xml
+<Divider orientation="horizontal" />
 ```
 
 #### Spacer
 Flexible empty space.
 
-```yaml
-Spacer:
-  size: 16  # or "auto"
+```xml
+<Spacer size="16" />
 ```
 
 ### Document & code components
@@ -279,186 +214,135 @@ Spacer:
 #### Code
 Inline or block code with optional `language` for syntax highlighting.
 
-```yaml
-Code:
-  text: "local x = 1"
-  language: lua
-  block: true
+```xml
+<Code language="lua" block="true">local x = 1</Code>
+```
+
+Or via attribute:
+
+```xml
+<Code text="local x = 1" language="lua" block="true" />
 ```
 
 #### Markdown
 Renders markdown content as HTML (headings, lists, tables, etc.).
 
-```yaml
-Markdown:
-  content: |
-    ## Hello
-    - item 1
+```xml
+<Markdown content="## Hello&#10;- item 1" />
 ```
 
 #### List / ListItem
 Ordered or unordered list.
 
-```yaml
-List:
-  ordered: false
-  children:
-    - ListItem:
-        children:
-          - Text:
-              text: "Item 1"
+```xml
+<List ordered="false">
+  <ListItem>
+    <Text text="Item 1" />
+  </ListItem>
+</List>
 ```
 
 #### Heading
 Semantic h1, h2, h3.
 
-```yaml
-Heading:
-  level: 1
-  text: "Page Title"
+```xml
+<Heading level="1" text="Page Title" />
 ```
 
 #### Table
 Data table with headers and rows.
 
-```yaml
-Table:
-  headers: [Name, Score]
-  rows:
-    - [Alice, "100"]
-    - [Bob, "85"]
+```xml
+<Table headers="Name,Score" rows="Alice,100|Bob,85" />
 ```
 
 #### Blockquote
 Quoted block.
 
-```yaml
-Blockquote:
-  children:
-    - Text:
-        text: "Quote text"
+```xml
+<Blockquote>
+  <Text text="Quote text" />
+</Blockquote>
 ```
 
 #### Pre
 Preformatted text.
 
-```yaml
-Pre:
-  text: "  preformatted"
+```xml
+<Pre text="  preformatted" />
 ```
 
 #### Details
 Collapsible section.
 
-```yaml
-Details:
-  summary: "Expand"
-  children:
-    - Text:
-        text: "Hidden content"
+```xml
+<Details summary="Expand">
+  <Text text="Hidden content" />
+</Details>
 ```
 
 ## 🎨 Style System
 
-NTML supports CSS-like style properties:
+NTML supports CSS-like style properties via the `style` attribute using `key:value; key2:value2` syntax.
 
 ### Dimensions
-```yaml
-style:
-  width: 200
-  height: auto
-  minWidth: 100
-  maxWidth: 500
+```
+style="width:200; height:auto; minWidth:100; maxWidth:500"
 ```
 
 ### Padding/Margin
-```yaml
-style:
-  padding: 16
-  paddingHorizontal: 20
-  paddingVertical: 10
-  paddingTop: 8
-
-  margin: 12
-  marginLeft: 16
+```
+style="padding:16; paddingHorizontal:20; paddingVertical:10; paddingTop:8"
+style="margin:12; marginLeft:16"
 ```
 
 ### Colors
-```yaml
-style:
-  color: "#00ff00"           # hex
-  backgroundColor: red        # named color
-  borderColor: "#ff0000"
-  opacity: 0.8                # 0.0 to 1.0
+```
+style="color:#00ff00"           /* hex */
+style="backgroundColor:red"    /* named color */
+style="borderColor:#ff0000"
+style="opacity:0.8"             /* 0.0 to 1.0 */
 ```
 
 Supported named colors: `red`, `blue`, `green`, `white`, `black`, `transparent`, `yellow`, `orange`, `purple`, `pink`, `gray`, `grey`
 
 ### Typography
-```yaml
-style:
-  fontSize: 16
-  fontWeight: bold            # or 100-900
-  fontFamily: monospace       # sans | serif | monospace | game
-  textAlign: center           # left | center | right | justify
-  textTransform: uppercase    # none | uppercase | lowercase | capitalize
-  letterSpacing: 1.2
-  lineHeight: 1.5
-  textDecoration: underline   # none | underline | line-through
+```
+style="fontSize:16; fontWeight:bold; fontFamily:monospace; textAlign:center"
+style="textTransform:uppercase; letterSpacing:1.2; lineHeight:1.5; textDecoration:underline"
 ```
 
 ### Borders
-```yaml
-style:
-  borderWidth: 2
-  borderColor: "#00ff00"
-  borderStyle: solid          # solid | dashed | dotted
-  borderRadius: 8
-  borderTopLeftRadius: 4
+```
+style="borderWidth:2; borderColor:#00ff00; borderStyle:solid; borderRadius:8"
+style="borderTopLeftRadius:4"
 ```
 
 ### Shadows
-```yaml
-style:
-  shadow: medium              # small | medium | large
-  # or custom:
-  shadow:
-    shadowColor: "#000000"
-    shadowOffset:
-      x: 2
-      y: 2
-    shadowBlur: 4
-    shadowOpacity: 0.5
+```
+style="shadow:medium"      /* small | medium | large */
 ```
 
 ### Positioning
-```yaml
-style:
-  position: absolute          # relative | absolute
-  top: 10
-  left: 20
-  zIndex: 100
+```
+style="position:absolute; top:10; left:20; zIndex:100"
 ```
 
 ### Flex Item
-```yaml
-style:
-  flex: 1
-  alignSelf: center           # start | center | end | stretch
+```
+style="flex:1; alignSelf:center"
 ```
 
 ### Display
-```yaml
-style:
-  display: flex               # flex | none
-  overflow: auto              # visible | hidden | scroll | auto
-  cursor: pointer             # default | pointer | not-allowed | text
+```
+style="display:flex; overflow:auto; cursor:pointer"
 ```
 
 ### CSS classes (Tailwind)
-```yaml
-style:
-  classes: "p-4 bg-gray-100 rounded"   # Optional; space-separated class names
+```xml
+<Container class="p-4 bg-gray-100 rounded">
+  <Text text="Hello" />
+</Container>
 ```
 When set, the rendered HTML gets a `class` attribute (sanitized). Include Tailwind or your CSS so classes apply.
 
@@ -477,14 +361,9 @@ colors.insert("primary".to_string(), "#4a90e2".to_string());
 colors.insert("danger".to_string(), "#ff6b6b".to_string());
 theme.colors = Some(colors);
 
-let yaml = r#"
-Text:
-  text: "Themed text"
-  style:
-    color: "$theme.colors.primary"
-"#;
+let ntml = r#"<Text text="Themed text" style="color:$theme.colors.primary" />"#;
 
-let component = parse_with_theme(yaml, theme)?;
+let component = parse_with_theme(ntml, theme)?;
 ```
 
 Theme categories:
@@ -492,6 +371,36 @@ Theme categories:
 - `$theme.spacing.<key>` - Spacing values
 - `$theme.borderRadius.<key>` - Border radius values
 - `$theme.typography.<key>` - Font sizes
+
+## 📄 Document Formats
+
+### Classic format
+Single root element — no `head` or `body` needed:
+
+```xml
+<Container style="padding:16; backgroundColor:#1a1a1a">
+  <Text text="Hello!" />
+</Container>
+```
+
+### Full format (head + body)
+Use `head` for metadata, fonts, scripts, and component imports:
+
+```xml
+<head>
+  <title>My App</title>
+  <description>Dashboard</description>
+  <font family="Roboto Mono" weights="400,700" />
+  <script src="scripts/main.lua" />
+  <import src="components/nav.ntml" as="Nav" />
+</head>
+<body>
+  <Column>
+    <Nav title="My App" />
+    <Text text="Content" />
+  </Column>
+</body>
+```
 
 ## ⚠️ Validation and Security
 
@@ -543,7 +452,7 @@ nulltrace-ntml/
 │   ├── lib.rs           # Main API
 │   ├── components.rs    # Component definitions
 │   ├── error.rs         # Error types
-│   ├── parser.rs        # YAML → Components parser
+│   ├── parser.rs        # XML → Components parser
 │   ├── validator.rs     # Component validation
 │   ├── style.rs         # Style system
 │   ├── theme.rs         # Theme system
@@ -562,11 +471,11 @@ nulltrace-ntml/
 use nulltrace_ntml::{parse_ntml, parse_with_theme, Component, Theme};
 
 // Simple parsing
-let component: Component = parse_ntml(yaml_str)?;
+let component: Component = parse_ntml(ntml_str)?;
 
 // Parsing with theme
 let theme = Theme::default();
-let component = parse_with_theme(yaml_str, theme)?;
+let component = parse_with_theme(ntml_str, theme)?;
 ```
 
 ### Exported Types
@@ -594,12 +503,9 @@ Via Tauri bindings:
 ```typescript
 import { invoke } from '@tauri-apps/api/tauri';
 
-const ntmlYaml = `
-Text:
-  text: "Hello"
-`;
+const ntml = `<Text text="Hello" />`;
 
-const component = await invoke('parse_ntml', { yaml: ntmlYaml });
+const component = await invoke('parse_ntml', { ntml });
 ```
 
 ### In the Server (Rust)
@@ -607,8 +513,8 @@ const component = await invoke('parse_ntml', { yaml: ntmlYaml });
 ```rust
 use nulltrace_ntml::parse_ntml;
 
-fn handle_ui_upload(yaml: &str) -> Result<(), NtmlError> {
-    let component = parse_ntml(yaml)?;
+fn handle_ui_upload(ntml: &str) -> Result<(), NtmlError> {
+    let component = parse_ntml(ntml)?;
     // Save and use the component
     Ok(())
 }

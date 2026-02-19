@@ -1,62 +1,26 @@
-head:
-  title: "Page not found — NTML"
-
-body:
-  Container:
-    style:
-      classes: "min-h-screen bg-zinc-900 text-zinc-200 flex flex-col"
-    children:
-      - Column:
-          gap: 0
-          style:
-            classes: "min-h-screen w-full"
-          children:
-            - Container:
-                style:
-                  classes: "border-b border-zinc-700 px-6 py-4"
-                children:
-                  - Row:
-                      gap: 8
-                      align: center
-                      style:
-                        classes: "w-full max-w-6xl mx-auto"
-                      children:
-                        - Link:
-                            href: "/"
-                            children:
-                              - Row:
-                                  gap: 2
-                                  align: center
-                                  children:
-                                    - Icon:
-                                        name: "file-code"
-                                        size: 32
-                                        style:
-                                          classes: "w-8 h-8 text-orange-500"
-                                    - Text:
-                                        text: "NTML"
-                                        style:
-                                          classes: "text-xl font-bold text-zinc-100"
-            - Column:
-                gap: 4
-                align: center
-                justify: center
-                style:
-                  classes: "flex-1 px-6 py-12 text-center"
-                children:
-                  - Heading:
-                      level: 1
-                      text: "Page not found"
-                      style:
-                        classes: "text-3xl font-bold text-zinc-100"
-                  - Text:
-                      text: "The requested page does not exist at ntml.org."
-                      style:
-                        classes: "text-zinc-400 max-w-md"
-                  - Link:
-                      href: "/"
-                      children:
-                        - Text:
-                            text: "Back to home"
-                            style:
-                              classes: "text-orange-500 hover:text-orange-400 font-medium"
+<head>
+  <title>Page not found — NTML</title>
+</head>
+<body>
+  <Container class="min-h-screen bg-zinc-900 text-zinc-200 flex flex-col">
+    <Column gap="0" class="min-h-screen w-full">
+      <Container class="border-b border-zinc-700 px-6 py-4">
+        <Row gap="8" align="center" class="w-full max-w-6xl mx-auto">
+          <Link href="/">
+            <Row gap="2" align="center">
+              <Icon name="file-code" size="32" class="w-8 h-8 text-orange-500" />
+              <Text text="NTML" class="text-xl font-bold text-zinc-100" />
+            </Row>
+          </Link>
+        </Row>
+      </Container>
+      <Column gap="4" align="center" justify="center" class="flex-1 px-6 py-12 text-center">
+        <Heading level="1" text="Page not found" class="text-3xl font-bold text-zinc-100" />
+        <Text text="The requested page does not exist at ntml.org." class="text-zinc-400 max-w-md" />
+        <Link href="/">
+          <Text text="Back to home" class="text-orange-500 hover:text-orange-400 font-medium" />
+        </Link>
+      </Column>
+    </Column>
+  </Container>
+</body>

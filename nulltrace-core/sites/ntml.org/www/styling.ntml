@@ -1,235 +1,57 @@
-head:
-  title: "Styling — NTML"
-
-body:
-  Container:
-    style:
-      classes: "min-h-screen bg-zinc-900 text-zinc-200 flex flex-col"
-    children:
-      - Column:
-          gap: 0
-          style:
-            classes: "min-h-screen w-full"
-          children:
-            - Container:
-                style:
-                  classes: "border-b border-zinc-700 px-6 py-4"
-                children:
-                  - Row:
-                      gap: 8
-                      align: center
-                      justify: spaceBetween
-                      wrap: true
-                      style:
-                        classes: "w-full max-w-6xl mx-auto"
-                      children:
-                        - Link:
-                            href: "/"
-                            children:
-                              - Row:
-                                  gap: 2
-                                  align: center
-                                  children:
-                                    - Icon:
-                                        name: "file-code"
-                                        size: 32
-                                        style:
-                                          classes: "w-8 h-8 text-orange-500"
-                                    - Text:
-                                        text: "NTML"
-                                        style:
-                                          classes: "text-xl font-bold text-zinc-100"
-                        - Row:
-                            gap: 6
-                            wrap: true
-                            children:
-                              - Link:
-                                  href: "/getting-started"
-                                  children:
-                                    - Text:
-                                        text: "Getting started"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/components"
-                                  children:
-                                    - Text:
-                                        text: "Components"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/styling"
-                                  children:
-                                    - Text:
-                                        text: "Styling"
-                                        style:
-                                          classes: "text-sm text-orange-400 font-medium"
-                              - Link:
-                                  href: "/document-format"
-                                  children:
-                                    - Text:
-                                        text: "Document format"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/lua-api"
-                                  children:
-                                    - Text:
-                                        text: "Lua API"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/http"
-                                  children:
-                                    - Text:
-                                        text: "HTTP"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/best-practices"
-                                  children:
-                                    - Text:
-                                        text: "Best practices"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/examples"
-                                  children:
-                                    - Text:
-                                        text: "Examples"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-            - Row:
-                gap: 0
-                style:
-                  classes: "flex-1 w-full max-w-6xl mx-auto px-6 py-8"
-                children:
-                  - Container:
-                      style:
-                        classes: "w-48 flex-shrink-0 hidden md:block"
-                      children:
-                        - Column:
-                            gap: 1
-                            style:
-                              classes: "sticky top-4"
-                            children:
-                              - Text:
-                                  text: "Docs"
-                                  style:
-                                    classes: "text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2"
-                              - Link:
-                                  href: "/getting-started"
-                                  children:
-                                    - Text:
-                                        text: "Getting started"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/components"
-                                  children:
-                                    - Text:
-                                        text: "Components"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/styling"
-                                  children:
-                                    - Text:
-                                        text: "Styling"
-                                        style:
-                                          classes: "text-sm text-orange-400"
-                              - Link:
-                                  href: "/document-format"
-                                  children:
-                                    - Text:
-                                        text: "Document format"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/lua-api"
-                                  children:
-                                    - Text:
-                                        text: "Lua API"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/http"
-                                  children:
-                                    - Text:
-                                        text: "HTTP"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/best-practices"
-                                  children:
-                                    - Text:
-                                        text: "Best practices"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/examples"
-                                  children:
-                                    - Text:
-                                        text: "Examples"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                  - Column:
-                      gap: 6
-                      style:
-                        classes: "flex-1 min-w-0 max-w-3xl"
-                      children:
-                        - Link:
-                            href: "/"
-                            children:
-                              - Text:
-                                  text: "< Home"
-                                  style:
-                                    classes: "text-sm text-orange-500 hover:text-orange-400"
-                        - Heading:
-                            level: 1
-                            text: "Styling"
-                            style:
-                              classes: "text-3xl font-bold text-zinc-100"
-                        - Text:
-                            text: "Styles use CSS-like properties. All are optional. You can also use Tailwind via style.classes — the renderer emits a class attribute and Tailwind is included by default."
-                            style:
-                              classes: "text-zinc-400 leading-relaxed"
-                        - Heading:
-                            level: 2
-                            text: "Tailwind (style.classes)"
-                            style:
-                              classes: "text-xl font-semibold text-zinc-100 mt-6"
-                        - Text:
-                            text: "Set style.classes to a space-separated list of utility classes. No need to import Tailwind; it is always available in NTML."
-                            style:
-                              classes: "text-zinc-400 text-sm"
-                        - Code:
-                            text: |
-                              Container:
-                                style:
-                                  classes: "p-6 bg-zinc-800 rounded-lg border border-zinc-700"
-                                children:
-                                  - Text:
-                                      text: "Styled with Tailwind"
-                                      style:
-                                        classes: "text-lg text-orange-400 font-medium"
-                            language: yaml
-                            block: true
-                            style:
-                              classes: "bg-zinc-800 border border-zinc-700 rounded-lg p-4 text-sm text-zinc-300 overflow-x-auto"
-                        - Heading:
-                            level: 2
-                            text: "Style properties"
-                            style:
-                              classes: "text-xl font-semibold text-zinc-100 mt-6"
-                        - Text:
-                            text: "Dimensions: width, height, minWidth, maxWidth, minHeight, maxHeight (number or auto). Spacing: padding, paddingVertical, paddingHorizontal, margin, marginVertical, marginHorizontal (and per-side). Colors: color, backgroundColor, borderColor (hex or named); opacity 0–1. Typography: fontSize, fontWeight, fontFamily, textAlign, textTransform, letterSpacing, lineHeight, textDecoration. Borders: borderWidth, borderStyle, borderRadius. Shadow: shadow (small|medium|large) or custom. Position: position, top, right, bottom, left, zIndex. Flex: flex, alignSelf. Display: display, overflow. Cursor: cursor."
-                            style:
-                              classes: "text-zinc-400 text-sm leading-relaxed"
-                        - Link:
-                            href: "/components"
-                            children:
-                              - Text:
-                                  text: "Components reference →"
-                                  style:
-                                    classes: "text-orange-500 hover:text-orange-400 text-sm"
+<head>
+  <title>Styling — NTML</title>
+</head>
+<body>
+  <Container class="min-h-screen bg-zinc-900 text-zinc-200 flex flex-col">
+    <Column gap="0" class="min-h-screen w-full">
+      <Container class="border-b border-zinc-700 px-6 py-4">
+        <Row gap="8" align="center" justify="spaceBetween" wrap="true" class="w-full max-w-6xl mx-auto">
+          <Link href="/">
+            <Row gap="2" align="center">
+              <Icon name="file-code" size="32" class="w-8 h-8 text-orange-500" />
+              <Text text="NTML" class="text-xl font-bold text-zinc-100" />
+            </Row>
+          </Link>
+          <Row gap="6" wrap="true">
+            <Link href="/getting-started"><Text text="Getting started" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/styling"><Text text="Styling" class="text-sm text-orange-400 font-medium" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/lua-api"><Text text="Lua API" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+          </Row>
+        </Row>
+      </Container>
+      <Row gap="0" class="flex-1 w-full max-w-6xl mx-auto px-6 py-8">
+        <Container class="w-48 flex-shrink-0 hidden md:block">
+          <Column gap="1" class="sticky top-4">
+            <Text text="Docs" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2" />
+            <Link href="/getting-started"><Text text="Getting started" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/styling"><Text text="Styling" class="text-sm text-orange-400" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/lua-api"><Text text="Lua API" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+          </Column>
+        </Container>
+        <Column gap="6" class="flex-1 min-w-0 max-w-3xl">
+          <Link href="/"><Text text="&lt; Home" class="text-sm text-orange-500 hover:text-orange-400" /></Link>
+          <Heading level="1" text="Styling" class="text-3xl font-bold text-zinc-100" />
+          <Text text="Styles use CSS-like properties. All are optional. You can also use Tailwind via the class attribute — the renderer emits a class attribute and Tailwind is included by default." class="text-zinc-400 leading-relaxed" />
+          <Heading level="2" text="Tailwind (class attribute)" class="text-xl font-semibold text-zinc-100 mt-6" />
+          <Text text="Set the class attribute to a space-separated list of utility classes. No need to import Tailwind; it is always available in NTML." class="text-zinc-400 text-sm" />
+          <Code language="ntml" block="true" class="bg-zinc-800 border border-zinc-700 rounded-lg p-4 text-sm text-zinc-300 overflow-x-auto"><![CDATA[<Container class="p-6 bg-zinc-800 rounded-lg border border-zinc-700">
+  <Text text="Styled with Tailwind" class="text-lg text-orange-400 font-medium" />
+</Container>]]></Code>
+          <Heading level="2" text="Style properties" class="text-xl font-semibold text-zinc-100 mt-6" />
+          <Text text="Dimensions: width, height, minWidth, maxWidth, minHeight, maxHeight (number or auto). Spacing: padding, paddingVertical, paddingHorizontal, margin, marginVertical, marginHorizontal (and per-side). Colors: color, backgroundColor, borderColor (hex or named); opacity 0–1. Typography: fontSize, fontWeight, fontFamily, textAlign, textTransform, letterSpacing, lineHeight, textDecoration. Borders: borderWidth, borderStyle, borderRadius. Shadow: shadow (small|medium|large) or custom. Position: position, top, right, bottom, left, zIndex. Flex: flex, alignSelf. Display: display, overflow. Cursor: cursor." class="text-zinc-400 text-sm leading-relaxed" />
+          <Link href="/components"><Text text="Components reference →" class="text-orange-500 hover:text-orange-400 text-sm" /></Link>
+        </Column>
+      </Row>
+    </Column>
+  </Container>
+</body>

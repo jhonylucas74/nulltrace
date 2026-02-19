@@ -1,5 +1,1 @@
-# Invalid NTML - invalid color value
-Text:
-  text: "Hello"
-  style:
-    color: "not-a-valid-color"
+<Text text="Hello" style="color:not-a-valid-color" />

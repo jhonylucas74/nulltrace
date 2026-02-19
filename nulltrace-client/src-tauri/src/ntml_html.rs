@@ -1,4 +1,4 @@
-//! Converts NTML YAML to safe HTML for iframe srcDoc.
+//! Converts NTML to safe HTML for iframe srcDoc.
 //! No script, no inline event handlers; only structure and styles.
 
 /// Tailwind-compatible utility CSS for NTML docs (embedded at compile time).
@@ -44,18 +44,18 @@ pub fn patches_to_map(patches: &[crate::ntml_runtime::Patch]) -> HashMap<String,
     map
 }
 
-/// Converts NTML YAML string to safe HTML. Returns error message on parse failure.
+/// Converts NTML string to safe HTML. Returns error message on parse failure.
 pub fn ntml_to_html(yaml: &str) -> Result<String, String> {
     ntml_to_html_with_imports(yaml, &[], None)
 }
 
-/// Import definition: alias and component file YAML content.
+/// Import definition: alias and component file content.
 pub struct NtmlImport {
     pub alias: String,
     pub content: String,
 }
 
-/// Converts NTML YAML to safe HTML with optional component imports resolved.
+/// Converts NTML to safe HTML with optional component imports resolved.
 pub fn ntml_to_html_with_imports(
     yaml: &str,
     imports: &[NtmlImport],
@@ -64,7 +64,7 @@ pub fn ntml_to_html_with_imports(
     ntml_to_html_with_imports_and_patches(yaml, imports, &[], base_url)
 }
 
-/// Converts NTML YAML to safe HTML with imports and patches applied.
+/// Converts NTML to safe HTML with imports and patches applied.
 pub fn ntml_to_html_with_imports_and_patches(
     yaml: &str,
     imports: &[NtmlImport],
@@ -112,23 +112,14 @@ pub fn ntml_to_html_with_imports_and_patches(
     Ok(html)
 }
 
-fn prop_value_to_string(v: &serde_yaml::Value) -> String {
-    match v {
-        serde_yaml::Value::String(s) => s.clone(),
-        serde_yaml::Value::Number(n) => n.to_string(),
-        serde_yaml::Value::Bool(b) => b.to_string(),
-        _ => String::new(),
-    }
-}
-
-fn substitute_props(s: &str, props: &HashMap<String, serde_yaml::Value>) -> String {
+fn substitute_props(s: &str, props: &HashMap<String, String>) -> String {
     let prefix = "{props.";
     let suffix = "}";
     if s.starts_with(prefix) && s.ends_with(suffix) && s.len() > prefix.len() + suffix.len() {
         let key = &s[prefix.len()..s.len() - suffix.len()];
         props
             .get(key)
-            .map(prop_value_to_string)
+            .cloned()
             .unwrap_or_else(|| s.to_string())
     } else {
         s.to_string()
@@ -137,7 +128,7 @@ fn substitute_props(s: &str, props: &HashMap<String, serde_yaml::Value>) -> Stri
 
 fn substitute_props_in_style(
     style: &Style,
-    props: &HashMap<String, serde_yaml::Value>,
+    props: &HashMap<String, String>,
 ) -> Style {
     let mut out = style.clone();
     out.color = out.color.as_ref().map(|c| substitute_props(c, props));
@@ -151,7 +142,7 @@ fn substitute_props_in_style(
 
 fn substitute_props_in_component(
     c: &Component,
-    props: &HashMap<String, serde_yaml::Value>,
+    props: &HashMap<String, String>,
 ) -> Component {
     match c {
         Component::Text(t) => Component::Text(Text {

@@ -1,48 +1,42 @@
 //! # NullTrace UI Markup Language (NTML) Parser
 //!
-//! A secure, YAML-based UI description language for NullTrace game.
+//! A secure, XML-based UI description language for the NullTrace game.
 //!
 //! ## Features
-//! - Type-safe component parsing
+//! - Type-safe component parsing from XML
 //! - Comprehensive validation with detailed error messages
 //! - Support for all NTML components and styles
 //! - Theme system with variable interpolation
-//! - v0.2.0: head/body format, Lua script declarations, importable components, component IDs
+//! - Full format: head/body structure, Lua script declarations, importable components, component IDs
 //!
-//! ## Example — Classic format (v0.1.0)
+//! ## Example — Classic format (single component)
 //! ```ignore
 //! use nulltrace_ntml::parse_ntml;
 //!
-//! let yaml = r#"
-//! Container:
-//!   style:
-//!     padding: 16
-//!     backgroundColor: "#1a1a1a"
-//!   children:
-//!     - Text:
-//!         text: "Hello World"
+//! let xml = r#"
+//! <Container style="padding:16; backgroundColor:#1a1a1a">
+//!   <Text text="Hello World" />
+//! </Container>
 //! "#;
 //!
-//! let component = parse_ntml(yaml).expect("Failed to parse NTML");
+//! let component = parse_ntml(xml).expect("Failed to parse NTML");
 //! ```
 //!
-//! ## Example — Full format (v0.2.0)
+//! ## Example — Full format (head + body)
 //! ```ignore
 //! use nulltrace_ntml::parse_document;
 //!
-//! let yaml = r#"
-//! head:
-//!   title: "My Page"
-//!   scripts:
-//!     - src: "scripts/main.lua"
-//!
-//! body:
-//!   Text:
-//!     id: "greeting"
-//!     text: "Hello from v0.2.0"
+//! let xml = r#"
+//! <head>
+//!   <title>My Page</title>
+//!   <script src="scripts/main.lua" />
+//! </head>
+//! <body>
+//!   <Text id="greeting" text="Hello from NTML" />
+//! </body>
 //! "#;
 //!
-//! let doc = parse_document(yaml).expect("Failed to parse NTML document");
+//! let doc = parse_document(xml).expect("Failed to parse NTML document");
 //! let root = doc.root_component();
 //! ```
 
@@ -67,40 +61,40 @@ pub use theme::Theme;
 // --- Component file types ---
 pub use component_file::{ComponentFile, PropDefault, PropDef, PropType};
 
-/// Parse an NTML document — classic format only (v0.1.0 backward compat)
+/// Parse an NTML document — classic format only (single root component, no head/body).
 ///
-/// Returns an error if the document uses the v0.2.0 head/body format.
+/// Returns an error if the document uses the full head/body format.
 /// Use [`parse_document`] to support both formats.
-pub fn parse_ntml(yaml: &str) -> NtmlResult<Component> {
-    parser::parse_ntml(yaml)
+pub fn parse_ntml(xml: &str) -> NtmlResult<Component> {
+    parser::parse_ntml(xml)
 }
 
 /// Parse an NTML document — classic format only, with theme
-pub fn parse_ntml_with_theme(yaml: &str, theme: Theme) -> NtmlResult<Component> {
-    parser::parse_ntml_with_theme(yaml, theme)
+pub fn parse_ntml_with_theme(xml: &str, theme: Theme) -> NtmlResult<Component> {
+    parser::parse_ntml_with_theme(xml, theme)
 }
 
-/// Parse an NTML document — supports both classic (v0.1.0) and full (v0.2.0) formats
-pub fn parse_document(yaml: &str) -> NtmlResult<NtmlDocument> {
-    parser::parse_document(yaml)
+/// Parse an NTML document — supports both classic (single component) and full (head + body) formats
+pub fn parse_document(xml: &str) -> NtmlResult<NtmlDocument> {
+    parser::parse_document(xml)
 }
 
 /// Parse an NTML document with a custom theme
-pub fn parse_document_with_theme(yaml: &str, theme: Theme) -> NtmlResult<NtmlDocument> {
-    parser::parse_document_with_theme(yaml, theme)
+pub fn parse_document_with_theme(xml: &str, theme: Theme) -> NtmlResult<NtmlDocument> {
+    parser::parse_document_with_theme(xml, theme)
 }
 
 /// Parse an NTML component file (a reusable component definition)
-pub fn parse_component_file(yaml: &str) -> NtmlResult<ComponentFile> {
-    component_file::parse_component_file(yaml)
+pub fn parse_component_file(xml: &str) -> NtmlResult<ComponentFile> {
+    component_file::parse_component_file(xml)
 }
 
 /// Parse and validate an NTML document (classic format, backward compat alias)
-pub fn parse(yaml: &str) -> NtmlResult<Component> {
-    parse_ntml(yaml)
+pub fn parse(xml: &str) -> NtmlResult<Component> {
+    parse_ntml(xml)
 }
 
 /// Parse and validate an NTML document with custom theme (backward compat alias)
-pub fn parse_with_theme(yaml: &str, theme: Theme) -> NtmlResult<Component> {
-    parse_ntml_with_theme(yaml, theme)
+pub fn parse_with_theme(xml: &str, theme: Theme) -> NtmlResult<Component> {
+    parse_ntml_with_theme(xml, theme)
 }

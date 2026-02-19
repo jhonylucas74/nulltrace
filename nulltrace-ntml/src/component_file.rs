@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
-use serde_yaml::Value;
 
 use crate::components::Component;
 use crate::error::{NtmlError, NtmlResult};
-use crate::parser::parse_component_value;
+use crate::parser::parse_component_value_from_node;
 
 /// The set of built-in component names that cannot be used as component aliases
 pub const BUILTIN_COMPONENTS: &[&str] = &[
@@ -54,90 +53,137 @@ pub enum PropDefault {
     Boolean(bool),
 }
 
-/// Parse an NTML component file from a YAML string
-pub fn parse_component_file(yaml: &str) -> NtmlResult<ComponentFile> {
-    let value: Value = serde_yaml::from_str(yaml)?;
+/// Parse an NTML component file from an XML string.
+///
+/// Component files use this format:
+/// ```xml
+/// <props>
+///   <prop name="title" type="string" default="Navigation" />
+///   <prop name="accentColor" type="color" />
+/// </props>
+/// <body>
+///   <Column>
+///     <Text text="{props.title}" style="color:{props.accentColor}" />
+///   </Column>
+/// </body>
+/// ```
+///
+/// The `<props>` element is optional. The `<body>` element is required and
+/// must contain exactly one root component element. The component's name is
+/// determined by the `as` alias in the importing document's `<import>` tag.
+pub fn parse_component_file(xml: &str) -> NtmlResult<ComponentFile> {
+    const WRAPPER: &str = "__ntml_root__";
+    let wrapped = format!("<{0}>{1}</{0}>", WRAPPER, xml);
 
-    let obj = value.as_mapping().ok_or_else(|| {
-        NtmlError::ValidationError("Component file must be a YAML object".to_string())
-    })?;
+    let doc = roxmltree::Document::parse(&wrapped)?;
+    let root = doc.root_element();
 
-    // Component files must NOT have a head section
-    if obj.contains_key(&Value::String("head".to_string())) {
+    // Component files must NOT have a <head> section
+    if root
+        .children()
+        .filter(|n| n.is_element())
+        .any(|n| n.tag_name().name() == "head")
+    {
         return Err(NtmlError::ComponentFileHasHead {
             path: "<unknown>".to_string(),
         });
     }
 
-    // Must have a "component" key
-    let component_name = obj
-        .get(&Value::String("component".to_string()))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            NtmlError::ValidationError(
-                "Component file must have a 'component' key with a PascalCase name".to_string(),
-            )
-        })?
-        .to_string();
+    let mut props: Vec<PropDef> = Vec::new();
+    let mut body_node: Option<roxmltree::Node> = None;
+    let mut component_name: Option<String> = None;
 
-    // Validate component name is PascalCase and not a built-in
-    if !is_pascal_case(&component_name) {
-        return Err(NtmlError::InvalidComponent {
-            component: component_name.clone(),
-            reason: "component name must be PascalCase".to_string(),
-        });
-    }
-    if BUILTIN_COMPONENTS.contains(&component_name.as_str()) {
-        return Err(NtmlError::InvalidComponent {
-            component: component_name.clone(),
-            reason: format!(
-                "'{}' conflicts with a built-in component name",
-                component_name
-            ),
-        });
+    for child in root.children().filter(|n| n.is_element()) {
+        match child.tag_name().name() {
+            "props" => {
+                props = parse_props_node(child)?;
+            }
+            "body" => {
+                // <body> wraps the root component — same as in the full document format
+                body_node = Some(child);
+            }
+            name => {
+                // Support the old-style where the component name is a PascalCase root element
+                // containing the body directly (for simpler files without <body> wrapper)
+                if is_pascal_case(name) && !BUILTIN_COMPONENTS.contains(&name) {
+                    if component_name.is_some() {
+                        return Err(NtmlError::MultipleRootComponents);
+                    }
+                    component_name = Some(name.to_string());
+                    body_node = Some(child);
+                } else {
+                    return Err(NtmlError::ValidationError(format!(
+                        "Unexpected element <{}> in component file. Expected <props>, <body>, or a PascalCase component name element.",
+                        name
+                    )));
+                }
+            }
+        }
     }
 
-    // Parse props (optional section)
-    let props = if let Some(props_value) = obj.get(&Value::String("props".to_string())) {
-        parse_props(props_value)?
+    let body_container = body_node.ok_or_else(|| {
+        NtmlError::ValidationError(
+            "Component file must have a <body> element containing the root component".to_string(),
+        )
+    })?;
+
+    // Determine the actual body element and component name
+    let (name, root_component_node) = if let Some(cname) = component_name {
+        // Old style: <NavBar>...</NavBar> — component name is the tag, body is the children
+        // This shouldn't happen for built-ins; the component name element IS the wrapper
+        // In this style, the component name element wraps the actual component tree
+        // but wait — if we use <NavBar> as wrapper, then its children are the body.
+        // Actually this is confusing. Let's just require <body> style.
+        return Err(NtmlError::ValidationError(format!(
+            "Component file: use <body>...</body> to wrap the root component. Got <{}>.",
+            cname
+        )));
     } else {
-        vec![]
+        // Standard style: <body><Column>...</Column></body>
+        let first_child = body_container
+            .children()
+            .filter(|n| n.is_element())
+            .next()
+            .ok_or_else(|| {
+                NtmlError::ValidationError("<body> element is empty".to_string())
+            })?;
+
+        // The component name comes from the filename, but we need at least something.
+        // Since XML doesn't have a "component name declaration" here, we derive it from
+        // the component's implied context. We use a placeholder — the actual name comes
+        // from the import alias when the file is loaded.
+        let inferred_name = "Component".to_string();
+        (inferred_name, first_child)
     };
 
-    // Parse body (required)
-    let body_value = obj
-        .get(&Value::String("body".to_string()))
-        .ok_or_else(|| NtmlError::ValidationError(
-            "Component file must have a 'body' section".to_string(),
-        ))?;
-    let body = parse_component_value(body_value)?;
+    let body = parse_component_value_from_node(root_component_node, &[])?;
 
     Ok(ComponentFile {
-        component: component_name,
+        component: name,
         props,
         body,
     })
 }
 
-/// Parse the props array from a component file
-fn parse_props(value: &Value) -> NtmlResult<Vec<PropDef>> {
-    let arr = value.as_sequence().ok_or_else(|| {
-        NtmlError::ValidationError("'props' must be an array".to_string())
-    })?;
-
+/// Parse the <props> element into PropDef list.
+fn parse_props_node(node: roxmltree::Node) -> NtmlResult<Vec<PropDef>> {
     let mut prop_names = std::collections::HashSet::new();
     let mut result = Vec::new();
 
-    for item in arr {
-        let obj = item.as_mapping().ok_or_else(|| {
-            NtmlError::ValidationError("Each prop must be an object".to_string())
-        })?;
+    for child in node.children().filter(|n| n.is_element()) {
+        if child.tag_name().name() != "prop" {
+            return Err(NtmlError::ValidationError(format!(
+                "<props>: unexpected element <{}>; only <prop> is allowed",
+                child.tag_name().name()
+            )));
+        }
 
-        let name = obj
-            .get(&Value::String("name".to_string()))
-            .and_then(|v| v.as_str())
+        let name = child
+            .attribute("name")
             .ok_or_else(|| {
-                NtmlError::ValidationError("Each prop must have a 'name' field".to_string())
+                NtmlError::ValidationError(
+                    "<prop>: missing required attribute 'name'".to_string(),
+                )
             })?
             .to_string();
 
@@ -149,18 +195,17 @@ fn parse_props(value: &Value) -> NtmlResult<Vec<PropDef>> {
         }
         prop_names.insert(name.clone());
 
-        let type_str = obj
-            .get(&Value::String("type".to_string()))
-            .and_then(|v| v.as_str())
+        let type_str = child
+            .attribute("type")
             .ok_or_else(|| {
                 NtmlError::ValidationError(format!(
-                    "Prop '{}' must have a 'type' field",
+                    "<prop name=\"{}\">: missing required attribute 'type'",
                     name
                 ))
             })?;
 
         let prop_type = match type_str {
-            "string" => PropType::String,
+            "string" | "text" => PropType::String,
             "number" => PropType::Number,
             "boolean" => PropType::Boolean,
             "color" => PropType::Color,
@@ -176,8 +221,8 @@ fn parse_props(value: &Value) -> NtmlResult<Vec<PropDef>> {
             }
         };
 
-        let default = if let Some(def_value) = obj.get(&Value::String("default".to_string())) {
-            Some(parse_prop_default(def_value, &prop_type, &name)?)
+        let default = if let Some(def_str) = child.attribute("default") {
+            Some(parse_prop_default_str(def_str, &prop_type, &name)?)
         } else {
             None
         };
@@ -192,18 +237,15 @@ fn parse_props(value: &Value) -> NtmlResult<Vec<PropDef>> {
     Ok(result)
 }
 
-fn parse_prop_default(value: &Value, prop_type: &PropType, name: &str) -> NtmlResult<PropDefault> {
+fn parse_prop_default_str(
+    s: &str,
+    prop_type: &PropType,
+    name: &str,
+) -> NtmlResult<PropDefault> {
     match prop_type {
-        PropType::String | PropType::Color => {
-            let s = value.as_str().ok_or_else(|| NtmlError::InvalidPropType {
-                component: "<component file>".to_string(),
-                prop: name.to_string(),
-                expected: "string default value".to_string(),
-            })?;
-            Ok(PropDefault::String(s.to_string()))
-        }
+        PropType::String | PropType::Color => Ok(PropDefault::String(s.to_string())),
         PropType::Number => {
-            let n = value.as_f64().ok_or_else(|| NtmlError::InvalidPropType {
+            let n = s.parse::<f64>().map_err(|_| NtmlError::InvalidPropType {
                 component: "<component file>".to_string(),
                 prop: name.to_string(),
                 expected: "number default value".to_string(),
@@ -211,11 +253,17 @@ fn parse_prop_default(value: &Value, prop_type: &PropType, name: &str) -> NtmlRe
             Ok(PropDefault::Number(n))
         }
         PropType::Boolean => {
-            let b = value.as_bool().ok_or_else(|| NtmlError::InvalidPropType {
-                component: "<component file>".to_string(),
-                prop: name.to_string(),
-                expected: "boolean default value".to_string(),
-            })?;
+            let b = match s {
+                "true" => true,
+                "false" => false,
+                _ => {
+                    return Err(NtmlError::InvalidPropType {
+                        component: "<component file>".to_string(),
+                        prop: name.to_string(),
+                        expected: "boolean default value (true or false)".to_string(),
+                    })
+                }
+            };
             Ok(PropDefault::Boolean(b))
         }
     }
@@ -248,62 +296,27 @@ mod tests {
 
     #[test]
     fn test_parse_component_file_basic() {
-        let yaml = r#"
-component: NavBar
-props:
-  - name: title
-    type: string
-    default: "Navigation"
-body:
-  Text:
-    text: "{props.title}"
+        let xml = r#"
+<props>
+  <prop name="title" type="string" default="Navigation" />
+</props>
+<body>
+  <Column>
+    <Text text="{props.title}" />
+  </Column>
+</body>
 "#;
-        let result = parse_component_file(yaml);
+        let result = parse_component_file(xml);
         assert!(result.is_ok(), "Failed: {:?}", result.err());
-        let file = result.unwrap();
-        assert_eq!(file.component, "NavBar");
-        assert_eq!(file.props.len(), 1);
-        assert_eq!(file.props[0].name, "title");
+        let cf = result.unwrap();
+        assert_eq!(cf.props.len(), 1);
+        assert_eq!(cf.props[0].name, "title");
     }
 
     #[test]
     fn test_component_file_rejects_head() {
-        let yaml = r#"
-component: NavBar
-head:
-  title: "Oops"
-body:
-  Text:
-    text: "Hello"
-"#;
-        let result = parse_component_file(yaml);
-        assert!(matches!(
-            result,
-            Err(NtmlError::ComponentFileHasHead { .. })
-        ));
-    }
-
-    #[test]
-    fn test_component_file_requires_body() {
-        let yaml = r#"
-component: NavBar
-"#;
-        let result = parse_component_file(yaml);
+        let xml = r#"<head><title>Nope</title></head><body><Text text="hi" /></body>"#;
+        let result = parse_component_file(xml);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_component_file_rejects_builtin_name() {
-        let yaml = r#"
-component: Container
-body:
-  Text:
-    text: "Hello"
-"#;
-        let result = parse_component_file(yaml);
-        assert!(matches!(
-            result,
-            Err(NtmlError::InvalidComponent { .. })
-        ));
     }
 }

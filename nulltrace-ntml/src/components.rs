@@ -51,9 +51,9 @@ pub struct ImportedComponentInstance {
     pub id: Option<String>,
     /// The component alias (PascalCase, e.g., "NavBar")
     pub name: String,
-    /// Props passed to the component (key = prop name, value = raw YAML value)
+    /// Props passed to the component (key = prop name, value = string from XML attribute)
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
-    pub props: HashMap<String, serde_yaml::Value>,
+    pub props: HashMap<String, String>,
 }
 
 /// Container component - basic rectangular container

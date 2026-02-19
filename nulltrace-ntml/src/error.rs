@@ -64,8 +64,8 @@ pub enum NtmlError {
     #[error("Deserialization error: {0}")]
     DeserializationError(String),
 
-    #[error("YAML error: {0}")]
-    YamlError(String),
+    #[error("XML parse error: {0}")]
+    XmlError(String),
 
     #[error("Multiple root components found. NTML document must have exactly one root component")]
     MultipleRootComponents,
@@ -158,16 +158,8 @@ pub enum NtmlError {
     InvalidDataAttribute { key: String, reason: String },
 }
 
-impl From<serde_yaml::Error> for NtmlError {
-    fn from(err: serde_yaml::Error) -> Self {
-        if let Some(location) = err.location() {
-            NtmlError::ParseError {
-                line: location.line(),
-                column: location.column(),
-                message: err.to_string(),
-            }
-        } else {
-            NtmlError::YamlError(err.to_string())
-        }
+impl From<roxmltree::Error> for NtmlError {
+    fn from(err: roxmltree::Error) -> Self {
+        NtmlError::XmlError(err.to_string())
     }
 }

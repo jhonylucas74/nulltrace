@@ -7,7 +7,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: ntml-validate <file.ntml|file.yaml>");
+        eprintln!("Usage: ntml-validate <file.ntml>");
         eprintln!();
         eprintln!("Examples:");
         eprintln!("  ntml-validate ui.ntml");
@@ -123,8 +123,8 @@ fn print_error(error: &NtmlError) {
             eprintln!("  Deserialization error:");
             eprintln!("    {}", msg);
         }
-        NtmlError::YamlError(msg) => {
-            eprintln!("  YAML error:");
+        NtmlError::XmlError(msg) => {
+            eprintln!("  XML parse error:");
             eprintln!("    {}", msg);
         }
         NtmlError::MultipleRootComponents => {

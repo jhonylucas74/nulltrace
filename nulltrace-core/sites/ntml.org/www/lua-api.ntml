@@ -1,249 +1,66 @@
-head:
-  title: "Lua API — NTML"
-
-body:
-  Container:
-    style:
-      classes: "min-h-screen bg-zinc-900 text-zinc-200 flex flex-col"
-    children:
-      - Column:
-          gap: 0
-          style:
-            classes: "min-h-screen w-full"
-          children:
-            - Container:
-                style:
-                  classes: "border-b border-zinc-700 px-6 py-4"
-                children:
-                  - Row:
-                      gap: 8
-                      align: center
-                      justify: spaceBetween
-                      wrap: true
-                      style:
-                        classes: "w-full max-w-6xl mx-auto"
-                      children:
-                        - Link:
-                            href: "/"
-                            children:
-                              - Row:
-                                  gap: 2
-                                  align: center
-                                  children:
-                                    - Icon:
-                                        name: "file-code"
-                                        size: 32
-                                        style:
-                                          classes: "w-8 h-8 text-orange-500"
-                                    - Text:
-                                        text: "NTML"
-                                        style:
-                                          classes: "text-xl font-bold text-zinc-100"
-                        - Row:
-                            gap: 6
-                            wrap: true
-                            children:
-                              - Link:
-                                  href: "/getting-started"
-                                  children:
-                                    - Text:
-                                        text: "Getting started"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/components"
-                                  children:
-                                    - Text:
-                                        text: "Components"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/styling"
-                                  children:
-                                    - Text:
-                                        text: "Styling"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/document-format"
-                                  children:
-                                    - Text:
-                                        text: "Document format"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/lua-api"
-                                  children:
-                                    - Text:
-                                        text: "Lua API"
-                                        style:
-                                          classes: "text-sm text-orange-400 font-medium"
-                              - Link:
-                                  href: "/http"
-                                  children:
-                                    - Text:
-                                        text: "HTTP"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/best-practices"
-                                  children:
-                                    - Text:
-                                        text: "Best practices"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/examples"
-                                  children:
-                                    - Text:
-                                        text: "Examples"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-            - Row:
-                gap: 0
-                style:
-                  classes: "flex-1 w-full max-w-6xl mx-auto px-6 py-8"
-                children:
-                  - Container:
-                      style:
-                        classes: "w-48 flex-shrink-0 hidden md:block"
-                      children:
-                        - Column:
-                            gap: 1
-                            style:
-                              classes: "sticky top-4"
-                            children:
-                              - Text:
-                                  text: "Docs"
-                                  style:
-                                    classes: "text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2"
-                              - Link:
-                                  href: "/getting-started"
-                                  children:
-                                    - Text:
-                                        text: "Getting started"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/components"
-                                  children:
-                                    - Text:
-                                        text: "Components"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/styling"
-                                  children:
-                                    - Text:
-                                        text: "Styling"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/document-format"
-                                  children:
-                                    - Text:
-                                        text: "Document format"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/lua-api"
-                                  children:
-                                    - Text:
-                                        text: "Lua API"
-                                        style:
-                                          classes: "text-sm text-orange-400"
-                              - Link:
-                                  href: "/http"
-                                  children:
-                                    - Text:
-                                        text: "HTTP"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/best-practices"
-                                  children:
-                                    - Text:
-                                        text: "Best practices"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                              - Link:
-                                  href: "/examples"
-                                  children:
-                                    - Text:
-                                        text: "Examples"
-                                        style:
-                                          classes: "text-sm text-zinc-400 hover:text-orange-400"
-                  - Column:
-                      gap: 6
-                      style:
-                        classes: "flex-1 min-w-0 max-w-3xl"
-                      children:
-                        - Link:
-                            href: "/"
-                            children:
-                              - Text:
-                                  text: "< Home"
-                                  style:
-                                    classes: "text-sm text-orange-500 hover:text-orange-400"
-                        - Heading:
-                            level: 1
-                            text: "Lua API"
-                            style:
-                              classes: "text-3xl font-bold text-zinc-100"
-                        - Text:
-                            text: "Scripts declared in head.scripts run in a sandbox. Only ui and http are available for UI and network. Button action can call a Lua function by name."
-                            style:
-                              classes: "text-zinc-400 leading-relaxed"
-                        - Heading:
-                            level: 2
-                            text: "ui"
-                            style:
-                              classes: "text-xl font-semibold text-zinc-100 mt-6"
-                        - Text:
-                            text: "ui.get_value(name) — value of Input, Checkbox, or Select by name. ui.set_text(id, text) — set Text by id. ui.set_visible(id, bool) — show/hide by id. ui.set_value(id, value) — set ProgressBar value. ui.set_disabled(id, bool) — disable Button or Input by id."
-                            style:
-                              classes: "text-zinc-400 text-sm font-mono"
-                        - Heading:
-                            level: 2
-                            text: "http"
-                            style:
-                              classes: "text-xl font-semibold text-zinc-100 mt-6"
-                        - Text:
-                            text: "http.get(url), http.post(url, body), http.put(url, body), http.patch(url, body), http.delete(url). Return table: ok (boolean), status (number), data (parsed or string), error (string or nil)."
-                            style:
-                              classes: "text-zinc-400 text-sm"
-                        - Heading:
-                            level: 2
-                            text: "Button actions"
-                            style:
-                              classes: "text-xl font-semibold text-zinc-100 mt-6"
-                        - Text:
-                            text: "Use action: \"functionName\" (no colon). The runtime calls the Lua function of that name when the button is clicked."
-                            style:
-                              classes: "text-zinc-400 text-sm"
-                        - Code:
-                            text: |
-                              function doLogin()
-                                local user = ui.get_value("username")
-                                local res = http.post("/api/login", { username = user })
-                                if res.ok then
-                                  ui.set_text("msg", "Welcome!")
-                                else
-                                  ui.set_text("msg", res.error or "Failed")
-                                end
-                              end
-                            language: lua
-                            block: true
-                            style:
-                              classes: "bg-zinc-800 border border-zinc-700 rounded-lg p-4 text-sm text-zinc-300 overflow-x-auto"
-                        - Text:
-                            text: "Limits: 200ms timeout per handler, 500 lines per script, 5 scripts per document. Modules io, os, file, require are blocked."
-                            style:
-                              classes: "text-zinc-500 text-sm"
-                        - Link:
-                            href: "/http"
-                            children:
-                              - Text:
-                                  text: "HTTP protocol (build_request, parse_response) →"
-                                  style:
-                                    classes: "text-orange-500 hover:text-orange-400 text-sm"
+<head>
+  <title>Lua API — NTML</title>
+</head>
+<body>
+  <Container class="min-h-screen bg-zinc-900 text-zinc-200 flex flex-col">
+    <Column gap="0" class="min-h-screen w-full">
+      <Container class="border-b border-zinc-700 px-6 py-4">
+        <Row gap="8" align="center" justify="spaceBetween" wrap="true" class="w-full max-w-6xl mx-auto">
+          <Link href="/">
+            <Row gap="2" align="center">
+              <Icon name="file-code" size="32" class="w-8 h-8 text-orange-500" />
+              <Text text="NTML" class="text-xl font-bold text-zinc-100" />
+            </Row>
+          </Link>
+          <Row gap="6" wrap="true">
+            <Link href="/getting-started"><Text text="Getting started" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/lua-api"><Text text="Lua API" class="text-sm text-orange-400 font-medium" /></Link>
+            <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+          </Row>
+        </Row>
+      </Container>
+      <Row gap="0" class="flex-1 w-full max-w-6xl mx-auto px-6 py-8">
+        <Container class="w-48 flex-shrink-0 hidden md:block">
+          <Column gap="1" class="sticky top-4">
+            <Text text="Docs" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2" />
+            <Link href="/getting-started"><Text text="Getting started" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/lua-api"><Text text="Lua API" class="text-sm text-orange-400" /></Link>
+            <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+            <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+          </Column>
+        </Container>
+        <Column gap="6" class="flex-1 min-w-0 max-w-3xl">
+          <Link href="/"><Text text="&lt; Home" class="text-sm text-orange-500 hover:text-orange-400" /></Link>
+          <Heading level="1" text="Lua API" class="text-3xl font-bold text-zinc-100" />
+          <Text text="Scripts declared in head script elements run in a sandbox. Only ui and http are available for UI and network. Button action can call a Lua function by name." class="text-zinc-400 leading-relaxed" />
+          <Heading level="2" text="ui" class="text-xl font-semibold text-zinc-100 mt-6" />
+          <Text text="ui.get_value(name) — value of Input, Checkbox, or Select by name. ui.set_text(id, text) — set Text by id. ui.set_visible(id, bool) — show/hide by id. ui.set_value(id, value) — set ProgressBar value. ui.set_disabled(id, bool) — disable Button or Input by id." class="text-zinc-400 text-sm font-mono" />
+          <Heading level="2" text="http" class="text-xl font-semibold text-zinc-100 mt-6" />
+          <Text text="http.get(url), http.post(url, body), http.put(url, body), http.patch(url, body), http.delete(url). Return table: ok (boolean), status (number), data (parsed or string), error (string or nil)." class="text-zinc-400 text-sm" />
+          <Heading level="2" text="Button actions" class="text-xl font-semibold text-zinc-100 mt-6" />
+          <Text text='Use action="functionName". The runtime calls the Lua function of that name when the button is clicked.' class="text-zinc-400 text-sm" />
+          <Code language="lua" block="true" class="bg-zinc-800 border border-zinc-700 rounded-lg p-4 text-sm text-zinc-300 overflow-x-auto"><![CDATA[function doLogin()
+  local user = ui.get_value("username")
+  local res = http.post("/api/login", { username = user })
+  if res.ok then
+    ui.set_text("msg", "Welcome!")
+  else
+    ui.set_text("msg", res.error or "Failed")
+  end
+end]]></Code>
+          <Text text="Limits: 200ms timeout per handler, 500 lines per script, 5 scripts per document. Modules io, os, file, require are blocked." class="text-zinc-500 text-sm" />
+          <Link href="/http"><Text text="HTTP protocol (build_request, parse_response) →" class="text-orange-500 hover:text-orange-400 text-sm" /></Link>
+        </Column>
+      </Row>
+    </Column>
+  </Container>
+</body>

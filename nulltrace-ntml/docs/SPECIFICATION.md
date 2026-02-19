@@ -1,13 +1,13 @@
-# NTML Specification v0.2.0
+# NTML Specification v0.3.0
 
 ## Introdução
 
-**NullTrace Markup Language (NTML)** é uma linguagem declarativa baseada em YAML para criar interfaces de usuário no jogo NullTrace. Esta especificação define a sintaxe, semântica e regras de validação do NTML.
+**NullTrace Markup Language (NTML)** é uma linguagem declarativa baseada em XML para criar interfaces de usuário no jogo NullTrace. Esta especificação define a sintaxe, semântica e regras de validação do NTML.
 
 ## Objetivos de Design
 
 1. **Segurança**: Prevenir injeções e exploits através de validação rigorosa
-2. **Simplicidade**: Sintaxe YAML legível e fácil de aprender
+2. **Simplicidade**: Sintaxe XML/HTML-like legível e fácil de aprender
 3. **Expressividade**: Rico conjunto de componentes e estilos
 4. **Type-Safety**: Validação estrita de tipos e propriedades
 5. **Consistência**: Comportamento previsível e determinístico
@@ -18,52 +18,54 @@
 
 NTML suporta dois formatos de documento:
 
-#### Formato Clássico (v0.1.0 — ainda válido)
+#### Formato Clássico
 
-Um único componente raiz na raiz do documento. Sem `head` e sem `body`. Documentos v0.1.0 continuam funcionando sem alterações.
+Um único componente raiz na raiz do documento. Sem `head` e sem `body`. Melhor para páginas simples.
 
-```yaml
-ComponentType:
-  property1: value1
-  property2: value2
-  children:
-    - ChildComponent1:
-        ...
-    - ChildComponent2:
-        ...
+```xml
+<ComponentType property1="value1" property2="value2">
+  <ChildComponent1 />
+  <ChildComponent2 prop="val" />
+</ComponentType>
 ```
 
-#### Formato Completo (v0.2.0)
+#### Formato Completo (head + body)
 
 Quando o documento inclui uma seção `head`, a estrutura muda para `head` + `body`:
 
-```yaml
-head:
-  title: "Minha Página"
-  description: "Painel de status do sistema"
-  tags: [hud, sistema, monitoramento]
+```xml
+<head>
+  <title>Minha Página</title>
+  <description>Painel de status do sistema</description>
+  <tags>hud sistema monitoramento</tags>
 
-  fonts:
-    - family: "Roboto Mono"
-      weights: [400, 700]
+  <font family="Roboto Mono" weights="400,700" />
 
-  scripts:
-    - src: "scripts/main.lua"
+  <script src="scripts/main.lua" />
 
-  imports:
-    - src: "components/nav-bar.ntml"
-      as: "NavBar"
-
-body:
-  Container:
-    children:
-      - NavBar:
-          title: "Meu App"
-      - Text:
-          text: "Hello"
+  <import src="components/nav-bar.ntml" as="NavBar" />
+</head>
+<body>
+  <Container>
+    <NavBar title="Meu App" />
+    <Text text="Hello" />
+  </Container>
+</body>
 ```
 
-**Regra de compatibilidade:** Se a chave `head` estiver presente, a chave `body` é obrigatória. Se nenhuma das duas estiver presente, o documento é tratado como formato clássico.
+**Regra de compatibilidade:** Se o elemento `head` estiver presente, o elemento `body` é obrigatório. Se nenhum dos dois estiver presente, o documento é tratado como formato clássico.
+
+### Atributos
+
+Propriedades de componentes são passadas como atributos XML:
+
+```xml
+<Text text="Hello" style="fontSize:24; color:#00ff00" class="font-mono" />
+```
+
+- **`class`**: Nomes de classes CSS separados por espaço (ex.: Tailwind). O renderizador emite o atributo `class` no HTML.
+- **`style`**: Propriedades de estilo NTML no formato `chave:valor; chave2:valor2`.
+- Demais atributos: propriedades específicas do componente (ex.: `text`, `action`, `src`).
 
 ### Regras Globais
 
@@ -72,7 +74,7 @@ body:
 3. **Case sensitivity**: Nomes de componentes e propriedades são case-sensitive
 4. **Naming convention**:
    - Componentes: PascalCase (e.g., `Container`, `ProgressBar`)
-   - Propriedades: camelCase (e.g., `backgroundColor`, `fontSize`)
+   - Atributos/propriedades: camelCase (e.g., `backgroundColor`, `fontSize`)
 
 ## Seção Head
 
@@ -80,56 +82,52 @@ A seção `head` é opcional e permite declarar metadados da página, importar f
 
 ### Metadados
 
-```yaml
-head:
-  title: "Nome da Página"         # obrigatório quando head presente
-  description: "Descrição breve"  # opcional
-  author: "NomeDoJogador"         # opcional
-  tags: [hud, status, monitoramento]  # opcional — usado para indexação
+```xml
+<head>
+  <title>Nome da Página</title>         <!-- obrigatório quando head presente -->
+  <description>Descrição breve</description>  <!-- opcional -->
+  <author>NomeDoJogador</author>         <!-- opcional -->
+  <tags>hud status monitoramento</tags> <!-- opcional — separados por espaço -->
+</head>
 ```
 
 **Validação:**
 - `title`: string não-vazia; obrigatório se `head` estiver presente
 - `description`: string; opcional
 - `author`: string; opcional
-- `tags`: array de strings; cada tag deve ser não-vazia, sem espaços, lowercase; máximo de **10 tags**
+- `tags`: texto com tokens separados por espaço; cada tag deve ser não-vazia, sem espaços internos, lowercase; máximo de **10 tags**
 
 ### Importação de Fonts
 
-Fontes são carregadas do **Google Fonts**. O usuário especifica apenas o nome da família e os pesos desejados — sem caminhos de arquivo.
+Fontes são carregadas do **Google Fonts**. O usuário especifica apenas o nome da família e os pesos desejados.
 
-```yaml
-head:
-  fonts:
-    - family: "Roboto Mono"
-      weights: [400, 700]
-
-    - family: "Inter"
-      weights: [300, 400, 600]
+```xml
+<head>
+  <font family="Roboto Mono" weights="400,700" />
+  <font family="Inter" weights="300,400,600" />
+</head>
 ```
 
 Após declarar uma font no `head`, ela pode ser referenciada pelo `family` em qualquer propriedade `fontFamily` do documento:
 
-```yaml
-body:
-  Text:
-    text: "Hello"
-    style:
-      fontFamily: "Roboto Mono"  # referencia a font importada
+```xml
+<body>
+  <Text text="Hello" style="fontFamily:Roboto Mono" />
+</body>
 ```
 
 **Validação:**
 - `family`: string não-vazia (nome exato de uma família disponível no Google Fonts)
-- `weights`: array não-vazio de inteiros; cada peso deve ser 100-900 em incrementos de 100
+- `weights`: lista de inteiros separados por vírgula; cada peso deve ser 100-900 em incrementos de 100
 - Máximo de **10 fonts** por documento
 
 ### Importação de Scripts Lua
 
-```yaml
-head:
-  scripts:
-    - src: "scripts/main.lua"
-    - src: "scripts/helpers.lua"
+```xml
+<head>
+  <script src="scripts/main.lua" />
+  <script src="scripts/helpers.lua" />
+</head>
 ```
 
 **Validação:**
@@ -139,32 +137,28 @@ head:
 
 ### Importação de Componentes
 
-```yaml
-head:
-  imports:
-    - src: "components/nav-bar.ntml"
-      as: "NavBar"
-    - src: "components/footer.ntml"
-      as: "Footer"
+```xml
+<head>
+  <import src="components/nav-bar.ntml" as="NavBar" />
+  <import src="components/footer.ntml" as="Footer" />
+</head>
 ```
 
 Após importar, o alias PascalCase pode ser usado como se fosse um componente built-in dentro de `body`.
 
 **Validação:**
-- `src`: caminho na whitelist com extensão `.ntml`; o arquivo referenciado deve ser um arquivo de componente (ter a chave `component`)
+- `src`: caminho na whitelist com extensão `.ntml`
 - `as`: PascalCase, não pode conflitar com nomes de componentes built-in
 - Máximo de **10 imports** por documento
 
 ## Componentes
 
-### Propriedade `id` (Nova — v0.2.0)
+### Propriedade `id`
 
-Todos os componentes aceitam uma propriedade `id` opcional, que permite que scripts Lua façam referência ao componente pelo identificador:
+Todos os componentes aceitam um atributo `id` opcional, que permite que scripts Lua façam referência ao componente pelo identificador:
 
-```yaml
-Text:
-  id: "status-text"
-  text: "Aguardando..."
+```xml
+<Text id="status-text" text="Aguardando..." />
 ```
 
 **Validação:**
@@ -176,34 +170,32 @@ Text:
 
 Contêiner básico para agrupar elementos.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
-- `style` (opcional): Objeto Style
-- `children` (opcional): Array de Components
+- `style` (opcional): String de estilos
+- `class` (opcional): Classes CSS
+- Filhos: qualquer Component
 
 **Exemplo:**
-```yaml
-Container:
-  style:
-    padding: 16
-  children:
-    - Text:
-        text: "Content"
+```xml
+<Container style="padding:16">
+  <Text text="Content" />
+</Container>
 ```
 
 #### Flex
 
 Layout flexível com controle de direção e alinhamento.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `direction` (opcional): `"row"` | `"column"`
 - `justify` (opcional): `"start"` | `"center"` | `"end"` | `"spaceBetween"` | `"spaceAround"` | `"spaceEvenly"`
 - `align` (opcional): `"start"` | `"center"` | `"end"` | `"stretch"`
 - `gap` (opcional): Número (pixels)
-- `wrap` (opcional): Boolean
-- `style` (opcional): Objeto Style
-- `children` (opcional): Array de Components
+- `wrap` (opcional): `"true"` | `"false"`
+- `style` / `class` (opcionais)
+- Filhos: qualquer Component
 
 **Validação:**
 - `gap` deve ser não-negativo
@@ -212,47 +204,46 @@ Layout flexível com controle de direção e alinhamento.
 
 Layout em grade.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
-- `columns` (obrigatório): Número ou Array de strings
-- `rows` (opcional): Número ou Array de strings
-- `gap` (opcional): Número ou `{ row: Número, column: Número }`
-- `style` (opcional): Objeto Style
-- `children` (opcional): Array de Components
+- `columns` (obrigatório): Número ou string de definições (ex.: `"1fr 2fr 1fr"`)
+- `rows` (opcional): Número ou string de definições
+- `gap` (opcional): Número
+- `style` / `class` (opcionais)
+- Filhos: qualquer Component
 
 **Validação:**
 - `columns` deve ser > 0 se número
-- `columns` não pode ser array vazio
 - `gap` valores devem ser não-negativos
 
 #### Stack
 
 Empilha elementos (z-index).
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `alignment` (opcional): `"topLeft"` | `"topCenter"` | `"topRight"` | `"centerLeft"` | `"center"` | `"centerRight"` | `"bottomLeft"` | `"bottomCenter"` | `"bottomRight"`
-- `style` (opcional): Objeto Style
-- `children` (opcional): Array de Components
+- `style` / `class` (opcionais)
+- Filhos: qualquer Component
 
 #### Row
 
 Atalho para Flex com `direction: row`.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `justify` (opcional): JustifyContent
 - `align` (opcional): AlignItems
 - `gap` (opcional): Número não-negativo
-- `wrap` (opcional): Boolean
-- `style` (opcional): Objeto Style
-- `children` (opcional): Array de Components
+- `wrap` (opcional): Boolean string
+- `style` / `class` (opcionais)
+- Filhos: qualquer Component
 
 #### Column
 
 Atalho para Flex com `direction: column`.
 
-**Propriedades:** Idênticas a Row
+**Atributos:** Idênticos a Row
 
 ### Categoria: Content
 
@@ -260,10 +251,10 @@ Atalho para Flex com `direction: column`.
 
 Exibe texto.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `text` (obrigatório): String não-vazia
-- `style` (opcional): Objeto Style
+- `style` / `class` (opcionais)
 
 **Validação:**
 - `text` não pode ser vazio
@@ -272,12 +263,12 @@ Exibe texto.
 
 Exibe imagem.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `src` (obrigatório): String não-vazia (caminho da imagem)
 - `alt` (opcional): String (texto alternativo)
 - `fit` (opcional): `"cover"` | `"contain"` | `"fill"` | `"none"` | `"scaleDown"`
-- `style` (opcional): Objeto Style
+- `style` / `class` (opcionais)
 
 **Validação:**
 - `src` não pode ser vazio
@@ -287,11 +278,11 @@ Exibe imagem.
 
 Exibe ícone.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `name` (obrigatório): String não-vazia
 - `size` (opcional): Número positivo
-- `style` (opcional): Objeto Style
+- `style` / `class` (opcionais)
 
 **Validação:**
 - `name` não pode ser vazio
@@ -303,34 +294,34 @@ Exibe ícone.
 
 Botão clicável.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `action` (obrigatório): String não-vazia
 - `variant` (opcional): `"primary"` | `"secondary"` | `"danger"` | `"ghost"`
-- `disabled` (opcional): Boolean
-- `style` (opcional): Objeto Style
-- `children` (opcional): Array de Components
+- `disabled` (opcional): `"true"` | `"false"`
+- `style` / `class` (opcionais)
+- Filhos: qualquer Component
 
 **Validação:**
 - `action` não pode ser vazio
 
-**Formato do `action` (v0.2.0):**
+**Formato do `action`:**
 - `"functionName"` — chama a função Lua `functionName()` de um script importado
-- `"namespace:eventName"` — dispara evento de jogo diretamente (comportamento v0.1.0)
+- `"namespace:eventName"` — dispara evento de jogo diretamente
 
 #### Input
 
 Campo de entrada de texto.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `name` (obrigatório): String não-vazia
 - `placeholder` (opcional): String
 - `value` (opcional): String
 - `type` (opcional): `"text"` | `"password"` | `"number"`
 - `maxLength` (opcional): Número inteiro positivo
-- `disabled` (opcional): Boolean
-- `style` (opcional): Objeto Style
+- `disabled` (opcional): Boolean string
+- `style` / `class` (opcionais)
 
 **Validação:**
 - `name` não pode ser vazio
@@ -339,26 +330,26 @@ Campo de entrada de texto.
 
 Caixa de seleção.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `name` (obrigatório): String não-vazia
 - `label` (opcional): String
-- `checked` (opcional): Boolean
-- `disabled` (opcional): Boolean
-- `style` (opcional): Objeto Style
+- `checked` (opcional): Boolean string
+- `disabled` (opcional): Boolean string
+- `style` / `class` (opcionais)
 
 #### Radio
 
 Botão de rádio.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `name` (obrigatório): String não-vazia
 - `value` (obrigatório): String não-vazia
 - `label` (opcional): String
-- `checked` (opcional): Boolean
-- `disabled` (opcional): Boolean
-- `style` (opcional): Objeto Style
+- `checked` (opcional): Boolean string
+- `disabled` (opcional): Boolean string
+- `style` / `class` (opcionais)
 
 **Validação:**
 - `name` e `value` não podem ser vazios
@@ -367,17 +358,17 @@ Botão de rádio.
 
 Menu dropdown.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `name` (obrigatório): String não-vazia
-- `options` (obrigatório): Array não-vazio de `{ label: String, value: String }`
 - `value` (opcional): String
-- `disabled` (opcional): Boolean
-- `style` (opcional): Objeto Style
+- `disabled` (opcional): Boolean string
+- `style` / `class` (opcionais)
+- Filhos: elementos `<option label="..." value="..." />` (pelo menos um)
 
 **Validação:**
 - `name` não pode ser vazio
-- `options` deve ter pelo menos um item
+- Deve ter pelo menos um filho `<option>`
 
 ### Categoria: Display
 
@@ -385,13 +376,13 @@ Menu dropdown.
 
 Barra de progresso.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `value` (obrigatório): Número
 - `max` (opcional): Número positivo (default: 100)
 - `variant` (opcional): `"default"` | `"success"` | `"warning"` | `"danger"`
-- `showLabel` (opcional): Boolean
-- `style` (opcional): Objeto Style
+- `showLabel` (opcional): Boolean string
+- `style` / `class` (opcionais)
 
 **Validação:**
 - `value` deve estar entre 0 e `max`
@@ -401,11 +392,11 @@ Barra de progresso.
 
 Selo ou etiqueta.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `text` (obrigatório): String não-vazia
 - `variant` (opcional): `"default"` | `"primary"` | `"success"` | `"warning"` | `"danger"`
-- `style` (opcional): Objeto Style
+- `style` / `class` (opcionais)
 
 **Validação:**
 - `text` não pode ser vazio
@@ -414,111 +405,136 @@ Selo ou etiqueta.
 
 Linha divisória.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `orientation` (opcional): `"horizontal"` | `"vertical"`
-- `style` (opcional): Objeto Style
+- `style` / `class` (opcionais)
 
 #### Spacer
 
 Espaço vazio.
 
-**Propriedades:**
+**Atributos:**
 - `size` (obrigatório): Número ou `"auto"`
 
 ### Categoria: Documento e código
 
 #### Code
 
-Código inline ou em bloco, com highlight de sintaxe opcional.
+Código inline ou em bloco, com highlight de sintaxe opcional. O conteúdo pode ser passado via atributo `text` ou como conteúdo do elemento (suporta CDATA para conteúdo multilinha).
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
-- `text` (obrigatório): String (conteúdo do código)
+- `text` (opcional se conteúdo presente): String (conteúdo do código)
 - `language` (opcional): String (ex.: `lua`, `python`)
-- `block` (opcional): Boolean (default: false) — se true, renderiza como `<pre><code>`
-- `style` (opcional): Objeto Style
+- `block` (opcional): Boolean string (default: false) — se true, renderiza como `<pre><code>`
+- `style` / `class` (opcionais)
+
+**Exemplos:**
+```xml
+<Code text="local x = 1" language="lua" />
+
+<Code language="lua" block="true"><![CDATA[
+function hello()
+  return "world"
+end
+]]></Code>
+```
 
 #### Markdown
 
-Renderiza conteúdo em markdown como HTML (títulos, listas, tabelas, etc.). O conteúdo é parseado e sanitizado.
+Renderiza conteúdo em markdown como HTML. O conteúdo é parseado e sanitizado.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `content` (obrigatório): String (fonte markdown)
-- `style` (opcional): Objeto Style
+- `style` / `class` (opcionais)
 
 #### List e ListItem
 
 Lista ordenada ou não ordenada.
 
-**List — Propriedades:**
+**List — Atributos:**
 - `id` (opcional): String única
-- `ordered` (opcional): Boolean (default: false) — false = `<ul>`, true = `<ol>`
-- `children` (obrigatório): Array de ListItem
-- `style` (opcional): Objeto Style
+- `ordered` (opcional): Boolean string (default: false)
+- `style` / `class` (opcionais)
+- Filhos: elementos ListItem
 
-**ListItem — Propriedades:**
+**ListItem — Atributos:**
 - `id` (opcional): String única
-- `children` (obrigatório): Array de Components
-- `style` (opcional): Objeto Style
+- `style` / `class` (opcionais)
+- Filhos: qualquer Component
 
 #### Heading
 
 Título semântico (h1, h2, h3).
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
-- `level` (obrigatório): 1 | 2 | 3
+- `level` (obrigatório): `"1"` | `"2"` | `"3"`
 - `text` (obrigatório): String não-vazia
-- `style` (opcional): Objeto Style
+- `style` / `class` (opcionais)
 
 #### Table
 
 Tabela de dados com linha de cabeçalho e linhas de corpo.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
-- `headers` (obrigatório): Array de strings (cabeçalhos das colunas)
-- `rows` (obrigatório): Array de arrays de strings (cada array interno é uma linha)
-- `style` (opcional): Objeto Style
+- `headers` (obrigatório): String com cabeçalhos separados por vírgula (ex.: `"Name,Score"`)
+- `rows` (obrigatório): String com linhas separadas por `|`, células por vírgula (ex.: `"Alice,100|Bob,85"`)
+- `style` / `class` (opcionais)
 
 #### Blockquote
 
 Bloco de citação.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
-- `children` (obrigatório): Array de Components
-- `style` (opcional): Objeto Style
+- `style` / `class` (opcionais)
+- Filhos: qualquer Component
 
 #### Pre
 
 Texto pré-formatado (sem highlight de sintaxe).
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `text` (obrigatório): String
-- `style` (opcional): Objeto Style
+- `style` / `class` (opcionais)
 
 #### Details
 
 Seção colapsável com resumo.
 
-**Propriedades:**
+**Atributos:**
 - `id` (opcional): String única
 - `summary` (obrigatório): String (rótulo do toggle)
-- `children` (obrigatório): Array de Components (corpo expansível)
-- `open` (opcional): Boolean (default: false) — se expandido por padrão
-- `style` (opcional): Objeto Style
+- `open` (opcional): Boolean string (default: false)
+- `style` / `class` (opcionais)
+- Filhos: qualquer Component (corpo expansível)
 
 ## Sistema de Estilos
 
-### Objeto Style
+### Atributo `style`
 
-Todas as propriedades de estilo são opcionais. Além das propriedades listadas abaixo, o objeto Style aceita:
+O atributo `style` aceita pares `chave:valor` separados por `;`:
 
-- **`classes`** (opcional): String com nomes de classes CSS separados por espaço (ex.: para Tailwind). O renderizador emite o atributo `class` no HTML (valor sanitizado). O documento deve incluir o CSS correspondente (ex.: Tailwind) para que as classes tenham efeito.
+```xml
+<Text text="Hello" style="fontSize:24; fontWeight:bold; color:#00ff00; backgroundColor:#111" />
+```
+
+### Atributo `class`
+
+O atributo `class` aceita nomes de classes CSS separados por espaço (ex.: Tailwind):
+
+```xml
+<Container class="p-4 bg-gray-900 rounded-lg">
+  <Text text="Content" class="text-white font-mono" />
+</Container>
+```
+
+**Validação:** Se presente, `class` deve conter apenas caracteres seguros (alfanuméricos, espaços, `-`, `_`, `:`, `/`, `.`) para evitar injeção em atributos.
 
 ### Dimensões
 
@@ -585,7 +601,7 @@ type NamedColor = "red" | "blue" | "green" | "white" | "black" |
 interface TypographyStyles {
   fontSize?: number
   fontWeight?: number | "normal" | "bold"  // 100-900 in increments of 100
-  fontFamily?: "sans" | "serif" | "monospace" | "game" | string  // string = family de font importada via head
+  fontFamily?: "sans" | "serif" | "monospace" | "game" | string  // string = family declarada no head
   textAlign?: "left" | "center" | "right" | "justify"
   textTransform?: "none" | "uppercase" | "lowercase" | "capitalize"
   letterSpacing?: number
@@ -597,7 +613,7 @@ interface TypographyStyles {
 **Validação:**
 - `fontWeight` numérico: Deve ser 100-900 em incrementos de 100
 - `lineHeight`: Deve ser não-negativo
-- `fontFamily` string customizada: Deve corresponder a um `family` declarado no `head.fonts`
+- `fontFamily` string customizada: Deve corresponder a um `family` declarado no `head`
 
 ### Bordas
 
@@ -664,15 +680,6 @@ interface DisplayStyles {
 }
 ```
 
-### Classes CSS (Tailwind)
-
-```typescript
-// No objeto Style
-classes?: string   // Ex.: "p-4 bg-gray-100 rounded"
-```
-
-**Validação:** Se presente, `classes` deve conter apenas caracteres seguros (alfanuméricos, espaços, `-`, `_`, `:`, `/`, `.`) para evitar injeção em atributos.
-
 ## Sistema de Temas
 
 ### Estrutura do Theme
@@ -697,12 +704,8 @@ Categorias:
 - `typography`: Tamanhos de fonte
 
 **Exemplo:**
-```yaml
-Text:
-  text: "Hello"
-  style:
-    color: "$theme.colors.primary"
-    fontSize: "$theme.typography.heading"
+```xml
+<Text text="Hello" style="color:$theme.colors.primary; fontSize:$theme.typography.heading" />
 ```
 
 **Validação:**
@@ -713,13 +716,13 @@ Text:
 
 ## Sistema de Scripting Lua
 
-Scripts Lua permitem adicionar comportamento dinâmico às páginas NTML. Eles são declarados no `head.scripts` e ficam em arquivos `.lua` separados.
+Scripts Lua permitem adicionar comportamento dinâmico às páginas NTML. Eles são declarados no `head` como elementos `<script src="..." />` e ficam em arquivos `.lua` separados.
 
 ### Modelo de Execução
 
 Scripts Lua rodam em uma **sandbox isolada** sem acesso ao sistema de arquivos ou APIs do sistema operacional. A comunicação com a UI é feita pela API `ui`; a comunicação com o backend é feita pela API `http`.
 
-Scripts são carregados na ordem declarada em `head.scripts`. Funções definidas em qualquer script ficam disponíveis globalmente para os `action` dos botões e eventos do runtime.
+Scripts são carregados na ordem declarada no `head`. Funções definidas em qualquer script ficam disponíveis globalmente para os `action` dos botões e eventos do runtime.
 
 ### API `ui` — Interação com a Interface
 
@@ -774,10 +777,10 @@ local res = http.delete("/api/session")
 
 ### Convenção de Handlers de Button
 
-Quando um `Button` tem `action: "nomeDaFuncao"` (sem `:`), o runtime chama a função Lua de mesmo nome ao clicar:
+Quando um `Button` tem `action="nomeDaFuncao"` (sem `:`), o runtime chama a função Lua de mesmo nome ao clicar:
 
 ```lua
--- Chamado por: Button com action: "fazerLogin"
+-- Chamado por: <Button action="fazerLogin">
 function fazerLogin()
   local usuario = ui.get_value("username")
   local senha   = ui.get_value("password")
@@ -793,7 +796,7 @@ function fazerLogin()
   end
 end
 
--- Chamado por: Button com action: "limparFormulario"
+-- Chamado por: <Button action="limparFormulario">
 function limparFormulario()
   ui.set_text("feedback-text", "")
   ui.set_visible("erro-msg", false)
@@ -850,88 +853,63 @@ Componentes importáveis permitem definir blocos de UI reutilizáveis em arquivo
 
 ### Formato de Arquivo de Componente
 
-Um arquivo de componente tem a chave `component` na raiz (em vez de um nome de componente built-in), seguida opcionalmente por `props` e obrigatoriamente por `body`:
+Um arquivo de componente tem uma seção `<props>` (opcional) seguida de `<body>`:
 
-```yaml
-# components/nav-bar.ntml
-component: NavBar
-
-props:
-  - name: title
-    type: string
-    default: "Navigation"
-  - name: accentColor
-    type: color
-    default: "#00ff00"
-  - name: showBack
-    type: boolean
-    default: false
-
-body:
-  Row:
-    align: center
-    gap: 12
-    style:
-      padding: 12
-      backgroundColor: "#111111"
-    children:
-      - Text:
-          text: "{props.title}"
-          style:
-            fontSize: 18
-            fontWeight: bold
-            color: "{props.accentColor}"
+```xml
+<!-- components/nav-bar.ntml -->
+<props>
+  <prop name="title" type="string" default="Navigation" />
+  <prop name="accentColor" type="color" default="#00ff00" />
+  <prop name="showBack" type="boolean" default="false" />
+</props>
+<body>
+  <Row align="center" gap="12" style="padding:12; backgroundColor:#111111">
+    <Text text="{props.title}" style="fontSize:18; fontWeight:bold; color:{props.accentColor}" />
+  </Row>
+</body>
 ```
+
+O nome do componente vem do alias definido no `import` (o arquivo em si não declara um nome).
 
 ### Tipos de Props
 
 | Tipo | Descrição | Exemplo de `default` |
 |------|-----------|----------------------|
-| `string` | Texto | `default: "Hello"` |
-| `number` | Numérico | `default: 0` |
-| `boolean` | Booleano | `default: false` |
-| `color` | Cor (hex ou named) | `default: "#ffffff"` |
+| `string` | Texto | `default="Hello"` |
+| `number` | Numérico | `default="0"` |
+| `boolean` | Booleano | `default="false"` |
+| `color` | Cor (hex ou named) | `default="#ffffff"` |
 
 ### Interpolação de Props
 
-Use `{props.nome}` como valor de qualquer propriedade dentro do `body` do componente:
+Use `{props.nome}` como valor de qualquer atributo dentro do `<body>` do componente:
 
-```yaml
-Text:
-  text: "{props.title}"         # interpolação em string
-  style:
-    color: "{props.accentColor}" # interpolação em color
-    fontSize: "{props.size}"     # interpolação em number
+```xml
+<Text text="{props.title}" style="color:{props.accentColor}; fontSize:{props.size}" />
 ```
 
 **Regras de interpolação:**
-- `{props.nome}` deve ser o valor inteiro da propriedade (não é possível concatenar: `"Olá {props.nome}"` não é válido — use Lua para isso)
+- `{props.nome}` deve ser o valor inteiro do atributo (não é possível concatenar: `"Olá {props.nome}"` não é válido — use Lua para isso)
 - O tipo do valor interpolado deve ser compatível com o tipo esperado pela propriedade
 
 ### Uso de Componente Importado
 
-```yaml
-head:
-  title: "Dashboard"
-  imports:
-    - src: "components/nav-bar.ntml"
-      as: "NavBar"
-
-body:
-  Column:
-    children:
-      - NavBar:
-          title: "Meu App"
-          accentColor: "#ff6600"
-          showBack: false
-      - Text:
-          text: "Conteúdo aqui"
+```xml
+<head>
+  <title>Dashboard</title>
+  <import src="components/nav-bar.ntml" as="NavBar" />
+</head>
+<body>
+  <Column>
+    <NavBar title="Meu App" accentColor="#ff6600" showBack="false" />
+    <Text text="Conteúdo aqui" />
+  </Column>
+</body>
 ```
 
 ### Validação de Componentes
 
 **Arquivo de componente:**
-- `component`: PascalCase, não pode ser nome de componente built-in
 - `props[].name`: camelCase, único dentro do componente
 - `props[].type`: deve ser um dos tipos suportados (`string`, `number`, `boolean`, `color`)
 - `props[].default`: se ausente, a prop é **obrigatória** ao instanciar o componente
@@ -946,13 +924,13 @@ body:
 
 ### Fases de Validação
 
-1. **Parse YAML**: Valida sintaxe YAML
-2. **Parse Head** (se presente): Valida estrutura e campos do `head`
+1. **Parse XML**: Valida sintaxe XML
+2. **Parse Head** (se presente): Valida estrutura e elementos do `head`
 3. **Parse Component**: Valida estrutura de componentes
 4. **Type Validation**: Valida tipos de propriedades
 5. **Semantic Validation**: Valida regras semânticas (ranges, não-vazio, etc)
 6. **Theme Resolution**: Resolve referências de tema (se aplicável)
-7. **Prop Resolution** (v0.2.0): Resolve e valida interpolações `{props.*}` em componentes importados
+7. **Prop Resolution**: Resolve e valida interpolações `{props.*}` em componentes importados
 
 ### Erros
 
@@ -960,7 +938,6 @@ Todos os erros incluem informações contextuais:
 
 ```rust
 pub enum NtmlError {
-    // Erros v0.1.0
     ParseError { line: usize, column: usize, message: String },
     ValidationError(String),
     InvalidComponent { component: String, reason: String },
@@ -979,7 +956,7 @@ pub enum NtmlError {
     EmptyDocument,
     ValueOutOfRange { property: String, value: String, range: String },
 
-    // Erros do head (v0.2.0)
+    // Erros do head
     MissingBody,                                // head presente mas body ausente
     MissingTitle,                               // head presente mas title ausente
     InvalidFontFamily { family: String },        // nome de família vazio
@@ -987,22 +964,22 @@ pub enum NtmlError {
     ImportLimitExceeded { max: usize },         // mais de 10 imports
     FontLimitExceeded { max: usize },           // mais de 10 fonts
     InvalidImportAlias { alias: String },       // alias não é PascalCase ou conflita com built-in
-    InvalidTag { tag: String },                 // tag com espaços, uppercase ou vazia
+    InvalidTag { tag: String },                 // tag com uppercase ou vazia
     TagLimitExceeded { max: usize },            // mais de 10 tags
 
-    // Erros de componentes importáveis (v0.2.0)
-    UnknownImportedComponent { name: String },  // usado mas não importado via head.imports
+    // Erros de componentes importáveis
+    UnknownImportedComponent { name: String },  // usado mas não importado via head
     MissingRequiredProp { component: String, prop: String },
     InvalidPropType { component: String, prop: String, expected: String },
     UnknownProp { component: String, prop: String },
     CircularComponentImport { path: String },
-    ComponentFileHasHead { path: String },       // arquivo de componente não pode ter head
+    ComponentFileHasHead { path: String },
 
-    // Erros de Lua (v0.2.0)
+    // Erros de Lua
     LuaScriptTooLong { src: String, max_lines: usize },
     LuaHandlerTimeout { handler: String, timeout_ms: u64 },
     LuaRuntimeError { src: String, message: String },
-    LuaFunctionNotFound { action: String },     // action sem ":" mas sem função Lua correspondente
+    LuaFunctionNotFound { action: String },
 }
 ```
 
@@ -1064,21 +1041,26 @@ NTML segue Semantic Versioning:
 
 ### Changelog
 
+#### v0.3.0
+- **Alterado**: Sintaxe migrada de YAML para XML/HTML-like
+- Componentes são elementos XML (ex.: `<Text text="Hello" />`)
+- Propriedades são atributos XML (ex.: `text="Hello"`, `style="..."`)
+- Filhos são elementos filhos aninhados (sem chave `children:`)
+- `style.classes` substituído pelo atributo `class`
+- Estilos inline via `style="key:val; key2:val2"`
+- Seção `head` usa elementos filhos: `<title>`, `<font />`, `<script />`, `<import />`
+- Arquivos de componente usam `<props>` / `<body>` em vez de YAML
+
 #### v0.2.0
 - **Novo**: Seção `head` com suporte a metadados, fonts, scripts e imports
 - **Novo**: Sistema de scripting Lua com sandbox
 - **Novo**: Componentes importáveis com sistema de props e interpolação
 - **Novo**: Propriedade `id` em todos os componentes para integração com Lua
-- **Novo**: `fontFamily` aceita fontes customizadas declaradas no `head`
-- **Novo**: `action` em Button suporta chamada de funções Lua (sem `:`)
-- **Novo**: API `http` para comunicação com backend (http.get, http.post, http.put, http.patch, http.delete)
-- **Alterado**: Fonts carregadas do Google Fonts via `family` + `weights` (sem `src` local)
-- **Novo**: `head.tags` — array de strings para indexação de páginas
 
 #### v0.1.0
 - Versão inicial — componentes, estilos, temas e validação
 
-Versão atual: **0.2.0**
+Versão atual: **0.3.0**
 
 ## Conformidade
 
@@ -1089,201 +1071,99 @@ Implementações NTML devem:
 3. ✅ Implementar todas as regras de validação
 4. ✅ Suportar todos os componentes e propriedades definidos
 5. ✅ Seguir as regras de segurança
-6. ✅ Manter backward compatibility com documentos v0.1.0
 
 ## Exemplos Completos
 
-### UI de Status do Jogador (v0.1.0 — formato clássico)
+### UI de Status do Sistema (formato clássico)
 
-```yaml
-Container:
-  style:
-    padding: 24
-    backgroundColor: "#0a0a0a"
-    borderRadius: 8
-    borderWidth: 2
-    borderColor: "#00ff00"
-  children:
-    - Column:
-        gap: 16
-        children:
-          - Text:
-              text: "SYSTEM STATUS"
-              style:
-                fontSize: 24
-                fontWeight: bold
-                color: "#00ff00"
-                fontFamily: monospace
+```xml
+<Container style="padding:24; backgroundColor:#0a0a0a; borderRadius:8; borderWidth:2; borderColor:#00ff00">
+  <Column gap="16">
+    <Text text="SYSTEM STATUS" style="fontSize:24; fontWeight:bold; color:#00ff00; fontFamily:monospace" />
 
-          - Row:
-              gap: 12
-              align: center
-              children:
-                - Icon:
-                    name: "cpu"
-                    size: 20
-                - ProgressBar:
-                    value: 85
-                    variant: success
-                    style:
-                      flex: 1
+    <Row gap="12" align="center">
+      <Icon name="cpu" size="20" />
+      <ProgressBar value="85" variant="success" style="flex:1" />
+    </Row>
 
-          - Grid:
-              columns: 2
-              gap: 8
-              children:
-                - Badge:
-                    text: "ONLINE"
-                    variant: success
-                - Badge:
-                    text: "LVL 42"
-                    variant: primary
+    <Grid columns="2" gap="8">
+      <Badge text="ONLINE" variant="success" />
+      <Badge text="LVL 42" variant="primary" />
+    </Grid>
+  </Column>
+</Container>
 ```
 
-### Formulário de Login com Lua (v0.2.0)
+### Formulário de Login com Lua (formato completo)
 
-```yaml
-head:
-  title: "Login Seguro"
-  scripts:
-    - src: "scripts/login.lua"
+```xml
+<head>
+  <title>Login Seguro</title>
+  <script src="scripts/login.lua" />
+</head>
+<body>
+  <Column gap="16" style="padding:32; maxWidth:400">
+    <Text text="SECURE LOGIN" style="fontSize:28; fontWeight:bold; textAlign:center" />
 
-body:
-  Column:
-    gap: 16
-    style:
-      padding: 32
-      maxWidth: 400
-    children:
-      - Text:
-          text: "SECURE LOGIN"
-          style:
-            fontSize: 28
-            fontWeight: bold
-            textAlign: center
+    <Input name="username" placeholder="Username" type="text" />
 
-      - Input:
-          name: "username"
-          placeholder: "Username"
-          type: text
+    <Input name="password" placeholder="Password" type="password" />
 
-      - Input:
-          name: "password"
-          placeholder: "Password"
-          type: password
+    <Text id="feedback" text="" style="color:red; display:none" />
 
-      - Text:
-          id: "feedback"
-          text: ""
-          style:
-            color: red
-            display: none
-
-      - Button:
-          id: "btn-login"
-          action: "fazerLogin"
-          variant: primary
-          children:
-            - Text:
-                text: "LOGIN"
-                style:
-                  fontWeight: bold
+    <Button id="btn-login" action="fazerLogin" variant="primary">
+      <Text text="LOGIN" style="fontWeight:bold" />
+    </Button>
+  </Column>
+</body>
 ```
 
-### Página com Componente Importado (v0.2.0)
+### Página com Componente Importado (formato completo)
 
-```yaml
-# dashboard.ntml
-head:
-  title: "Dashboard"
-  fonts:
-    - family: "Roboto Mono"
-      weights: [400, 700]
-  imports:
-    - src: "components/nav-bar.ntml"
-      as: "NavBar"
-    - src: "components/stat-card.ntml"
-      as: "StatCard"
-
-body:
-  Column:
-    children:
-      - NavBar:
-          title: "Dashboard"
-          accentColor: "#00ff00"
-      - Grid:
-          columns: 3
-          gap: 16
-          style:
-            padding: 24
-          children:
-            - StatCard:
-                label: "CPU"
-                value: 85
-                unit: "%"
-            - StatCard:
-                label: "RAM"
-                value: 4096
-                unit: "MB"
-            - StatCard:
-                label: "Ping"
-                value: 12
-                unit: "ms"
+```xml
+<!-- dashboard.ntml -->
+<head>
+  <title>Dashboard</title>
+  <font family="Roboto Mono" weights="400,700" />
+  <import src="components/nav-bar.ntml" as="NavBar" />
+  <import src="components/stat-card.ntml" as="StatCard" />
+</head>
+<body>
+  <Column>
+    <NavBar title="Dashboard" accentColor="#00ff00" />
+    <Grid columns="3" gap="16" style="padding:24">
+      <StatCard label="CPU" value="85" unit="%" />
+      <StatCard label="RAM" value="4096" unit="MB" />
+      <StatCard label="Ping" value="12" unit="ms" />
+    </Grid>
+  </Column>
+</body>
 ```
 
-### Arquivo de Componente com Props (v0.2.0)
+### Arquivo de Componente com Props
 
-```yaml
-# components/stat-card.ntml
-component: StatCard
-
-props:
-  - name: label
-    type: string
-  - name: value
-    type: number
-  - name: unit
-    type: string
-    default: ""
-  - name: variant
-    type: string
-    default: "default"
-
-body:
-  Container:
-    style:
-      padding: 16
-      borderRadius: 8
-      borderWidth: 1
-      borderColor: "#333333"
-      backgroundColor: "#111111"
-    children:
-      - Text:
-          text: "{props.label}"
-          style:
-            fontSize: 12
-            color: gray
-            textTransform: uppercase
-      - Row:
-          align: center
-          gap: 4
-          children:
-            - Text:
-                text: "{props.value}"
-                style:
-                  fontSize: 32
-                  fontWeight: bold
-                  color: "#00ff00"
-            - Text:
-                text: "{props.unit}"
-                style:
-                  fontSize: 14
-                  color: gray
+```xml
+<!-- components/stat-card.ntml -->
+<props>
+  <prop name="label" type="string" />
+  <prop name="value" type="number" />
+  <prop name="unit" type="string" default="" />
+  <prop name="variant" type="string" default="default" />
+</props>
+<body>
+  <Container style="padding:16; borderRadius:8; borderWidth:1; borderColor:#333333; backgroundColor:#111111">
+    <Text text="{props.label}" style="fontSize:12; color:gray; textTransform:uppercase" />
+    <Row align="center" gap="4">
+      <Text text="{props.value}" style="fontSize:32; fontWeight:bold; color:#00ff00" />
+      <Text text="{props.unit}" style="fontSize:14; color:gray" />
+    </Row>
+  </Container>
+</body>
 ```
 
 ## Referências
 
-- [YAML 1.2 Specification](https://yaml.org/spec/1.2/spec.html)
+- [XML 1.0 Specification](https://www.w3.org/TR/xml/)
 - [CSS Box Model](https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Box_Model)
 - [Flexbox Guide](https://css-tricks.com/snippets/css/a-guide-to-flexbox/)
 - [Lua 5.4 Reference Manual](https://www.lua.org/manual/5.4/)
