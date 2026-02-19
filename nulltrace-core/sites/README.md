@@ -20,6 +20,7 @@ sites/
 
 - `hostname`: VM hostname (e.g. `ntml-server`)
 - `dns_name`: optional; defaults to the folder name (e.g. `ntml.org`)
+- `ip`: optional fixed IP (e.g. `10.0.1.100`). Avoids IP collision with player VMs on hot restart.
 - `cpu_cores`, `memory_mb`, `disk_mb`: VM resources
 - `bootstrap`: string written to `/etc/bootstrap` and run on VM start (e.g. `httpd /var/www`)
 

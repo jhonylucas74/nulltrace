@@ -163,6 +163,27 @@ export const CONNECTION_ERROR_HTML = `<!DOCTYPE html>
 <head><meta charset="UTF-8"><title>Site can't be reached</title>
 <style>
   body { font-family: Arial,sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f1f1f1; color: #333; }
+  .box { text-align: center; padding: 2rem; max-width: 360px; }
+  h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+  p { color: #666; font-size: 0.9rem; line-height: 1.5; }
+  .hint { margin-top: 1rem; padding: 0.75rem; background: #f8f8f8; border-radius: 6px; font-size: 0.8rem; color: #555; text-align: left; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>This site can't be reached</h1>
+    <p>Connection failed. The server may be down or unreachable.</p>
+    <div class="hint">Make sure the cluster is running and you are logged in. Try refreshing the page or restarting the cluster.</div>
+  </div>
+</body>
+</html>`;
+
+/** Error page when NTML processing fails (parse/render error). */
+export const NTML_PROCESSING_ERROR_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Page failed to load</title>
+<style>
+  body { font-family: Arial,sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f1f1f1; color: #333; }
   .box { text-align: center; padding: 2rem; }
   h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
   p { color: #666; }
@@ -170,8 +191,8 @@ export const CONNECTION_ERROR_HTML = `<!DOCTYPE html>
 </head>
 <body>
   <div class="box">
-    <h1>This site can't be reached</h1>
-    <p>Connection failed. The server may be down or unreachable.</p>
+    <h1>Page failed to load</h1>
+    <p>The page could not be rendered. Check the browser console for details.</p>
   </div>
 </body>
 </html>`;

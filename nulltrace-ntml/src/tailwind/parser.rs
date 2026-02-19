@@ -13,6 +13,13 @@ pub fn extract_classes(html: &str) -> Vec<String> {
     let mut i = 0;
 
     while i < len {
+        // Ensure we never slice at a byte inside a multi-byte UTF-8 character
+        while i < len && !html.is_char_boundary(i) {
+            i += 1;
+        }
+        if i >= len {
+            break;
+        }
         // Look for the literal sequence "class"
         if html[i..].starts_with("class") {
             let after = i + 5;
@@ -80,5 +87,12 @@ mod tests {
     fn returns_empty_for_no_classes() {
         let html = "<div id='foo'></div>";
         assert!(extract_classes(html).is_empty());
+    }
+
+    #[test]
+    fn handles_utf8_multibyte_in_html() {
+        // Em dash (—) is 3 bytes in UTF-8; parser must not slice at byte boundaries inside it
+        let html = r#"<div class="flex">Hello — world</div>"#;
+        assert_eq!(extract_classes(html), vec!["flex"]);
     }
 }

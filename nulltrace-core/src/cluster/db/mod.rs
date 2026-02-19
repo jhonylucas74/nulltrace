@@ -56,6 +56,7 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(include_str!("../../../migrations/012_create_player_shortcuts.sql"))
         .execute(pool)
         .await?;
+    fs_service::FsService::cleanup_orphan_blobs(pool).await?;
     Ok(())
 }
 

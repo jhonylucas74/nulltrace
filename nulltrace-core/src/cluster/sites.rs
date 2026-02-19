@@ -14,6 +14,8 @@ use uuid::Uuid;
 pub struct SiteConfig {
     pub hostname: String,
     pub dns_name: Option<String>,
+    /// Fixed IP for this site VM (e.g. "10.0.1.100"). Avoids IP collision on hot restart.
+    pub ip: Option<String>,
     pub cpu_cores: i16,
     pub memory_mb: i32,
     pub disk_mb: i32,
@@ -103,7 +105,7 @@ pub async fn load_site_vms(
             cpu_cores: config.cpu_cores,
             memory_mb: config.memory_mb,
             disk_mb: config.disk_mb,
-            ip: None,
+            ip: config.ip.clone(),
             subnet: None,
             gateway: None,
             mac: None,

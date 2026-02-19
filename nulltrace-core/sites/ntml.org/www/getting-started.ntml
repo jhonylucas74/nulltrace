@@ -2,57 +2,65 @@
   <title>Getting started — NTML</title>
 </head>
 <body>
-  <Container class="min-h-screen bg-zinc-900 text-zinc-200 flex flex-col">
+  <Container class="min-h-screen bg-zinc-950 text-zinc-200 flex flex-col font-sans antialiased">
     <Column gap="0" class="min-h-screen w-full">
-      <Container class="border-b border-zinc-700 px-6 py-4">
+      <Container class="border-b border-zinc-800 px-6 py-4 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-10">
         <Row gap="8" align="center" justify="spaceBetween" wrap="true" class="w-full max-w-6xl mx-auto">
-          <Link href="/">
-            <Row gap="2" align="center">
-              <Icon name="file-code" size="32" class="w-8 h-8 text-orange-500" />
-              <Text text="NTML" class="text-xl font-bold text-zinc-100" />
+          <Link href="/" class="transition-colors duration-200 rounded-lg px-2 py-1 -ml-2 hover:bg-zinc-800/50">
+            <Row gap="3" align="center">
+              <Icon name="file-code" size="32" class="w-8 h-8 text-amber-400" />
+              <Text text="NTML" class="text-lg font-semibold text-zinc-100 tracking-tight" />
             </Row>
           </Link>
-          <Row gap="6" wrap="true">
-            <Link href="/getting-started"><Text text="Getting started" class="text-sm text-orange-400 font-medium" /></Link>
-            <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
-            <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
-            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
-            <Link href="/lua-api"><Text text="Lua API" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
-            <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
-            <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
-            <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+          <Row gap="1" wrap="true">
+            <Link href="/getting-started"><Text text="Getting started" class="text-sm text-amber-400 font-medium px-3 py-2 rounded-md bg-amber-500/10 transition-colors duration-200" /></Link>
+            <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/lua-api"><Text text="Lua API" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
+            <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
           </Row>
         </Row>
       </Container>
-      <Row gap="0" class="flex-1 w-full max-w-6xl mx-auto px-6 py-8">
-        <Container class="w-48 flex-shrink-0 hidden md:block">
-          <Column gap="1" class="sticky top-4">
-            <Text text="Docs" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2" />
-            <Link href="/getting-started"><Text text="Getting started" class="text-sm text-orange-400" /></Link>
-            <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
-            <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
-            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
-            <Link href="/lua-api"><Text text="Lua API" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
-            <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
-            <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
-            <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-orange-400" /></Link>
+      <Row gap="0" class="flex-1 w-full max-w-6xl mx-auto px-6 py-12">
+        <Container class="w-52 flex-shrink-0 hidden md:block pr-8 border-r border-zinc-800">
+          <Column gap="2" class="sticky top-24">
+            <Text text="On this page" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1" />
+            <Link href="/getting-started"><Text text="Getting started" class="text-sm text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/components"><Text text="Components" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/styling"><Text text="Styling" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/document-format"><Text text="Document format" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/lua-api"><Text text="Lua API" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/http"><Text text="HTTP" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/best-practices"><Text text="Best practices" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
+            <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
           </Column>
         </Container>
-        <Column gap="6" class="flex-1 min-w-0 max-w-3xl">
-          <Link href="/"><Text text="&lt; Home" class="text-sm text-orange-500 hover:text-orange-400" /></Link>
-          <Heading level="1" text="Getting started" class="text-3xl font-bold text-zinc-100" />
-          <Text text="NTML documents are XML. You can use the classic format (single root component) or the full format (head + body) for metadata, scripts, and imports." class="text-zinc-400 leading-relaxed" />
-          <Heading level="2" text="Hello world (classic format)" class="text-xl font-semibold text-zinc-100" />
-          <Code language="ntml" block="true" class="bg-zinc-800 border border-zinc-700 rounded-lg p-4 text-sm text-zinc-300 overflow-x-auto"><![CDATA[<Container class="p-6 bg-zinc-800 rounded-lg">
+        <Column gap="10" class="flex-1 min-w-0 max-w-3xl pl-0 md:pl-12">
+          <Link href="/"><Text text="← Home" class="text-sm text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
+          <Column gap="6">
+            <Heading level="1" text="Getting started" class="text-3xl md:text-4xl font-bold text-zinc-100 tracking-tight" />
+            <Text text="NTML documents are XML. You can use the classic format (single root component) or the full format (head + body) for metadata, scripts, and imports." class="text-zinc-400 leading-relaxed text-lg" />
+          </Column>
+          <Column gap="8">
+            <Column gap="3">
+              <Heading level="2" text="Hello world (classic format)" class="text-xl font-semibold text-zinc-100" />
+              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<Container class="p-6 bg-zinc-800 rounded-lg">
   <Text text="Hello, NTML!" class="text-lg text-zinc-200" />
 </Container>]]></Code>
-          <Text text="One root element at the document root. No head or body section." class="text-zinc-400 text-sm" />
-          <Heading level="2" text="Full format (head + body)" class="text-xl font-semibold text-zinc-100" />
-          <Text text="When you need a page title, scripts, or imported components, use the full format. See Document format for details." class="text-zinc-400 leading-relaxed" />
-          <Row gap="4">
-            <Link href="/document-format"><Text text="Document format" class="text-orange-500 hover:text-orange-400" /></Link>
-            <Link href="/components"><Text text="Components" class="text-orange-500 hover:text-orange-400" /></Link>
-          </Row>
+              <Text text="One root element at the document root. No head or body section." class="text-zinc-500 text-sm" />
+            </Column>
+            <Column gap="3">
+              <Heading level="2" text="Full format (head + body)" class="text-xl font-semibold text-zinc-100" />
+              <Text text="When you need a page title, scripts, or imported components, use the full format. See Document format for details." class="text-zinc-400 leading-relaxed" />
+              <Row gap="4">
+                <Link href="/document-format"><Text text="Document format →" class="text-amber-400 hover:text-amber-300 font-medium transition-colors duration-200" /></Link>
+                <Link href="/components"><Text text="Components →" class="text-amber-400 hover:text-amber-300 font-medium transition-colors duration-200" /></Link>
+              </Row>
+            </Column>
+          </Column>
         </Column>
       </Row>
     </Column>

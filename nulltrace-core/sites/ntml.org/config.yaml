@@ -1,6 +1,8 @@
 # VM config for site ntml.org (folder name = dns_name)
 hostname: ntml-server
 dns_name: ntml.org
+# Fixed IP avoids collision with player VMs on hot restart (subnet 10.0.1.0/22)
+ip: 10.0.1.100
 cpu_cores: 2
 memory_mb: 2048
 disk_mb: 20480

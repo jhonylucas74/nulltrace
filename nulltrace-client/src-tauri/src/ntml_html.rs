@@ -1,10 +1,11 @@
 //! Converts NTML to safe HTML for iframe srcDoc.
 //! No script, no inline event handlers; only structure and styles.
 
-/// Tailwind-compatible utility CSS for NTML docs (embedded at compile time).
-const NTML_TAILWIND_CSS: &str = include_str!("../ntml_tailwind.css");
+/// Base document styles (html, body). The Rust Tailwind engine generates only utility classes.
+const NTML_BASE_STYLES: &str = "html,body{margin:0;min-height:100vh;background:#09090b;color:#e4e4e7;}";
 
 use nulltrace_ntml::components::*;
+use nulltrace_ntml::tailwind;
 use nulltrace_ntml::style::{
     Alignment, BorderStyle, Cursor, Dimension, Display, FontFamily, FontWeight, Overflow,
     Position, Shadow, TextAlign, TextDecoration, TextTransform,
@@ -87,6 +88,18 @@ pub fn ntml_to_html_with_imports_and_patches(
 
     let patch_map = patches_to_map(patches);
 
+    // Build body HTML first so we can extract classes and generate CSS
+    let mut body_html = String::new();
+    component_to_html_with_imports(root, &mut body_html, &import_map, &patch_map, base_url)
+        .map_err(|e| e.to_string())?;
+
+    let generated_css = tailwind::generate_css(&body_html);
+    let css = if generated_css.is_empty() {
+        NTML_BASE_STYLES.to_string()
+    } else {
+        format!("{}{}", NTML_BASE_STYLES, generated_css)
+    };
+
     let mut html = String::new();
     write!(
         html,
@@ -99,16 +112,16 @@ pub fn ntml_to_html_with_imports_and_patches(
 <style>{}</style>
 </head>
 <body>
+{}
+</body>
+</html>
 "#,
         escape_html(title),
-        NTML_TAILWIND_CSS
+        css,
+        body_html
     )
     .map_err(|e| e.to_string())?;
 
-    component_to_html_with_imports(root, &mut html, &import_map, &patch_map, base_url)
-        .map_err(|e| e.to_string())?;
-
-    write!(html, "\n</body>\n</html>").map_err(|e| e.to_string())?;
     Ok(html)
 }
 
@@ -995,7 +1008,7 @@ fn component_to_html(
             let attrs = build_attrs(lnk.id.as_deref(), lnk.style.as_ref());
             write!(
                 out,
-                "<a{} href=\"{}\" data-ntml-url=\"{}\" data-ntml-target=\"{}\" style=\"color:inherit;text-decoration:underline;cursor:pointer;{}\" onclick=\"event.preventDefault();var u=this.getAttribute('data-ntml-url');var t=this.getAttribute('data-ntml-target');if(u)window.parent.postMessage({{type:'ntml-navigate',url:u,target:t||'same'}},'*')\">",
+                "<a{} href=\"{}\" data-ntml-url=\"{}\" data-ntml-target=\"{}\" style=\"color:inherit;cursor:pointer;text-decoration:none;{}\" onclick=\"event.preventDefault();var u=this.getAttribute('data-ntml-url');var t=this.getAttribute('data-ntml-target');if(u)window.parent.postMessage({{type:'ntml-navigate',url:u,target:t||'same'}},'*')\">",
                 attrs,
                 escape_html(&href_resolved),
                 escape_html(&href_resolved),

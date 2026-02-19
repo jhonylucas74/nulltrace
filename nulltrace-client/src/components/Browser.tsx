@@ -7,6 +7,7 @@ import {
   DEFAULT_BROWSER_URL,
   BROWSER_HISTORY_URL,
   CONNECTION_ERROR_HTML,
+  NTML_PROCESSING_ERROR_HTML,
   httpErrorHtml,
 } from "../lib/browserPages";
 import {
@@ -263,7 +264,7 @@ export default function Browser() {
                       ...t,
                       loading: false,
                       error: true,
-                      content: CONNECTION_ERROR_HTML,
+                      content: NTML_PROCESSING_ERROR_HTML,
                       contentType: "html" as const,
                     }
                   : t

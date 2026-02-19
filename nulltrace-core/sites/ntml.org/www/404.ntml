@@ -2,24 +2,29 @@
   <title>Page not found — NTML</title>
 </head>
 <body>
-  <Container class="min-h-screen bg-zinc-900 text-zinc-200 flex flex-col">
+  <Container class="min-h-screen bg-zinc-950 text-zinc-200 flex flex-col font-sans antialiased">
     <Column gap="0" class="min-h-screen w-full">
-      <Container class="border-b border-zinc-700 px-6 py-4">
-        <Row gap="8" align="center" class="w-full max-w-6xl mx-auto">
-          <Link href="/">
-            <Row gap="2" align="center">
-              <Icon name="file-code" size="32" class="w-8 h-8 text-orange-500" />
-              <Text text="NTML" class="text-xl font-bold text-zinc-100" />
+      <Container class="border-b border-zinc-800 px-6 py-4 bg-zinc-900/80 backdrop-blur-md">
+        <Row gap="8" align="center" justify="spaceBetween" class="w-full max-w-6xl mx-auto">
+          <Link href="/" class="transition-colors duration-200 rounded-lg px-2 py-1 -ml-2 hover:bg-zinc-800/50">
+            <Row gap="3" align="center">
+              <Icon name="file-code" size="32" class="w-8 h-8 text-amber-400" />
+              <Text text="NTML" class="text-lg font-semibold text-zinc-100 tracking-tight" />
             </Row>
           </Link>
+          <Link href="/getting-started"><Text text="Documentation" class="text-sm text-zinc-400 hover:text-amber-400 px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors duration-200" /></Link>
         </Row>
       </Container>
-      <Column gap="4" align="center" justify="center" class="flex-1 px-6 py-12 text-center">
-        <Heading level="1" text="Page not found" class="text-3xl font-bold text-zinc-100" />
-        <Text text="The requested page does not exist at ntml.org." class="text-zinc-400 max-w-md" />
-        <Link href="/">
-          <Text text="Back to home" class="text-orange-500 hover:text-orange-400 font-medium" />
-        </Link>
+      <Column gap="8" align="center" justify="center" class="flex-1 px-6 py-20 text-center">
+        <Text text="404" class="text-8xl font-bold text-zinc-800" />
+        <Column gap="4">
+          <Heading level="1" text="Page not found" class="text-3xl font-bold text-zinc-100" />
+          <Text text="The requested page does not exist at ntml.org. Check the URL or try the links below." class="text-zinc-400 max-w-md leading-relaxed" />
+        </Column>
+        <Row gap="4" wrap="true" justify="center">
+          <Link href="/"><Container class="rounded-full px-5 py-2.5 bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 text-amber-400 font-medium text-sm transition-colors duration-200"><Text text="Back to home" /></Container></Link>
+          <Link href="/getting-started"><Container class="rounded-full px-5 py-2.5 bg-zinc-800/80 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-700/80 text-zinc-300 font-medium text-sm transition-colors duration-200"><Text text="Getting started" /></Container></Link>
+        </Row>
       </Column>
     </Column>
   </Container>

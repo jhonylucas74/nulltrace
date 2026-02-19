@@ -115,9 +115,19 @@ impl VmManager {
     pub async fn create_vm(&mut self, config: VmConfig) -> Result<(VmRecord, NIC), String> {
         let id = Uuid::new_v4();
 
-        // Allocate IP from subnet
-        let nic = NIC::from_subnet(&mut self.subnet)
-            .ok_or_else(|| "Subnet exhausted, no IPs available".to_string())?;
+        // Use fixed IP if provided, otherwise allocate from subnet
+        let nic = if let Some(ref ip_str) = config.ip {
+            let ip = Ipv4Addr::parse(ip_str)
+                .ok_or_else(|| format!("Invalid fixed IP: {}", ip_str))?;
+            if !self.subnet.contains(ip) {
+                return Err(format!("Fixed IP {} not in subnet {}", ip, self.subnet));
+            }
+            self.subnet.reserve(ip);
+            NIC::new(ip, self.subnet.clone())
+        } else {
+            NIC::from_subnet(&mut self.subnet)
+                .ok_or_else(|| "Subnet exhausted, no IPs available".to_string())?
+        };
 
         let ip_str = nic.ip.to_string();
         let subnet_str = nic.subnet.to_string();

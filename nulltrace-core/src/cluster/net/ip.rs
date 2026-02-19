@@ -191,6 +191,18 @@ impl Subnet {
         self.next_host += 1;
         Some(addr)
     }
+
+    /// Reserve a fixed IP so it will not be allocated by allocate_next.
+    /// Use when assigning a static IP to a VM (e.g. site VMs).
+    pub fn reserve(&mut self, ip: Ipv4Addr) {
+        if !self.contains(ip) {
+            return;
+        }
+        let u = ip.to_u32() + 1;
+        if u > self.next_host {
+            self.next_host = u;
+        }
+    }
 }
 
 impl fmt::Display for Subnet {

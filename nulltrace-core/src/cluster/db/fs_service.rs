@@ -547,6 +547,22 @@ impl FsService {
         Ok(())
     }
 
+    /// Remove orphaned blobs from blob_store (not referenced by any fs_contents).
+    /// Call at startup after migrations to prevent volume growth when VMs are destroyed.
+    pub async fn cleanup_orphan_blobs(pool: &PgPool) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM blob_store b
+            WHERE NOT EXISTS (
+                SELECT 1 FROM fs_contents c WHERE c.content_hash = b.hash
+            )
+            "#,
+        )
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     /// Total bytes used by files in this VM (sum of size_bytes for node_type = 'file').
     pub async fn disk_usage_bytes(&self, vm_id: Uuid) -> Result<i64, sqlx::Error> {
         let row: (i64,) = sqlx::query_as(

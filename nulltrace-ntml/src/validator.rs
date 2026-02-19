@@ -325,16 +325,16 @@ fn validate_style(style: &Option<Style>, font_families: &[String]) -> NtmlResult
             }
         }
 
-        // Validate classes (safe chars only: alphanumeric, space, -, _, :, /, .)
+        // Validate classes (safe chars: alphanumeric, space, -, _, :, /, ., [, ] for Tailwind arbitrary values)
         if let Some(ref classes) = style.classes {
             static CLASSES_REGEX: OnceLock<Regex> = OnceLock::new();
             let re = CLASSES_REGEX.get_or_init(|| {
-                Regex::new(r"^[a-zA-Z0-9_\-\s:./]+$").unwrap()
+                Regex::new(r"^[a-zA-Z0-9_\-\s:./\[\]]+$").unwrap()
             });
             if !re.is_match(classes) {
                 return Err(NtmlError::InvalidStyle {
                     property: "classes".to_string(),
-                    reason: "must contain only safe characters (alphanumeric, spaces, -, _, :, /, .)".to_string(),
+                    reason: "must contain only safe characters (alphanumeric, spaces, -, _, :, /, ., [, ])".to_string(),
                 });
             }
         }
