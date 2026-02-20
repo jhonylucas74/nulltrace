@@ -1,4 +1,4 @@
-# ProgressBar · Badge
+# ProgressBar / Badge
 
 **Display**
 

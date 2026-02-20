@@ -29,13 +29,13 @@ children any components      - clickable content
 <Link href="/examples">
   <Row gap="1" align="center">
     <Text text="View examples" class="text-sm font-medium text-amber-400 hover:text-amber-300 transition-colors duration-200" />
-    <Text text="→" class="text-amber-400" />
+    <Icon name="arrow-right" size="16" class="text-amber-400" />
   </Row>
 </Link>
 
 <!-- External link -->
 <Link href="http://docs.nulltrace.io" target="new">
-  <Text text="External docs ↗" class="text-sm text-zinc-400 hover:text-amber-400 transition-colors duration-200" />
+  <Row gap="1" align="center"><Text text="External docs" class="text-sm text-zinc-400 hover:text-amber-400 transition-colors duration-200" /><Icon name="arrow-right" size="14" class="text-zinc-400" /></Row>
 </Link>
 ```
 

@@ -8,9 +8,9 @@
       <Row gap="3" align="center" justify="spaceBetween" class="max-w-6xl mx-auto">
         <Row gap="2" align="center">
           <Badge text="DEMO" variant="warning" />
-          <Text text="Esta é uma página de exemplo NTML - scanner de rede simulado." class="text-xs text-amber-400/80" />
+          <Text text="This is an example NTML page - simulated network scanner." class="text-xs text-amber-400/80" />
         </Row>
-        <Link href="/examples"><Text text="← Ver exemplos de código" class="text-xs text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
+        <Link href="/examples"><Row gap="2" align="center"><Icon name="arrow-left" size="14" class="text-amber-400" /><Text text="See code examples" class="text-xs text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Row></Link>
       </Row>
     </Container>
 
@@ -22,7 +22,7 @@
           <Text text="Network Scanner" class="text-base font-semibold text-zinc-100" />
         </Row>
         <Row gap="3" align="center">
-          <Badge id="scan-status" text="● Idle" variant="default" />
+          <Badge id="scan-status" text="* Idle" variant="default" />
           <Button variant="primary" class="text-sm px-4 py-2 rounded-lg"><Text text="Scan network" /></Button>
         </Row>
       </Row>

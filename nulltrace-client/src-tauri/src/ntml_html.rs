@@ -538,7 +538,91 @@ fn markdown_to_sanitized_html(md: &str) -> String {
     let html = html.replace("javascript:", "");
     // Apply syntax highlighting to code blocks
     let html = replace_code_blocks_with_highlighted(&html);
+    // Add id attributes to headings for anchor links (e.g. #spacing)
+    let html = add_heading_ids(&html);
     sanitize_html_fragment(&html)
+}
+
+/// Slugify heading text for use as id attribute (lowercase, alphanumeric and hyphens).
+fn slugify_heading(text: &str) -> String {
+    let decoded = text
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"");
+    let mut slug = String::new();
+    let mut prev_hyphen = false;
+    for c in decoded.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_lowercase().next().unwrap_or(c));
+            prev_hyphen = false;
+        } else if (c == ' ' || c == '&' || c == '-' || c == '_') && !prev_hyphen {
+            slug.push('-');
+            prev_hyphen = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
+/// Strip HTML tags from a string, keeping only text content.
+fn strip_html_tags(html: &str) -> String {
+    let mut text = String::new();
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => text.push(c),
+            _ => {}
+        }
+    }
+    text
+}
+
+/// Add id attributes to h1-h6 headings based on their text content for anchor navigation.
+fn add_heading_ids(html: &str) -> String {
+    let bytes = html.as_bytes();
+    let mut result = String::with_capacity(html.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if i + 3 < bytes.len()
+            && bytes[i] == b'<'
+            && bytes[i + 1] == b'h'
+            && (b'1'..=b'6').contains(&bytes[i + 2])
+        {
+            let level = bytes[i + 2];
+            let tag_start = i;
+            i += 3;
+            while i < bytes.len() && bytes[i] != b'>' {
+                i += 1;
+            }
+            if i >= bytes.len() {
+                result.push_str(std::str::from_utf8(&bytes[tag_start..]).unwrap_or(""));
+                break;
+            }
+            let content_start = i + 1;
+            let close_tag: [u8; 5] = [b'<', b'/', b'h', level, b'>'];
+            let close_pos = find_substring(bytes, content_start, &close_tag);
+            if let Some(end) = close_pos {
+                let content = std::str::from_utf8(&bytes[content_start..end]).unwrap_or("");
+                let text = strip_html_tags(content).trim().to_string();
+                let slug = if text.is_empty() {
+                    format!("heading-{}", tag_start)
+                } else {
+                    slugify_heading(&text)
+                };
+                result.push_str(std::str::from_utf8(&bytes[tag_start..tag_start + 3]).unwrap_or(""));
+                result.push_str(&format!(" id=\"{}\"", escape_html(&slug)));
+                result.push_str(std::str::from_utf8(&bytes[tag_start + 3..=i]).unwrap_or(""));
+                result.push_str(std::str::from_utf8(&bytes[i + 1..end + close_tag.len()]).unwrap_or(""));
+                i = end + close_tag.len();
+                continue;
+            }
+        }
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+    result
 }
 
 /// Unescape HTML entities in code block content (reverse of escape_html).

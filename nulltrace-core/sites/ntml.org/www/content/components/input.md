@@ -1,4 +1,4 @@
-# Input · Checkbox · Radio · Select
+# Input / Checkbox / Radio / Select
 
 **Interactive**
 

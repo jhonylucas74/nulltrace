@@ -17,7 +17,7 @@ import {
   resolveScriptUrl,
   getBaseHost,
 } from "../lib/browserVm";
-import { renderLucideIconToSvg } from "../lib/lucideNtmlIcons";
+import { renderLucideIconToSvgAsync } from "../lib/lucideNtmlIcons";
 import { useAuth } from "../contexts/AuthContext";
 import { useDevTools } from "../contexts/DevToolsContext";
 import { useWindowManager } from "../contexts/WindowManagerContext";
@@ -117,31 +117,44 @@ export default function Browser() {
   }, [openWindow, activeTabId, activeTab?.title, activeTab?.url, windows, getWindowIdsByType, setFocus]);
 
   // Resolve [data-lucide] placeholders in NTML-rendered iframe to Lucide SVG icons.
+  // Also scroll to hash anchor (e.g. #spacing) when URL has a fragment.
   useEffect(() => {
     if (activeTab?.contentType !== "html" || !activeTab?.content) return;
-    const timer = window.setTimeout(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
       const iframe = iframeRef.current;
       if (!iframe?.contentDocument) return;
       const doc = iframe.contentDocument;
+      const hash = activeTab?.url?.includes("#")
+        ? activeTab.url.slice(activeTab.url.indexOf("#") + 1)
+        : null;
+      if (hash) {
+        const el = doc.getElementById(hash);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
       const placeholders = doc.querySelectorAll<HTMLElement>("[data-lucide]");
-      placeholders.forEach((el) => {
+      for (const el of placeholders) {
+        if (cancelled) break;
         const name = el.getAttribute("data-lucide");
         const size = Math.max(1, parseInt(el.getAttribute("data-size") ?? "24", 10));
         const className = el.getAttribute("class") ?? undefined;
-        if (!name) return;
-        const svgString = renderLucideIconToSvg(name, size, className ?? undefined);
-        if (!svgString) return;
+        if (!name) continue;
+        const svgString = await renderLucideIconToSvgAsync(name, size, className ?? undefined);
+        if (!svgString || cancelled) continue;
         const wrap = doc.createElement("div");
         wrap.innerHTML = svgString;
         const svg = wrap.firstElementChild;
-        if (svg) {
+        if (svg && el.parentNode) {
           svg.setAttribute("style", el.getAttribute("style") ?? "");
-          el.parentNode?.replaceChild(svg, el);
+          el.parentNode.replaceChild(svg, el);
         }
-      });
+      }
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, [activeTab?.id, activeTab?.content, activeTab?.contentType]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [activeTab?.id, activeTab?.content, activeTab?.contentType, activeTab?.url]);
 
   const fetchVmUrl = useCallback(
     async (tabId: string, url: string) => {
@@ -395,6 +408,12 @@ export default function Browser() {
       const u = url.trim() || DEFAULT_BROWSER_URL;
       if (!activeTabId) return;
 
+      const urlWithoutHash = u.includes("#") ? u.slice(0, u.indexOf("#")) : u;
+      const currentTab = tabs.find((t) => t.id === activeTabId);
+      const currentWithoutHash = currentTab?.url?.includes("#")
+        ? currentTab.url.slice(0, currentTab.url.indexOf("#"))
+        : currentTab?.url;
+
       if (pushHistory) {
         setHistory((prev) => {
           const trimmed = prev.slice(0, historyIndex + 1);
@@ -404,6 +423,18 @@ export default function Browser() {
       }
 
       if (isVmUrl(u)) {
+        const isSamePageHashChange =
+          urlWithoutHash === currentWithoutHash &&
+          currentTab?.content &&
+          currentTab?.contentType === "html";
+        if (isSamePageHashChange) {
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id === activeTabId ? { ...t, url: u } : t
+            )
+          );
+          return;
+        }
         setTabs((prev) =>
           prev.map((t) =>
             t.id === activeTabId
@@ -438,7 +469,7 @@ export default function Browser() {
         );
       }
     },
-    [activeTabId, historyIndex, fetchVmUrl]
+    [activeTabId, historyIndex, fetchVmUrl, tabs]
   );
 
   // Listen for NTML button actions and Link navigation from iframe (postMessage).

@@ -1,34 +1,13 @@
 /**
  * Resolves Lucide icon names (from NTML Icon component) to SVG markup
- * for injection into the Browser iframe. Uses lucide-react as the single
- * source of truth; no manual path data.
+ * for injection into the Browser iframe. Uses lucide-react dynamicIconImports
+ * so all Lucide icons work without manual registration.
  */
 
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
-import {
-  BookOpen,
-  BookText,
-  Code,
-  FileCode,
-  Home,
-  Layout,
-  Palette,
-  Server,
-} from "lucide-react";
-
-// Kebab-case name -> Lucide component (only icons used by NTML docs).
-const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
-  "file-code": FileCode,
-  "book-open": BookOpen,
-  layout: Layout,
-  palette: Palette,
-  code: Code,
-  server: Server,
-  home: Home,
-  "book-text": BookText,
-};
+import dynamicIconImports from "lucide-react/dynamicIconImports";
 
 const svgCache = new Map<string, string>();
 
@@ -37,20 +16,24 @@ function cacheKey(name: string, size: number, className?: string): string {
 }
 
 /**
- * Returns SVG markup for a Lucide icon by name, or empty string if unknown.
- * Uses lucide-react components rendered to static HTML (cached per name/size/class).
+ * Returns SVG markup for a Lucide icon by name (async).
+ * Uses lucide-react dynamicIconImports - supports all Lucide icons by kebab-case name.
  */
-export function renderLucideIconToSvg(
+export async function renderLucideIconToSvgAsync(
   name: string,
   size: number,
   className?: string
-): string {
-  const IconComponent = ICON_MAP[name];
-  if (!IconComponent) return "";
+): Promise<string> {
+  const loader = dynamicIconImports[name as keyof typeof dynamicIconImports];
+  if (!loader) return "";
 
   const key = cacheKey(name, size, className);
   const cached = svgCache.get(key);
   if (cached !== undefined) return cached;
+
+  const mod = await loader();
+  const IconComponent = mod.default;
+  if (!IconComponent) return "";
 
   const div = document.createElement("div");
   document.body.appendChild(div);
@@ -72,6 +55,7 @@ export function renderLucideIconToSvg(
   return html;
 }
 
+
 export function getSupportedLucideIconNames(): string[] {
-  return Object.keys(ICON_MAP);
+  return Object.keys(dynamicIconImports);
 }

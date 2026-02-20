@@ -1,4 +1,4 @@
-# Code · Markdown · List · Table
+# Code / Markdown / List / Table
 
 **Document**
 

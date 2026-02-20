@@ -72,7 +72,7 @@
             </Row>
           </Column>
           <Container class="pt-12 mt-8 border-t border-zinc-800">
-            <Text text="NTML Documentation · NullTrace" class="text-xs text-zinc-500" />
+            <Text text="NTML Documentation - NullTrace" class="text-xs text-zinc-500" />
           </Container>
         </Column>
       </Row>

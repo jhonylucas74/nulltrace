@@ -1,4 +1,4 @@
-# Divider · Spacer
+# Divider / Spacer
 
 **Display**
 

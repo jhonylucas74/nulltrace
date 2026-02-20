@@ -63,20 +63,3 @@ conn:close()
 ```
 
 localhost and 127.x.x.x resolve to loopback (same VM). Use net.connect for cross-VM calls.
-
----
-
-## JSON handling
-
-Use json.encode and json.decode to work with JSON bodies. The json module is available in all Lua scripts.
-
-```lua
--- Server: return JSON response
-local data = json.encode({ ok = true, user = "jhony" })
-local res = http.build_response(200, data)
-
--- Client: parse JSON body
-local res = http.parse_response(raw)
-local obj = json.decode(res.body)
-print(obj.user)
-```

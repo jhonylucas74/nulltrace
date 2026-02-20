@@ -33,11 +33,13 @@ export function isVmUrl(url: string): boolean {
 }
 
 /**
- * Normalizes a VM URL for curl. Strips http(s):// prefix, ensures path has leading slash.
+ * Normalizes a VM URL for curl. Strips http(s):// prefix, hash fragment, ensures path has leading slash.
  * Only call when isVmUrl returns true.
  */
 export function normalizeVmUrl(url: string): string {
   let u = url.trim();
+  const hashIdx = u.indexOf("#");
+  if (hashIdx >= 0) u = u.slice(0, hashIdx);
   const lower = u.toLowerCase();
   if (lower.startsWith("https://")) {
     u = u.slice(8);

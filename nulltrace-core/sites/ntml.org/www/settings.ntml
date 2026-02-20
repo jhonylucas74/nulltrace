@@ -8,9 +8,9 @@
       <Row gap="3" align="center" justify="spaceBetween" class="max-w-4xl mx-auto">
         <Row gap="2" align="center">
           <Badge text="DEMO" variant="warning" />
-          <Text text="Esta é uma página de exemplo NTML - mostra componentes de formulário em uso real." class="text-xs text-amber-400/80" />
+          <Text text="This is an example NTML page - shows form components in real use." class="text-xs text-amber-400/80" />
         </Row>
-        <Link href="/examples"><Text text="← Ver exemplos de código" class="text-xs text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
+        <Link href="/examples"><Row gap="2" align="center"><Icon name="arrow-left" size="14" class="text-amber-400" /><Text text="See code examples" class="text-xs text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Row></Link>
       </Row>
     </Container>
 
@@ -87,9 +87,9 @@
                   <Select name="language" value="English"
                           class="p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 w-36">
                     <option label="English" value="English" />
-                    <option label="Português" value="Português" />
-                    <option label="Español" value="Español" />
-                    <option label="Français" value="Français" />
+                    <option label="Portuguese" value="Portuguese" />
+                    <option label="Spanish" value="Spanish" />
+                    <option label="French" value="French" />
                     <option label="Deutsch" value="Deutsch" />
                   </Select>
                 </Row>
@@ -172,17 +172,17 @@
             <Column gap="5">
               <Column gap="2">
                 <Text text="Current password" class="text-sm font-medium text-zinc-300" />
-                <Input name="current_password" type="password" placeholder="••••••••"
+                <Input name="current_password" type="password" placeholder="********"
                        class="w-full p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm" />
               </Column>
               <Column gap="2">
                 <Text text="New password" class="text-sm font-medium text-zinc-300" />
-                <Input name="new_password" type="password" placeholder="••••••••"
+                <Input name="new_password" type="password" placeholder="********"
                        class="w-full p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm" />
               </Column>
               <Column gap="2">
                 <Text text="Confirm new password" class="text-sm font-medium text-zinc-300" />
-                <Input name="confirm_password" type="password" placeholder="••••••••"
+                <Input name="confirm_password" type="password" placeholder="********"
                        class="w-full p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-200 text-sm" />
               </Column>
               <Button variant="secondary" class="self-start px-4 py-2 rounded-lg text-sm"><Text text="Update password" /></Button>

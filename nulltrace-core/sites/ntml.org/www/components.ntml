@@ -41,26 +41,26 @@
           </Column>
         </Container>
         <Column gap="12" class="flex-1 min-w-0 max-w-3xl pl-0 md:pl-12">
-          <Link href="/"><Text text="← Home" class="text-sm text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
+          <Link href="/"><Row gap="2" align="center"><Icon name="arrow-left" size="16" class="text-amber-400" /><Text text="Home" class="text-sm text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Row></Link>
           <Markdown src="/content/components.md" />
           <Container class="pt-10 mt-2 border-t border-zinc-800">
             <Row justify="spaceBetween">
               <Link href="/document-format">
                 <Row gap="2" align="center">
-                  <Text text="←" class="text-amber-400" />
+                  <Icon name="arrow-left" size="16" class="text-amber-400" />
                   <Text text="Document format" class="text-sm font-medium text-zinc-300 hover:text-amber-400 transition-colors duration-200" />
                 </Row>
               </Link>
               <Link href="/styling">
                 <Row gap="2" align="center">
                   <Text text="Styling" class="text-sm font-medium text-zinc-300 hover:text-amber-400 transition-colors duration-200" />
-                  <Text text="→" class="text-amber-400" />
+                  <Icon name="arrow-right" size="16" class="text-amber-400" />
                 </Row>
               </Link>
             </Row>
           </Container>
           <Container class="pt-4 mt-2">
-            <Text text="NTML Documentation · NullTrace" class="text-xs text-zinc-500" />
+            <Text text="NTML Documentation - NullTrace" class="text-xs text-zinc-500" />
           </Container>
         </Column>
       </Row>

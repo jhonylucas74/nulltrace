@@ -60,7 +60,7 @@ Display text, images, and icons. All content components render inline within the
 Form elements and controls. Use name for Lua ui.get_value() and id for ui.set_disabled/set_text.
 
 - [Button](/components/button) - Actions, variants
-- [Input · Checkbox · Radio · Select](/components/input) - Form controls
+- [Input / Checkbox / Radio / Select](/components/input) - Form controls
 - [Link](/components/link) - Navigation
 
 ```ntml
@@ -87,8 +87,8 @@ Form elements and controls. Use name for Lua ui.get_value() and id for ui.set_di
 
 Status indicators, progress, dividers, and spacing utilities.
 
-- [ProgressBar · Badge](/components/progress) - Status indicators
-- [Divider · Spacer](/components/layout-utils) - Spacing utils
+- [ProgressBar / Badge](/components/progress) - Status indicators
+- [Divider / Spacer](/components/layout-utils) - Spacing utils
 
 ```ntml
 <Column gap="3">
@@ -112,7 +112,7 @@ Status indicators, progress, dividers, and spacing utilities.
 
 Rich content rendering for documentation, code, lists, tables, and more.
 
-- [Code · Markdown · List · Table · Blockquote · Pre · Details](/components/content) - Rich content and document components
+- [Code / Markdown / List / Table / Blockquote / Pre / Details](/components/content) - Rich content and document components
 
 ```ntml
 <Column gap="6">

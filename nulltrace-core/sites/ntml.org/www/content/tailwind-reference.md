@@ -74,31 +74,95 @@ truncate   text-ellipsis   whitespace-nowrap   break-words   break-all
 
 ## Colors
 
-Add /15, /30, /50, /80 for opacity variants - e.g. bg-zinc-800/50
+All color families support shades 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950. The prefixes `text-`, `bg-`, `border-`, `ring-`, `ring-offset-`, `decoration-`, `divide-`, and `shadow-` apply to text color, background, border, focus ring, ring offset, text-decoration-color, divide borders, and box-shadow color respectively.
 
-**Text**
+### Opacity modifier
+
+Add `/N` where N is 0-100 (e.g. `/15`, `/30`, `/50`, `/80`) for opacity variants:
+
+```css
+bg-zinc-800/50    bg-amber-500/15   bg-red-500/10
+text-amber-400/80   border-zinc-800/30
+```
+
+### Special colors
+
+```css
+text-transparent   bg-black   bg-white   text-current   text-inherit
+```
+
+### Arbitrary values
+
+```css
+bg-[#ff0000]   text-[rgb(255,0,0)]   border-[#3b82f6]
+```
+
+### Color families (all shades 50-950)
+
+| Neutrals | Chromatic |
+|----------|-----------|
+| slate, gray, zinc, neutral, stone | red, orange, amber, yellow, lime |
+| | green, emerald, teal, cyan, sky |
+| | blue, indigo, violet, purple, fuchsia |
+| | pink, rose |
+
+### Text
 
 ```css
 text-zinc-50    text-zinc-100   text-zinc-200   text-zinc-300
-text-zinc-400   text-zinc-500   text-zinc-600   text-zinc-700
+text-zinc-400   text-zinc-500   text-zinc-600   text-zinc-700   text-zinc-800   text-zinc-900   text-zinc-950
 text-amber-300  text-amber-400  text-amber-500
 text-red-400    text-red-500    text-green-400   text-blue-400
 text-yellow-400 text-purple-400 text-cyan-400
+text-slate-100  text-gray-200   text-neutral-300  text-stone-400
+text-orange-500 text-lime-400   text-emerald-500  text-teal-400
+text-sky-400   text-indigo-600  text-violet-500   text-fuchsia-500
+text-pink-400  text-rose-500
 ```
 
-**Background**
+### Background
 
 ```css
 bg-zinc-950   bg-zinc-900   bg-zinc-800   bg-zinc-700
 bg-zinc-800/50    bg-amber-500/15   bg-red-500/10
 bg-green-500/15   bg-blue-500/15    bg-yellow-500/10
+bg-slate-900   bg-gray-800   bg-neutral-800   bg-stone-900
+bg-red-500/10   bg-red-600   bg-red-900
+bg-green-500/15   bg-blue-500/15   bg-amber-500/10
+bg-indigo-500/20  bg-purple-500/15  bg-violet-500/10
 ```
 
-**Border**
+### Border
 
 ```css
 border-zinc-800   border-zinc-700   border-zinc-600
 border-amber-500/30   border-red-500/40   border-green-500/30
+border-t-zinc-800   border-b-zinc-700   border-l-zinc-600   border-r-zinc-800
+```
+
+### Ring (outline)
+
+```css
+ring   ring-2   ring-zinc-400   ring-amber-500/50
+ring-offset-2   ring-offset-zinc-100
+```
+
+### Decoration (underline color)
+
+```css
+decoration-zinc-400   decoration-amber-500   decoration-red-500/50
+```
+
+### Divide (between children)
+
+```css
+divide-zinc-800   divide-zinc-700/50
+```
+
+### Shadow (box-shadow color)
+
+```css
+shadow-zinc-900   shadow-amber-500/20
 ```
 
 ---
@@ -193,7 +257,7 @@ focus:outline-none   focus:ring-2   disabled:opacity-50
 
 ## Responsive prefixes
 
-Breakpoints are mobile-first: sm ≥640px · md ≥768px · lg ≥1024px · xl ≥1280px
+Breakpoints are mobile-first: sm >=640px | md >=768px | lg >=1024px | xl >=1280px
 
 ```ntml
 <!-- Hidden on mobile, visible on md+ -->
