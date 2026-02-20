@@ -53,7 +53,35 @@ storage.clear()              -- delete all keys for this origin
 
 ## Button actions
 
-Set `action="functionName"` on a Button. The runtime calls that Lua function when clicked. The function receives no arguments.
+Set `action="functionName"` on a Button. The runtime calls that Lua function when clicked. Handlers can accept an optional context parameter (React-style).
+
+### Handler parameters (ctx)
+
+Handlers receive a context object as the first argument. You can use it or ignore it (backward compatible).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ctx.eventData` | table | data-* attributes from the element (e.g. `data-item-id` -> `ctx.eventData["item-id"]`) |
+| `ctx.formValues` | table | Form field values (Input/Checkbox/Select by name) |
+| `ctx.targetId` | string | id of the clicked element, or nil |
+
+```lua
+-- Without parameters (still works)
+function doLogin()
+  local user = ui.get_value("username")
+  local pass = ui.get_value("password")
+  -- ...
+end
+
+-- With context parameter (React-style)
+function deleteItem(ctx)
+  local itemId = ctx.eventData["item-id"]
+  local form = ctx.formValues
+  -- ctx.targetId is the button's id if set
+end
+```
+
+### Example: no parameters
 
 ```lua
 function doLogin()
@@ -71,6 +99,8 @@ function doLogin()
   end
 end
 ```
+
+Input, Checkbox, Radio, and Select `onchange` handlers receive the same context object when the event fires.
 
 ---
 

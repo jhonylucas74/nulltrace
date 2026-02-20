@@ -13,6 +13,7 @@ name         string   (required) - used with ui.get_value(name)
 placeholder  string              - placeholder text
 type         text|password|number  (default: text)
 value        string              - default value
+onchange     string              - Lua function name to call on change (receives ctx: eventData, formValues, targetId)
 id           string              - ui.set_disabled(id, bool)
 class        string              - Tailwind utility classes
 ```
@@ -92,6 +93,12 @@ children <option label="..." value="..." />  - at least one option
   <option label="Critical" value="Critical" />
 </Select>
 ```
+
+---
+
+## onchange handlers
+
+Input, Checkbox, Radio, and Select support `onchange="functionName"` to call a Lua function when the value changes. The handler receives the same context object as Button actions: `ctx.eventData`, `ctx.formValues`, `ctx.targetId`. See [Lua API - Handler parameters](/lua-api#handler-parameters-ctx) for details.
 
 ---
 

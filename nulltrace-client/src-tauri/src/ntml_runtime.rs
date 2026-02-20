@@ -458,10 +458,34 @@ pub fn run_handler(
 
     state.patches.lock().unwrap().clear();
 
+    // Build context object (ctx) to pass as first argument to handler (React-style)
+    let ctx = state.lua.create_table().map_err(|e| e.to_string())?;
+    let event_data_tbl = state.lua.create_table().map_err(|e| e.to_string())?;
+    if let Some(ref ed) = event_data {
+        for (k, v) in ed {
+            event_data_tbl.set(k.clone(), v.clone()).map_err(|e| e.to_string())?;
+        }
+    }
+    ctx.set("eventData", event_data_tbl).map_err(|e| e.to_string())?;
+    let form_values_tbl = state.lua.create_table().map_err(|e| e.to_string())?;
+    if let Some(ref fv) = form_values {
+        for (k, v) in fv {
+            form_values_tbl.set(k.clone(), v.clone()).map_err(|e| e.to_string())?;
+        }
+    }
+    ctx.set("formValues", form_values_tbl).map_err(|e| e.to_string())?;
+    let target_id_val: mlua::Value = event_data
+        .as_ref()
+        .and_then(|ed| ed.get("id"))
+        .and_then(|s| state.lua.create_string(s).ok())
+        .map(mlua::Value::String)
+        .unwrap_or(mlua::Value::Nil);
+    ctx.set("targetId", target_id_val).map_err(|e| e.to_string())?;
+
     // Set form_values for ui.get_value
     *state.form_values.lock().unwrap() = form_values;
 
-    // Set event_row, event_col, event_data for Lua handlers
+    // Set event_row, event_col, event_data for Lua handlers (backward compat)
     if let Some(ref ed) = event_data {
         if let Some(r) = ed.get("row") {
             let _ = state.lua.globals().set("event_row", r.parse::<i32>().unwrap_or(0));
@@ -518,13 +542,13 @@ pub fn run_handler(
     loop {
         match thread.status() {
             ThreadStatus::Resumable => {
-                if let Err(e) = thread.resume::<()>(()) {
+                if let Err(e) = thread.resume::<()>(ctx.clone()) {
                     return Err(e.to_string());
                 }
             }
             ThreadStatus::Finished => break,
             ThreadStatus::Error => {
-                let err = thread.resume::<()>(()).err();
+                let err = thread.resume::<()>(ctx.clone()).err();
                 return Err(err
                     .map(|e| e.to_string())
                     .unwrap_or_else(|| "Lua runtime error".to_string()));

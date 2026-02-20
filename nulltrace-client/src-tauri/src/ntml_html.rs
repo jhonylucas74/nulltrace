@@ -1261,7 +1261,7 @@ fn component_to_html(
                 }
             }
             let onclick = if has_lua_action {
-                " onclick=\"var a=this.getAttribute('data-action');if(a){var ed={};for(var i=0;i<this.attributes.length;i++){var x=this.attributes[i];if(x.name.indexOf('data-')===0)ed[x.name.slice(5)]=x.value}window.parent.postMessage({type:'ntml-action',action:a,eventData:ed},'*')}\""
+                " onclick=\"var a=this.getAttribute('data-action');if(a){var ed={};for(var i=0;i<this.attributes.length;i++){var x=this.attributes[i];if(x.name.indexOf('data-')===0)ed[x.name.slice(5)]=x.value}if(this.id)ed.id=this.id;window.parent.postMessage({type:'ntml-action',action:a,eventData:ed},'*')}\""
                     .to_string()
             } else {
                 String::new()

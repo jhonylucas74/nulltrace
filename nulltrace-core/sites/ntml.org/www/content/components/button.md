@@ -64,6 +64,28 @@ children any components      - Button content (usually Text or Row)
 
 ---
 
+## Passing parameters (data-* attributes)
+
+Use `data-*` attributes to pass values to your handler. The handler receives a context object with `eventData` containing these attributes.
+
+```ntml
+<Button action="deleteItem" data-item-id="42" data-item-name="Old File">
+  <Text text="Delete" class="font-medium" />
+</Button>
+```
+
+```lua
+function deleteItem(ctx)
+  local id = ctx.eventData["item-id"]      -- "42"
+  local name = ctx.eventData["item-name"]  -- "Old File"
+  -- ctx.formValues has form field values
+  -- ctx.targetId is the button's id if set
+  -- ...
+end
+```
+
+---
+
 ## Disable from Lua
 
 Give the button an id and use ui.set_disabled to prevent double-clicks during async operations.
