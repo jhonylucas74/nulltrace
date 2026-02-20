@@ -26,17 +26,17 @@ export interface StorageEntry {
 }
 
 interface DevToolsContextValue {
-  inspectedTabId: string;
-  inspectedUrl: string;
-  ntmlSource: string | null;
-  network: NetworkEntry[];
-  consoleLog: ConsoleEntry[];
-  setInspectedTab: (tabId: string, url: string) => void;
-  pushNetwork: (entry: Omit<NetworkEntry, "id">) => void;
-  pushConsole: (messages: string[], level?: "log" | "error") => void;
+  networkByTab: Record<string, NetworkEntry[]>;
+  consoleByTab: Record<string, ConsoleEntry[]>;
+  ntmlSourceMap: Record<string, string>;
+  urlByTab: Record<string, string>;
+  pushNetwork: (entry: Omit<NetworkEntry, "id">, tabId: string) => void;
+  pushConsole: (messages: string[], tabId: string, level?: "log" | "error") => void;
   setSource: (tabId: string, yaml: string) => void;
-  clearNetwork: () => void;
-  clearConsole: () => void;
+  setTabUrl: (tabId: string, url: string) => void;
+  removeTabData: (tabId: string) => void;
+  clearNetwork: (tabId: string) => void;
+  clearConsole: (tabId: string) => void;
 }
 
 const DevToolsContext = createContext<DevToolsContextValue | null>(null);
@@ -47,24 +47,19 @@ function genId(prefix: string) {
 }
 
 export function DevToolsContextProvider({ children }: { children: React.ReactNode }) {
-  const [inspectedTabId, setInspectedTabId] = useState("");
-  const [inspectedUrl, setInspectedUrl] = useState("");
+  const [networkByTab, setNetworkByTab] = useState<Record<string, NetworkEntry[]>>({});
+  const [consoleByTab, setConsoleByTab] = useState<Record<string, ConsoleEntry[]>>({});
   const [ntmlSourceMap, setNtmlSourceMap] = useState<Record<string, string>>({});
-  const [network, setNetwork] = useState<NetworkEntry[]>([]);
-  const [consoleLog, setConsoleLog] = useState<ConsoleEntry[]>([]);
+  const [urlByTab, setUrlByTabState] = useState<Record<string, string>>({});
 
-  const ntmlSource = ntmlSourceMap[inspectedTabId] ?? null;
-
-  const setInspectedTab = useCallback((tabId: string, url: string) => {
-    setInspectedTabId(tabId);
-    setInspectedUrl(url);
+  const pushNetwork = useCallback((entry: Omit<NetworkEntry, "id">, tabId: string) => {
+    setNetworkByTab((prev) => ({
+      ...prev,
+      [tabId]: [...(prev[tabId] ?? []), { ...entry, id: genId("net") }],
+    }));
   }, []);
 
-  const pushNetwork = useCallback((entry: Omit<NetworkEntry, "id">) => {
-    setNetwork((prev) => [...prev, { ...entry, id: genId("net") }]);
-  }, []);
-
-  const pushConsole = useCallback((messages: string[], level: "log" | "error" = "log") => {
+  const pushConsole = useCallback((messages: string[], tabId: string, level: "log" | "error" = "log") => {
     const ts = Date.now();
     const entries: ConsoleEntry[] = messages.map((message) => ({
       id: genId("con"),
@@ -72,28 +67,47 @@ export function DevToolsContextProvider({ children }: { children: React.ReactNod
       level,
       timestamp: ts,
     }));
-    setConsoleLog((prev) => [...prev, ...entries]);
+    setConsoleByTab((prev) => ({
+      ...prev,
+      [tabId]: [...(prev[tabId] ?? []), ...entries],
+    }));
   }, []);
 
   const setSource = useCallback((tabId: string, yaml: string) => {
     setNtmlSourceMap((prev) => ({ ...prev, [tabId]: yaml }));
   }, []);
 
-  const clearNetwork = useCallback(() => setNetwork([]), []);
-  const clearConsole = useCallback(() => setConsoleLog([]), []);
+  const setTabUrl = useCallback((tabId: string, url: string) => {
+    setUrlByTabState((prev) => ({ ...prev, [tabId]: url }));
+  }, []);
+
+  const removeTabData = useCallback((tabId: string) => {
+    setNetworkByTab((prev) => { const n = { ...prev }; delete n[tabId]; return n; });
+    setConsoleByTab((prev) => { const n = { ...prev }; delete n[tabId]; return n; });
+    setNtmlSourceMap((prev) => { const n = { ...prev }; delete n[tabId]; return n; });
+    setUrlByTabState((prev) => { const n = { ...prev }; delete n[tabId]; return n; });
+  }, []);
+
+  const clearNetwork = useCallback((tabId: string) => {
+    setNetworkByTab((prev) => ({ ...prev, [tabId]: [] }));
+  }, []);
+
+  const clearConsole = useCallback((tabId: string) => {
+    setConsoleByTab((prev) => ({ ...prev, [tabId]: [] }));
+  }, []);
 
   return (
     <DevToolsContext.Provider
       value={{
-        inspectedTabId,
-        inspectedUrl,
-        ntmlSource,
-        network,
-        consoleLog,
-        setInspectedTab,
+        networkByTab,
+        consoleByTab,
+        ntmlSourceMap,
+        urlByTab,
         pushNetwork,
         pushConsole,
         setSource,
+        setTabUrl,
+        removeTabData,
         clearNetwork,
         clearConsole,
       }}

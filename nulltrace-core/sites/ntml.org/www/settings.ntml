@@ -1,5 +1,5 @@
 <head>
-  <title>Settings — NullTrace Demo</title>
+  <title>Settings - NullTrace Demo</title>
 </head>
 <body>
   <Container class="min-h-screen bg-zinc-950 text-zinc-200 font-sans antialiased">
@@ -8,7 +8,7 @@
       <Row gap="3" align="center" justify="spaceBetween" class="max-w-4xl mx-auto">
         <Row gap="2" align="center">
           <Badge text="DEMO" variant="warning" />
-          <Text text="Esta é uma página de exemplo NTML — mostra componentes de formulário em uso real." class="text-xs text-amber-400/80" />
+          <Text text="Esta é uma página de exemplo NTML - mostra componentes de formulário em uso real." class="text-xs text-amber-400/80" />
         </Row>
         <Link href="/examples"><Text text="← Ver exemplos de código" class="text-xs text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
       </Row>
@@ -69,8 +69,12 @@
                     <Text text="Theme" class="text-sm font-medium text-zinc-200" />
                     <Text text="Choose your preferred color theme." class="text-xs text-zinc-500" />
                   </Column>
-                  <Select name="theme" options="Dark,Light,System" value="Dark"
-                          class="p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 w-36" />
+                  <Select name="theme" value="Dark"
+                          class="p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 w-36">
+                    <option label="Dark" value="Dark" />
+                    <option label="Light" value="Light" />
+                    <option label="System" value="System" />
+                  </Select>
                 </Row>
               </Container>
               <!-- Language -->
@@ -80,8 +84,14 @@
                     <Text text="Language" class="text-sm font-medium text-zinc-200" />
                     <Text text="Interface language for the application." class="text-xs text-zinc-500" />
                   </Column>
-                  <Select name="language" options="English,Português,Español,Français,Deutsch" value="English"
-                          class="p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 w-36" />
+                  <Select name="language" value="English"
+                          class="p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 w-36">
+                    <option label="English" value="English" />
+                    <option label="Português" value="Português" />
+                    <option label="Español" value="Español" />
+                    <option label="Français" value="Français" />
+                    <option label="Deutsch" value="Deutsch" />
+                  </Select>
                 </Row>
               </Container>
               <!-- Font size -->

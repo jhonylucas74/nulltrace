@@ -1,5 +1,5 @@
 <head>
-  <title>Input / Checkbox / Radio / Select — NTML Components</title>
+  <title>Input / Checkbox / Radio / Select - NTML Components</title>
 </head>
 <body>
   <Container class="min-h-screen bg-zinc-950 text-zinc-200 flex flex-col font-sans antialiased">
@@ -50,81 +50,7 @@
         </Container>
         <Column gap="10" class="flex-1 min-w-0 max-w-3xl pl-0 md:pl-12">
           <Link href="/components"><Text text="← All components" class="text-sm text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
-          <Column gap="4">
-            <Row gap="3" align="center">
-              <Text text="Interactive" class="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 py-1 bg-zinc-800 rounded" />
-            </Row>
-            <Heading level="1" text="Input · Checkbox · Radio · Select" class="text-3xl md:text-4xl font-bold text-zinc-100 tracking-tight" />
-            <Text text="Form components for collecting user input. Use the name attribute to read values from Lua with ui.get_value(name). Use id with ui.set_disabled to control state." class="text-zinc-400 leading-relaxed text-lg" />
-          </Column>
-          <Column gap="8">
-            <Column gap="4">
-              <Heading level="2" text="Input" class="text-xl font-semibold text-zinc-100" />
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[name         string   (required) — used with ui.get_value(name)
-placeholder  string              — placeholder text
-type         text|password|email|number|search  (default: text)
-value        string              — default value
-id           string              — ui.set_disabled(id, bool)
-class        string              — Tailwind utility classes]]></Code>
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<Input name="username" placeholder="Username"
-       class="w-full p-2.5 rounded-lg bg-zinc-900 border border-zinc-600 text-zinc-200 text-sm" />
-
-<Input name="password" type="password" placeholder="Password"
-       class="w-full p-2.5 rounded-lg bg-zinc-900 border border-zinc-600 text-zinc-200 text-sm" />
-
-<Input name="target_ip" placeholder="192.168.x.x" value="10.0.1.1"
-       class="w-full p-2 rounded bg-zinc-800 border border-zinc-700 text-sm font-mono text-zinc-300" />]]></Code>
-            </Column>
-            <Column gap="4">
-              <Heading level="2" text="Checkbox" class="text-xl font-semibold text-zinc-100" />
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[name     string    — ui.get_value returns "true" or "false"
-label    string    — text shown next to the checkbox
-checked  true|false — initial state
-class    string    — Tailwind utility classes]]></Code>
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<Checkbox name="agree_terms" label="I agree to the terms" />
-<Checkbox name="remember_me" label="Remember me" checked="true" />
-<Checkbox name="notify_email" label="Email notifications" />]]></Code>
-            </Column>
-            <Column gap="4">
-              <Heading level="2" text="Radio" class="text-xl font-semibold text-zinc-100" />
-              <Text text="Group multiple Radio buttons with the same name. ui.get_value returns the value of the selected radio." class="text-zinc-400 text-sm leading-relaxed" />
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[name     string    — group identifier
-value    string    — this option's value
-label    string    — text shown next to the radio
-
-<Column gap="2">
-  <Radio name="role" value="viewer" label="Viewer" />
-  <Radio name="role" value="editor" label="Editor" />
-  <Radio name="role" value="admin" label="Admin" />
-</Column>]]></Code>
-            </Column>
-            <Column gap="4">
-              <Heading level="2" text="Select" class="text-xl font-semibold text-zinc-100" />
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[name     string    — ui.get_value returns selected option text
-options  string    — comma-separated list of options
-value    string    — default selected option
-class    string    — Tailwind utility classes]]></Code>
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<Select name="theme" options="Dark,Light,System"
-        class="w-full p-2.5 rounded-lg bg-zinc-900 border border-zinc-600 text-zinc-200 text-sm" />
-
-<Select name="priority" options="Low,Medium,High,Critical" value="Medium"
-        class="p-2 rounded bg-zinc-800 border border-zinc-700 text-sm text-zinc-300" />]]></Code>
-            </Column>
-            <Column gap="4">
-              <Heading level="2" text="Reading values in Lua" class="text-xl font-semibold text-zinc-100" />
-              <Code language="lua" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[function onSubmit()
-  local username = ui.get_value("username")       -- string
-  local password = ui.get_value("password")       -- string
-  local remember  = ui.get_value("remember_me")   -- "true" or "false"
-  local role      = ui.get_value("role")          -- "viewer"/"editor"/"admin"
-  local theme     = ui.get_value("theme")         -- "Dark"/"Light"/"System"
-
-  if remember == "true" then
-    -- store session...
-  end
-end]]></Code>
-            </Column>
-          </Column>
+          <Markdown src="/content/components/input.md" />
           <Container class="pt-10 mt-2 border-t border-zinc-800">
             <Row justify="spaceBetween">
               <Link href="/components/button">

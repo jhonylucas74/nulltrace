@@ -11,7 +11,7 @@ use std::sync::Arc;
 fn content_type_for_ext(ext: &str) -> &'static str {
     match ext {
         "ntml" => "application/x-ntml",
-        "txt" => "text/plain",
+        "txt" | "md" => "text/plain; charset=utf-8",
         "html" => "text/html",
         _ => "application/octet-stream",
     }

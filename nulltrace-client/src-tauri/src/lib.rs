@@ -63,6 +63,7 @@ fn run_luau(code: String) -> LuauResult {
 fn ntml_to_html(
     yaml: String,
     imports: Option<Vec<NtmlImportPayload>>,
+    markdown_contents: Option<Vec<NtmlMarkdownPayload>>,
     base_url: Option<String>,
 ) -> Result<String, String> {
     let imp = imports.unwrap_or_default();
@@ -73,13 +74,24 @@ fn ntml_to_html(
             content: i.content,
         })
         .collect();
+    let md_map: std::collections::HashMap<String, String> = markdown_contents
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| (m.src, m.content))
+        .collect();
     let base = base_url.as_deref();
-    ntml_html::ntml_to_html_with_imports(&yaml, &ntml_imports, base)
+    ntml_html::ntml_to_html_with_imports_and_patches(&yaml, &ntml_imports, &md_map, &[], base)
 }
 
 #[derive(serde::Deserialize)]
 struct NtmlImportPayload {
     alias: String,
+    content: String,
+}
+
+#[derive(serde::Deserialize)]
+struct NtmlMarkdownPayload {
+    src: String,
     content: String,
 }
 
@@ -90,9 +102,17 @@ fn ntml_create_tab_state(
     script_sources: Vec<ntml_runtime::ScriptSource>,
     component_yaml: String,
     imports: Vec<ntml_runtime::TabImport>,
+    markdown_contents: Option<Vec<NtmlMarkdownPayload>>,
+    user_id: String,
     store: tauri::State<ntml_runtime::TabStateStore>,
     storage: tauri::State<ntml_runtime::BrowserStorageStore>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
+    let md: Vec<(String, String)> = markdown_contents
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| (m.src, m.content))
+        .collect();
     ntml_runtime::create_tab_state(
         &store,
         tab_id,
@@ -100,7 +120,10 @@ fn ntml_create_tab_state(
         script_sources,
         component_yaml,
         imports,
+        md,
         (*storage).clone(),
+        user_id,
+        app,
     )
 }
 
@@ -149,11 +172,16 @@ struct StorageKvEntry {
 
 #[tauri::command]
 fn browser_storage_get_all(
+    user_id: String,
     origin: String,
     store: tauri::State<ntml_runtime::BrowserStorageStore>,
+    app: tauri::AppHandle,
 ) -> Vec<StorageKvEntry> {
+    // Lazy-load from disk if this origin hasn't been accessed this session yet
+    ntml_runtime::ensure_origin_loaded(&app, &user_id, &origin, &store);
+    let key = ntml_runtime::storage_composite_key(&user_id, &origin);
     store
-        .get(&origin)
+        .get(&key)
         .map(|m| {
             m.iter()
                 .map(|(k, v)| StorageKvEntry { key: k.clone(), value: v.clone() })
@@ -164,31 +192,54 @@ fn browser_storage_get_all(
 
 #[tauri::command]
 fn browser_storage_set(
+    user_id: String,
     origin: String,
     key: String,
     value: String,
     store: tauri::State<ntml_runtime::BrowserStorageStore>,
+    app: tauri::AppHandle,
 ) {
-    store.entry(origin).or_default().insert(key, value);
+    let ck = ntml_runtime::storage_composite_key(&user_id, &origin);
+    store.entry(ck).or_default().insert(key, value);
+    ntml_runtime::persist_origin_storage(&app, &user_id, &origin, &store);
 }
 
 #[tauri::command]
 fn browser_storage_delete(
+    user_id: String,
     origin: String,
     key: String,
     store: tauri::State<ntml_runtime::BrowserStorageStore>,
+    app: tauri::AppHandle,
 ) {
-    if let Some(mut m) = store.get_mut(&origin) {
+    let ck = ntml_runtime::storage_composite_key(&user_id, &origin);
+    if let Some(mut m) = store.get_mut(&ck) {
         m.remove(&key);
     }
+    ntml_runtime::persist_origin_storage(&app, &user_id, &origin, &store);
 }
 
 #[tauri::command]
 fn browser_storage_clear(
+    user_id: String,
     origin: String,
     store: tauri::State<ntml_runtime::BrowserStorageStore>,
+    app: tauri::AppHandle,
 ) {
-    store.remove(&origin);
+    let ck = ntml_runtime::storage_composite_key(&user_id, &origin);
+    store.remove(&ck);
+    if let Some(path) = ntml_runtime::storage_file_path(&app, &user_id, &origin) {
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[tauri::command]
+fn ntml_eval_lua(
+    tab_id: String,
+    code: String,
+    store: tauri::State<ntml_runtime::TabStateStore>,
+) -> ntml_runtime::EvalLuaResult {
+    ntml_runtime::eval_lua(&store, &tab_id, &code)
 }
 
 #[tauri::command]
@@ -211,6 +262,7 @@ pub fn run() {
             ntml_run_handler,
             ntml_close_tab,
             ntml_get_head_resources,
+            ntml_eval_lua,
             run_luau,
             browser_storage_get_all,
             browser_storage_set,

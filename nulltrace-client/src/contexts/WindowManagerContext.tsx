@@ -30,6 +30,7 @@ export interface WindowState {
   zIndex: number;
   workspaceId: string;
   gridSlot?: GridSlot;
+  metadata?: Record<string, unknown>;
 }
 
 export interface OpenWindowOptions {
@@ -38,6 +39,7 @@ export interface OpenWindowOptions {
   size?: WindowSize;
   workspaceId?: string;
   gridSlot?: GridSlot;
+  metadata?: Record<string, unknown>;
 }
 
 interface WindowManagerState {
@@ -340,6 +342,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
             zIndex: state.nextZIndex,
             workspaceId,
             gridSlot,
+            metadata: options?.metadata,
           },
         },
       });

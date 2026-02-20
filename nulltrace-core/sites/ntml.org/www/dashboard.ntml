@@ -1,5 +1,5 @@
 <head>
-  <title>Dashboard — NullTrace Demo</title>
+  <title>Dashboard - NullTrace Demo</title>
 </head>
 <body>
   <Container class="min-h-screen bg-zinc-950 text-zinc-200 font-sans antialiased">
@@ -8,7 +8,7 @@
       <Row gap="3" align="center" justify="spaceBetween" class="max-w-6xl mx-auto">
         <Row gap="2" align="center">
           <Badge text="DEMO" variant="warning" />
-          <Text text="Esta é uma página de exemplo NTML — mostra componentes em uso real." class="text-xs text-amber-400/80" />
+          <Text text="Esta é uma página de exemplo NTML - mostra componentes em uso real." class="text-xs text-amber-400/80" />
         </Row>
         <Link href="/examples"><Text text="← Ver exemplos de código" class="text-xs text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
       </Row>
@@ -189,7 +189,7 @@
             <Container class="px-5 py-3 border-b border-zinc-800/50">
               <Row gap="4" align="center">
                 <Icon name="alert-circle" size="14" class="text-red-400 flex-shrink-0" />
-                <Text text="db-replica heartbeat timeout — connection lost" class="text-sm text-zinc-300 flex-1" />
+                <Text text="db-replica heartbeat timeout - connection lost" class="text-sm text-zinc-300 flex-1" />
                 <Text text="5m ago" class="text-xs text-zinc-600 font-mono" />
               </Row>
             </Container>
@@ -210,7 +210,7 @@
             <Container class="px-5 py-3">
               <Row gap="4" align="center">
                 <Icon name="info" size="14" class="text-blue-400 flex-shrink-0" />
-                <Text text="Scheduled maintenance window: Sunday 02:00–04:00 UTC" class="text-sm text-zinc-300 flex-1" />
+                <Text text="Scheduled maintenance window: Sunday 02:00-04:00 UTC" class="text-sm text-zinc-300 flex-1" />
                 <Text text="1d ago" class="text-xs text-zinc-600 font-mono" />
               </Row>
             </Container>

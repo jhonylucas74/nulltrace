@@ -500,7 +500,7 @@ function DesktopContent() {
     ]
   );
 
-  function renderWindowContent(win: { id: string; type: WindowType; title: string }) {
+  function renderWindowContent(win: { id: string; type: WindowType; title: string; metadata?: Record<string, unknown> }) {
     if (win.type === "terminal") {
       return <Terminal username={username ?? "user"} windowId={win.id} />;
     }
@@ -577,7 +577,7 @@ function DesktopContent() {
       return <ProcessSpyApp />;
     }
     if (win.type === "devtools") {
-      return <DevTools />;
+      return <DevTools tabId={(win.metadata?.tabId as string | undefined) ?? ""} />;
     }
     return <PlaceholderContent title={win.title} />;
   }

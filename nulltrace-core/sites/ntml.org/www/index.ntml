@@ -1,5 +1,5 @@
 <head>
-  <title>NTML — Documentation</title>
+  <title>NTML - Documentation</title>
 </head>
 <body>
   <Container class="min-h-screen bg-zinc-950 text-zinc-200 flex flex-col font-sans antialiased">
@@ -45,7 +45,7 @@
             <Column gap="6">
               <Text text="Documentation" class="text-sm font-medium text-amber-400/90 uppercase tracking-widest" />
               <Heading level="1" text="NTML" class="text-4xl md:text-5xl lg:text-6xl font-bold text-zinc-50 tracking-tight leading-tight" />
-              <Text text="A secure, XML-based UI language for NullTrace. Type-safe, designer-friendly, and sandboxed — no script injection or XSS." class="text-lg md:text-xl text-zinc-400 leading-relaxed max-w-2xl" />
+              <Text text="A secure, XML-based UI language for NullTrace. Type-safe, designer-friendly, and sandboxed - no script injection or XSS." class="text-lg md:text-xl text-zinc-400 leading-relaxed max-w-2xl" />
               <Row gap="4" wrap="true" class="pt-2">
                 <Link href="/getting-started"><Container class="rounded-full px-5 py-2.5 bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 text-amber-400 font-medium text-sm transition-colors duration-200"><Text text="Get started" /></Container></Link>
                 <Link href="/components"><Container class="rounded-full px-5 py-2.5 bg-zinc-800/80 border border-zinc-700 hover:border-zinc-600 hover:bg-zinc-700/80 text-zinc-300 font-medium text-sm transition-colors duration-200"><Text text="Components" /></Container></Link>

@@ -1,5 +1,5 @@
 <head>
-  <title>Files — NullTrace Demo</title>
+  <title>Files - NullTrace Demo</title>
 </head>
 <body>
   <Container class="min-h-screen bg-zinc-950 text-zinc-200 font-sans antialiased">
@@ -8,7 +8,7 @@
       <Row gap="3" align="center" justify="spaceBetween" class="max-w-5xl mx-auto">
         <Row gap="2" align="center">
           <Badge text="DEMO" variant="warning" />
-          <Text text="Esta é uma página de exemplo NTML — explorador de arquivos simulado." class="text-xs text-amber-400/80" />
+          <Text text="Esta é uma página de exemplo NTML - explorador de arquivos simulado." class="text-xs text-amber-400/80" />
         </Row>
         <Link href="/examples"><Text text="← Ver exemplos de código" class="text-xs text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
       </Row>
@@ -88,12 +88,17 @@
         <Row gap="3" align="center" justify="spaceBetween">
           <Row gap="2" align="center">
             <Container class="relative">
-              <Input name="filter" placeholder="Filter files..." type="search"
+              <Input name="filter" placeholder="Filter files..." type="text"
                      class="pl-8 pr-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 placeholder-zinc-600 w-48" />
               <Icon name="search" size="12" class="absolute left-2.5 top-2 text-zinc-600" />
             </Container>
-            <Select name="sort" options="Name,Size,Modified,Type" value="Name"
-                    class="py-1.5 px-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-400" />
+            <Select name="sort" value="Name"
+                    class="py-1.5 px-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-400">
+              <option label="Name" value="Name" />
+              <option label="Size" value="Size" />
+              <option label="Modified" value="Modified" />
+              <option label="Type" value="Type" />
+            </Select>
           </Row>
           <Row gap="2">
             <Container class="px-2 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 cursor-pointer">
@@ -124,7 +129,7 @@
                   <Icon name="folder" size="16" class="text-amber-400 flex-shrink-0" />
                   <Text text="assets" class="text-sm font-mono text-zinc-200" />
                 </Row>
-                <Text text="—" class="text-xs text-zinc-700 w-20 text-right" />
+                <Text text="-" class="text-xs text-zinc-700 w-20 text-right" />
                 <Text text="Feb 18, 14:32" class="text-xs text-zinc-600 w-32 hidden md:block" />
                 <Text text="drwxr-xr-x" class="text-xs font-mono text-zinc-600 w-24 hidden lg:block" />
               </Row>
@@ -135,7 +140,7 @@
                   <Icon name="folder" size="16" class="text-amber-400 flex-shrink-0" />
                   <Text text="components" class="text-sm font-mono text-zinc-200" />
                 </Row>
-                <Text text="—" class="text-xs text-zinc-700 w-20 text-right" />
+                <Text text="-" class="text-xs text-zinc-700 w-20 text-right" />
                 <Text text="Feb 18, 14:32" class="text-xs text-zinc-600 w-32 hidden md:block" />
                 <Text text="drwxr-xr-x" class="text-xs font-mono text-zinc-600 w-24 hidden lg:block" />
               </Row>
@@ -202,7 +207,7 @@
 
         <!-- Status bar -->
         <Row gap="4" align="center" class="px-1">
-          <Text text="7 items — 2 directories, 5 files" class="text-xs text-zinc-600" />
+          <Text text="7 items - 2 directories, 5 files" class="text-xs text-zinc-600" />
           <Spacer size="auto" />
           <Text text="156 KB total" class="text-xs text-zinc-600" />
         </Row>

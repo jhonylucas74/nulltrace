@@ -205,7 +205,7 @@ async fn seed_www_dir(
 fn mime_for_path(name: &str) -> &'static str {
     if name.ends_with(".ntml") {
         "application/x-ntml"
-    } else if name.ends_with(".txt") {
+    } else if name.ends_with(".txt") || name.ends_with(".md") {
         "text/plain"
     } else if name.ends_with(".html") {
         "text/html"

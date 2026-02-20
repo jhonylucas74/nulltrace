@@ -1,5 +1,5 @@
 <head>
-  <title>Document format — NTML</title>
+  <title>Document format - NTML</title>
 </head>
 <body>
   <Container class="min-h-screen bg-zinc-950 text-zinc-200 flex flex-col font-sans antialiased">
@@ -40,95 +40,9 @@
             <Link href="/examples"><Text text="Examples" class="text-sm text-zinc-400 hover:text-amber-400 py-1.5 transition-colors duration-200" /></Link>
           </Column>
         </Container>
-        <Column gap="10" class="flex-1 min-w-0 max-w-3xl pl-0 md:pl-12">
+        <Column gap="12" class="flex-1 min-w-0 max-w-3xl pl-0 md:pl-12">
           <Link href="/"><Text text="← Home" class="text-sm text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
-          <Column gap="6">
-            <Heading level="1" text="Document format" class="text-3xl md:text-4xl font-bold text-zinc-100 tracking-tight" />
-            <Text text="NTML supports two formats: classic (single root element) and full (head + body) for metadata, fonts, scripts, and imports." class="text-zinc-400 leading-relaxed text-lg" />
-          </Column>
-          <Column gap="8">
-            <Column gap="4">
-              <Heading level="2" text="Classic format" class="text-xl font-semibold text-zinc-100" />
-              <Text text="One root element at the document root. No head or body. Best for simple pages and reusable component files." class="text-zinc-400 text-sm leading-relaxed" />
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<Container class="p-6 bg-zinc-800 rounded-lg">
-  <Text text="Hello, NullTrace!" class="text-lg text-zinc-100" />
-</Container>]]></Code>
-              <Text text="The renderer treats the single root element as the entire document body." class="text-zinc-500 text-sm" />
-            </Column>
-            <Column gap="4">
-              <Heading level="2" text="Full format (head + body)" class="text-xl font-semibold text-zinc-100" />
-              <Text text="When head is present, body is required. Use the full format when you need metadata, fonts, scripts, or imported components." class="text-zinc-400 text-sm leading-relaxed" />
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<head>
-  <title>My App</title>
-  <description>Dashboard</description>
-  <font family="Roboto Mono" weights="400,700" />
-  <script src="scripts/main.lua" />
-  <import src="components/nav.ntml" as="Nav" />
-</head>
-<body>
-  <Column>
-    <Nav title="My App" />
-    <Text text="Content" />
-  </Column>
-</body>]]></Code>
-            </Column>
-            <Column gap="4">
-              <Heading level="2" text="Head elements" class="text-xl font-semibold text-zinc-100" />
-              <Text text="title (required) — Page title shown in the browser tab. description — Short description of the document. author — Author name or ID. tags — Comma-separated tags for search indexing." class="text-zinc-400 text-sm leading-relaxed" />
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<head>
-  <title>Player Dashboard</title>
-  <description>Real-time player stats and inventory</description>
-  <author>system</author>
-  <tags>dashboard,stats,inventory</tags>
-</head>]]></Code>
-            </Column>
-            <Column gap="4">
-              <Heading level="2" text="Fonts" class="text-xl font-semibold text-zinc-100" />
-              <Text text="Import custom fonts with the font element. Use the family name in Tailwind (font-[family]) or the fontFamily style prop." class="text-zinc-400 text-sm leading-relaxed" />
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<head>
-  <title>Styled App</title>
-  <font family="JetBrains Mono" weights="400,700" />
-  <font family="Inter" weights="300,400,500,600" />
-</head>
-<body>
-  <Text text="Monospace text" class="font-[JetBrains_Mono]" />
-</body>]]></Code>
-            </Column>
-            <Column gap="4">
-              <Heading level="2" text="Scripts" class="text-xl font-semibold text-zinc-100" />
-              <Text text="Link Lua scripts with script elements. Scripts run in a sandboxed environment. Multiple scripts are loaded in order." class="text-zinc-400 text-sm leading-relaxed" />
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<head>
-  <title>Interactive App</title>
-  <script src="scripts/auth.lua" />
-  <script src="scripts/ui.lua" />
-</head>
-<body>
-  <Button action="doLogin" variant="primary">
-    <Text text="Login" />
-  </Button>
-</body>]]></Code>
-              <Text text="Max 5 scripts per document. Each script has a 500-line limit." class="text-zinc-500 text-sm" />
-            </Column>
-            <Column gap="4">
-              <Heading level="2" text="Component imports" class="text-xl font-semibold text-zinc-100" />
-              <Text text="Import reusable NTML component files with import elements. Use the alias as a tag in the body." class="text-zinc-400 text-sm leading-relaxed" />
-              <Code language="ntml" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[<head>
-  <title>Main Menu</title>
-  <import src="components/navbar.ntml" as="Navbar" />
-  <import src="components/footer.ntml" as="Footer" />
-</head>
-<body>
-  <Column class="min-h-screen">
-    <Navbar active="home" />
-    <Container class="flex-1 p-6">
-      <Text text="Welcome" class="text-2xl font-bold text-zinc-100" />
-    </Container>
-    <Footer />
-  </Column>
-</body>]]></Code>
-              <Text text="Component files must use the classic format (single root element) and declare their props at the top." class="text-zinc-500 text-sm" />
-            </Column>
-          </Column>
+          <Markdown src="/content/document-format.md" />
           <Container class="pt-10 mt-2 border-t border-zinc-800">
             <Row justify="spaceBetween">
               <Link href="/getting-started">

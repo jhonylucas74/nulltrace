@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Trash2, X } from "lucide-react";
 import { useDevTools, type NetworkEntry, type StorageEntry } from "../contexts/DevToolsContext";
+import { useAuth } from "../contexts/AuthContext";
 import styles from "./DevTools.module.css";
 
 type DevTab = "sources" | "network" | "storage" | "console";
@@ -38,9 +39,24 @@ function statusClass(status: number | null): string {
   return "";
 }
 
-export default function DevTools() {
+export default function DevTools({ tabId }: { tabId: string }) {
   const [activeTab, setActiveTab] = useState<DevTab>("network");
-  const { inspectedTabId, inspectedUrl, ntmlSource, network, consoleLog, clearNetwork, clearConsole } = useDevTools();
+  const { playerId } = useAuth();
+  const {
+    networkByTab,
+    consoleByTab,
+    ntmlSourceMap,
+    urlByTab,
+    clearNetwork,
+    clearConsole,
+    pushConsole,
+  } = useDevTools();
+
+  const network = networkByTab[tabId] ?? [];
+  const consoleLog = consoleByTab[tabId] ?? [];
+  const ntmlSource = ntmlSourceMap[tabId] ?? null;
+  const inspectedUrl = urlByTab[tabId] ?? "";
+
   const [selectedNetworkEntry, setSelectedNetworkEntry] = useState<NetworkEntry | null>(null);
   const consoleEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -53,12 +69,12 @@ export default function DevTools() {
   const loadStorage = useCallback(async () => {
     if (!origin) { setStorageEntries([]); return; }
     try {
-      const entries = await invoke<StorageEntry[]>("browser_storage_get_all", { origin });
+      const entries = await invoke<StorageEntry[]>("browser_storage_get_all", { origin, userId: playerId ?? "" });
       setStorageEntries(entries);
     } catch {
       setStorageEntries([]);
     }
-  }, [origin]);
+  }, [origin, playerId]);
 
   useEffect(() => {
     if (activeTab === "storage") loadStorage();
@@ -67,7 +83,7 @@ export default function DevTools() {
   // Re-load storage when inspected tab changes
   useEffect(() => {
     if (activeTab === "storage") loadStorage();
-  }, [inspectedTabId]);
+  }, [tabId]);
 
   // Auto-scroll console
   useEffect(() => {
@@ -78,21 +94,21 @@ export default function DevTools() {
 
   const handleDeleteStorage = async (key: string) => {
     try {
-      await invoke("browser_storage_delete", { origin, key });
+      await invoke("browser_storage_delete", { origin, key, userId: playerId ?? "" });
       await loadStorage();
     } catch {}
   };
 
   const handleClearStorage = async () => {
     try {
-      await invoke("browser_storage_clear", { origin });
+      await invoke("browser_storage_clear", { origin, userId: playerId ?? "" });
       await loadStorage();
     } catch {}
   };
 
   const handleEditSave = async (key: string) => {
     try {
-      await invoke("browser_storage_set", { origin, key, value: editingValue });
+      await invoke("browser_storage_set", { origin, key, value: editingValue, userId: playerId ?? "" });
       setEditingKey(null);
       setEditingValue("");
       await loadStorage();
@@ -100,7 +116,7 @@ export default function DevTools() {
   };
 
   const TABS: { id: DevTab; label: string }[] = [
-    { id: "sources", label: "Sources" },
+    { id: "sources", label: "Source" },
     { id: "network", label: "Network" },
     { id: "storage", label: "Storage" },
     { id: "console", label: "Console" },
@@ -128,12 +144,12 @@ export default function DevTools() {
         ))}
         <div className={styles.tabBarSpacer} />
         {(activeTab === "network") && (
-          <button type="button" className={styles.clearBtn} onClick={clearNetwork} title="Clear network log">
+          <button type="button" className={styles.clearBtn} onClick={() => clearNetwork(tabId)} title="Clear network log">
             <Trash2 size={14} />
           </button>
         )}
         {activeTab === "console" && (
-          <button type="button" className={styles.clearBtn} onClick={clearConsole} title="Clear console">
+          <button type="button" className={styles.clearBtn} onClick={() => clearConsole(tabId)} title="Clear console">
             <Trash2 size={14} />
           </button>
         )}
@@ -168,14 +184,19 @@ export default function DevTools() {
           />
         )}
         {activeTab === "console" && (
-          <ConsolePanel entries={consoleLog} endRef={consoleEndRef} />
+          <ConsolePanel
+            entries={consoleLog}
+            endRef={consoleEndRef}
+            tabId={tabId}
+            pushConsole={pushConsole}
+          />
         )}
       </div>
     </div>
   );
 }
 
-// ─── Sources ─────────────────────────────────────────────────────────────────
+// ─── Source ──────────────────────────────────────────────────────────────────
 
 function SourcesPanel({ source }: { source: string | null }) {
   if (!source) {
@@ -185,33 +206,112 @@ function SourcesPanel({ source }: { source: string | null }) {
       </div>
     );
   }
+  const lines = source.split("\n");
+  const lineCount = lines.length;
+  const numWidth = String(lineCount).length;
   return (
     <div className={styles.sourcesWrap}>
-      <pre className={styles.sourceCode}>{highlightNtml(source)}</pre>
+      <pre className={styles.sourceCode}>
+        {lines.map((line, i) => (
+          <span key={i} className={styles.sourceLine}>
+            <span className={styles.sourceLineNum} style={{ minWidth: `${numWidth + 1}ch` }}>
+              {i + 1}
+            </span>
+            <span className={styles.sourceLineBody}>{highlightNtmlLine(line)}</span>
+            {"\n"}
+          </span>
+        ))}
+      </pre>
     </div>
   );
 }
 
-function highlightNtml(yaml: string): React.ReactNode {
-  const lines = yaml.split("\n");
-  return lines.map((line, i) => {
-    const colonIdx = line.indexOf(":");
-    if (colonIdx > 0 && !line.trimStart().startsWith("#")) {
-      const key = line.slice(0, colonIdx + 1);
-      const rest = line.slice(colonIdx + 1);
+/** Classifies a plain YAML value string into a CSS class. */
+function valueClass(raw: string): string | null {
+  const v = raw.trim();
+  if (!v) return null;
+  if (v === "true" || v === "false" || v === "null" || v === "~") return styles.yamlBool;
+  if (v === "|" || v === ">" || v === "|-" || v === ">-" || v === "|+" || v === ">+") return styles.yamlBlock;
+  if (/^-?(?:0x[\da-fA-F]+|\d+\.?\d*(?:[eE][+-]?\d+)?)$/.test(v)) return styles.yamlNumber;
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) return styles.yamlString;
+  if (v.startsWith("*") || v.startsWith("&")) return styles.yamlAnchor;
+  return null;
+}
+
+/** Renders a value string (after the colon or after "- ") with token coloring. */
+function renderValue(raw: string): React.ReactNode {
+  if (!raw) return null;
+  // Split leading space from actual content
+  const match = raw.match(/^(\s*)(.*?)(\s*)$/s);
+  if (!match) return raw;
+  const [, pre, content, post] = match;
+  const cls = valueClass(content);
+  if (cls) return <>{pre}<span className={cls}>{content}</span>{post}</>;
+  return raw;
+}
+
+/** Tokenizes one line of NTML/YAML into highlighted React nodes. */
+function highlightNtmlLine(line: string): React.ReactNode {
+  // Empty line
+  if (!line.trim()) return line;
+
+  const trimmed = line.trimStart();
+  const indentLen = line.length - trimmed.length;
+  const indent = line.slice(0, indentLen);
+
+  // Comment
+  if (trimmed.startsWith("#")) {
+    return <span className={styles.yamlComment}>{line}</span>;
+  }
+
+  // List item: "- " or bare "-"
+  const listMatch = trimmed.match(/^(-\s+)(.*)/);
+  if (listMatch) {
+    const [, dash, rest] = listMatch;
+    // List item may itself be a key: value mapping
+    const innerColon = rest.indexOf(":");
+    if (innerColon > 0) {
+      const key = rest.slice(0, innerColon);
+      const afterColon = rest.slice(innerColon + 1);
       return (
-        <span key={i}>
+        <>
+          {indent}
+          <span className={styles.yamlListMarker}>{dash}</span>
           <span className={styles.yamlKey}>{key}</span>
-          <span className={styles.yamlValue}>{rest}</span>
-          {"\n"}
-        </span>
+          <span className={styles.yamlColon}>:</span>
+          {renderValue(afterColon)}
+        </>
       );
     }
-    if (line.trimStart().startsWith("#")) {
-      return <span key={i} className={styles.yamlComment}>{line}{"\n"}</span>;
-    }
-    return <span key={i}>{line}{"\n"}</span>;
-  });
+    return (
+      <>
+        {indent}
+        <span className={styles.yamlListMarker}>{dash}</span>
+        {renderValue(rest)}
+      </>
+    );
+  }
+
+  // Bare list marker with no value
+  if (trimmed === "-") {
+    return <>{indent}<span className={styles.yamlListMarker}>-</span></>;
+  }
+
+  // Key: value  (colon must be followed by space or end-of-line)
+  const colonMatch = trimmed.match(/^([^:#\s][^:]*?):\s*(.*)/s);
+  if (colonMatch) {
+    const [, key, rest] = colonMatch;
+    return (
+      <>
+        {indent}
+        <span className={styles.yamlKey}>{key}</span>
+        <span className={styles.yamlColon}>:</span>
+        {rest ? <>{" "}{renderValue(rest)}</> : null}
+      </>
+    );
+  }
+
+  return line;
 }
 
 // ─── Network ─────────────────────────────────────────────────────────────────
@@ -377,25 +477,128 @@ function StoragePanel({
 
 // ─── Console ─────────────────────────────────────────────────────────────────
 
-function ConsolePanel({
-  entries,
-  endRef,
-}: {
+import React from "react";
+
+interface ConsolePanelProps {
   entries: import("../contexts/DevToolsContext").ConsoleEntry[];
   endRef: { current: HTMLDivElement | null };
-}) {
-  if (entries.length === 0) {
-    return <div className={styles.emptyState}>No console output yet. Use <code>print()</code> in your Lua scripts.</div>;
-  }
+  tabId: string;
+  pushConsole: (messages: string[], tabId: string, level?: "log" | "error") => void;
+}
+
+function ConsolePanel({ entries, endRef, tabId, pushConsole }: ConsolePanelProps) {
+  const [input, setInput] = useState("");
+  const [cmdHistory, setCmdHistory] = useState<string[]>([]);
+  const [historyIdx, setHistoryIdx] = useState(-1);
+  const [running, setRunning] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const runCode = useCallback(async () => {
+    const code = input.trim();
+    if (!code || running) return;
+
+    // Add to history
+    setCmdHistory((prev) => [code, ...prev].slice(0, 100));
+    setHistoryIdx(-1);
+    setInput("");
+    setRunning(true);
+
+    try {
+      const result = await invoke<{ output: string[]; error: string | null }>("ntml_eval_lua", {
+        tabId,
+        code,
+      });
+
+      if (result.output.length > 0) {
+        pushConsole(result.output, tabId, "log");
+      }
+      if (result.error) {
+        pushConsole([result.error], tabId, "error");
+      }
+    } catch (err) {
+      pushConsole([String(err)], tabId, "error");
+    } finally {
+      setRunning(false);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [input, running, tabId, pushConsole]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        runCode();
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        const nextIdx = Math.min(historyIdx + 1, cmdHistory.length - 1);
+        setHistoryIdx(nextIdx);
+        if (cmdHistory[nextIdx] !== undefined) setInput(cmdHistory[nextIdx]);
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        const nextIdx = historyIdx - 1;
+        if (nextIdx < 0) {
+          setHistoryIdx(-1);
+          setInput("");
+        } else {
+          setHistoryIdx(nextIdx);
+          if (cmdHistory[nextIdx] !== undefined) setInput(cmdHistory[nextIdx]);
+        }
+        return;
+      }
+    },
+    [runCode, historyIdx, cmdHistory]
+  );
+
+  // Auto-resize textarea
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    setHistoryIdx(-1);
+    const el = e.target;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, []);
+
   return (
-    <div className={styles.consoleWrap}>
-      {entries.map((e) => (
-        <div key={e.id} className={`${styles.consoleLine} ${e.level === "error" ? styles.consoleError : ""}`}>
-          <span className={styles.consoleTime}>{formatTime(e.timestamp)}</span>
-          <span className={styles.consoleMsg}>{e.message}</span>
+    <div className={styles.consolePanelWrap}>
+      {/* Log area */}
+      <div className={styles.consoleWrap}>
+        {entries.length === 0 && (
+          <div className={styles.emptyState}>
+            Use <code>print()</code> in Lua scripts or type code below.
+          </div>
+        )}
+        {entries.map((e) => (
+          <div key={e.id} className={`${styles.consoleLine} ${e.level === "error" ? styles.consoleError : ""}`}>
+            <span className={styles.consoleTime}>{formatTime(e.timestamp)}</span>
+            <span className={styles.consoleMsg}>{e.message}</span>
+          </div>
+        ))}
+        <div ref={endRef} />
+      </div>
+
+      {/* REPL input */}
+      <div className={styles.consoleRepl}>
+        <div className={styles.consoleReplPrompt}>
+          <span className={styles.consoleReplArrow}>{running ? "…" : ">"}</span>
+          <textarea
+            ref={inputRef}
+            className={styles.consoleReplInput}
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder="Enter Lua code… (Enter to run, Shift+Enter for newline)"
+            rows={1}
+            spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+          />
         </div>
-      ))}
-      <div ref={endRef} />
+      </div>
     </div>
   );
 }

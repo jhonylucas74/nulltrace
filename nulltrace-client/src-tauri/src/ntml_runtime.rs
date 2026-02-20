@@ -6,6 +6,7 @@ use nulltrace_ntml::parse_document;
 use mlua::{Lua, ThreadStatus, VmState};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use tauri::Manager;
 
 /// Lua heap limit per tab: 1 MB (same as core VM).
 pub const LUA_MEMORY_LIMIT_BYTES: usize = 1024 * 1024;
@@ -48,6 +49,8 @@ pub struct TabLuaState {
     pub component_yaml: String,
     /// Fetched imports for re-rendering with patches.
     pub imports: Vec<TabImport>,
+    /// Fetched external Markdown contents: (src_path, markdown_text).
+    pub markdown_contents: Vec<(String, String)>,
     /// Form values for current handler invocation (set before run_handler, read by ui.get_value).
     pub form_values: Arc<Mutex<Option<std::collections::HashMap<String, String>>>>,
     /// Captured print() output during handler execution.
@@ -86,6 +89,8 @@ fn create_tab_lua(
     print_log: Arc<Mutex<Vec<String>>>,
     storage_store: BrowserStorageStore,
     origin: String,
+    user_id: String,
+    app: tauri::AppHandle,
 ) -> Result<Lua, mlua::Error> {
     let lua = Lua::new();
     let _ = lua.sandbox(true);
@@ -216,27 +221,30 @@ fn create_tab_lua(
     )?;
     lua.globals().set("ui", ui)?;
 
-    // Register storage API
+    // Register storage API (per-user, per-origin; write-through to disk)
     let storage = lua.create_table()?;
+    let composite_key = storage_composite_key(&user_id, &origin);
 
     let ss1 = storage_store.clone();
-    let o1 = origin.clone();
+    let ck1 = composite_key.clone();
+    let app1 = app.clone();
+    let uid1 = user_id.clone();
+    let or1 = origin.clone();
     storage.set(
         "set",
         lua.create_function(move |_, (key, value): (String, String)| {
-            ss1.entry(o1.clone()).or_default().insert(key, value);
+            ss1.entry(ck1.clone()).or_default().insert(key, value);
+            persist_origin_storage(&app1, &uid1, &or1, &ss1);
             Ok(())
         })?,
     )?;
 
     let ss2 = storage_store.clone();
-    let o2 = origin.clone();
+    let ck2 = composite_key.clone();
     storage.set(
         "get",
         lua.create_function(move |lua, key: String| {
-            let val = ss2
-                .get(&o2)
-                .and_then(|m| m.get(&key).cloned());
+            let val = ss2.get(&ck2).and_then(|m| m.get(&key).cloned());
             match val {
                 Some(s) => Ok(mlua::Value::String(lua.create_string(&s)?)),
                 None => Ok(mlua::Value::Nil),
@@ -245,34 +253,45 @@ fn create_tab_lua(
     )?;
 
     let ss3 = storage_store.clone();
-    let o3 = origin.clone();
+    let ck3 = composite_key.clone();
+    let app3 = app.clone();
+    let uid3 = user_id.clone();
+    let or3 = origin.clone();
     storage.set(
         "remove",
         lua.create_function(move |_, key: String| {
-            if let Some(mut m) = ss3.get_mut(&o3) {
+            if let Some(mut m) = ss3.get_mut(&ck3) {
                 m.remove(&key);
             }
+            persist_origin_storage(&app3, &uid3, &or3, &ss3);
             Ok(())
         })?,
     )?;
 
     let ss4 = storage_store.clone();
-    let o4 = origin.clone();
+    let ck4 = composite_key.clone();
+    let app4 = app.clone();
+    let uid4 = user_id.clone();
+    let or4 = origin.clone();
     storage.set(
         "clear",
         lua.create_function(move |_, _: ()| {
-            ss4.remove(&o4);
+            ss4.remove(&ck4);
+            // Remove the file from disk too
+            if let Some(path) = storage_file_path(&app4, &uid4, &or4) {
+                let _ = std::fs::remove_file(&path);
+            }
             Ok(())
         })?,
     )?;
 
     let ss5 = storage_store.clone();
-    let o5 = origin.clone();
+    let ck5 = composite_key.clone();
     storage.set(
         "keys",
         lua.create_function(move |lua, _: ()| {
             let tbl = lua.create_table()?;
-            if let Some(m) = ss5.get(&o5) {
+            if let Some(m) = ss5.get(&ck5) {
                 for (i, key) in m.keys().enumerate() {
                     tbl.set(i + 1, key.clone())?;
                 }
@@ -301,13 +320,20 @@ pub fn create_tab_state(
     script_sources: Vec<ScriptSource>,
     component_yaml: String,
     imports: Vec<TabImport>,
+    markdown_contents: Vec<(String, String)>,
     storage_store: BrowserStorageStore,
+    user_id: String,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let patches = Arc::new(Mutex::new(Vec::new()));
     let accumulated_patches = Arc::new(Mutex::new(Vec::new()));
     let form_values = Arc::new(Mutex::new(None));
     let print_log = Arc::new(Mutex::new(Vec::new()));
     let origin = extract_origin(&base_url);
+
+    // Hydrate memory from disk before the Lua state is created (scripts may read storage immediately)
+    ensure_origin_loaded(&app, &user_id, &origin, &storage_store);
+
     let lua = create_tab_lua(
         patches.clone(),
         base_url.clone(),
@@ -315,6 +341,8 @@ pub fn create_tab_state(
         print_log.clone(),
         storage_store,
         origin,
+        user_id,
+        app,
     )
     .map_err(|e| e.to_string())?;
 
@@ -339,6 +367,7 @@ pub fn create_tab_state(
             base_url,
             component_yaml,
             imports,
+            markdown_contents,
             form_values,
             print_log,
         },
@@ -365,9 +394,13 @@ pub fn render_with_patches(
         })
         .collect();
 
+    let md_map: std::collections::HashMap<String, String> =
+        state.markdown_contents.iter().cloned().collect();
+
     crate::ntml_html::ntml_to_html_with_imports_and_patches(
         &state.component_yaml,
         &ntml_imports,
+        &md_map,
         patches,
         Some(&state.base_url),
     )
@@ -398,9 +431,13 @@ pub fn render_with_accumulated_patches(
         })
         .collect();
 
+    let md_map: std::collections::HashMap<String, String> =
+        state.markdown_contents.iter().cloned().collect();
+
     crate::ntml_html::ntml_to_html_with_imports_and_patches(
         &state.component_yaml,
         &ntml_imports,
+        &md_map,
         &patches,
         Some(&state.base_url),
     )
@@ -521,11 +558,12 @@ pub fn close_tab(store: &TabStateStore, tab_id: &str) {
     store.remove(tab_id);
 }
 
-/// Head resources extracted from NTML for fetching scripts and imports.
+/// Head resources extracted from NTML for fetching scripts, imports, and external markdowns.
 #[derive(serde::Serialize)]
 pub struct NtmlHeadResources {
     pub scripts: Vec<NtmlScriptRef>,
     pub imports: Vec<NtmlImportRef>,
+    pub markdowns: Vec<NtmlMarkdownRef>,
 }
 
 #[derive(serde::Serialize)]
@@ -539,16 +577,85 @@ pub struct NtmlImportRef {
     pub alias: String,
 }
 
-/// Parses NTML YAML and returns head.scripts and head.imports for fetching.
+#[derive(serde::Serialize)]
+pub struct NtmlMarkdownRef {
+    pub src: String,
+}
+
+/// Recursively collects all `Markdown { src: Some(_) }` srcs from a component tree.
+fn collect_markdown_srcs(components: &[nulltrace_ntml::Component]) -> Vec<String> {
+    use nulltrace_ntml::components::*;
+    let mut srcs = Vec::new();
+    for comp in components {
+        match comp {
+            Component::Markdown(m) => {
+                if let Some(src) = &m.src {
+                    srcs.push(src.clone());
+                }
+            }
+            Component::Container(c) => {
+                if let Some(ch) = &c.children { srcs.extend(collect_markdown_srcs(ch)); }
+            }
+            Component::Flex(c) => {
+                if let Some(ch) = &c.children { srcs.extend(collect_markdown_srcs(ch)); }
+            }
+            Component::Grid(c) => {
+                if let Some(ch) = &c.children { srcs.extend(collect_markdown_srcs(ch)); }
+            }
+            Component::Stack(c) => {
+                if let Some(ch) = &c.children { srcs.extend(collect_markdown_srcs(ch)); }
+            }
+            Component::Row(c) => {
+                if let Some(ch) = &c.children { srcs.extend(collect_markdown_srcs(ch)); }
+            }
+            Component::Column(c) => {
+                if let Some(ch) = &c.children { srcs.extend(collect_markdown_srcs(ch)); }
+            }
+            Component::Button(c) => {
+                if let Some(ch) = &c.children { srcs.extend(collect_markdown_srcs(ch)); }
+            }
+            Component::Link(c) => {
+                if let Some(ch) = &c.children { srcs.extend(collect_markdown_srcs(ch)); }
+            }
+            Component::List(c) => {
+                if let Some(ch) = &c.children { srcs.extend(collect_markdown_srcs(ch)); }
+            }
+            Component::ListItem(c) => {
+                if let Some(ch) = &c.children { srcs.extend(collect_markdown_srcs(ch)); }
+            }
+            Component::Blockquote(c) => {
+                if let Some(ch) = &c.children { srcs.extend(collect_markdown_srcs(ch)); }
+            }
+            Component::Details(c) => {
+                if let Some(ch) = &c.children { srcs.extend(collect_markdown_srcs(ch)); }
+            }
+            _ => {}
+        }
+    }
+    srcs
+}
+
+/// Parses NTML YAML and returns head.scripts, head.imports, and body markdown srcs for fetching.
 /// Returns empty lists for classic format (no head).
 pub fn get_head_resources(yaml: &str) -> Result<NtmlHeadResources, String> {
     let doc = parse_document(yaml).map_err(|e| e.to_string())?;
+
+    // Collect markdown srcs from body regardless of format
+    let body_root = doc.root_component();
+    let md_srcs = {
+        let mut v = collect_markdown_srcs(std::slice::from_ref(body_root));
+        v.dedup();
+        v
+    };
+    let markdowns = md_srcs.into_iter().map(|src| NtmlMarkdownRef { src }).collect();
+
     let head = match doc.head() {
         Some(h) => h,
         None => {
             return Ok(NtmlHeadResources {
                 scripts: vec![],
                 imports: vec![],
+                markdowns,
             });
         }
     };
@@ -578,5 +685,127 @@ pub fn get_head_resources(yaml: &str) -> Result<NtmlHeadResources, String> {
         })
         .unwrap_or_default();
 
-    Ok(NtmlHeadResources { scripts, imports })
+    Ok(NtmlHeadResources { scripts, imports, markdowns })
+}
+
+// ── Storage persistence ───────────────────────────────────────────────────────
+
+/// Builds the in-memory DashMap key for a (user_id, origin) pair.
+pub fn storage_composite_key(user_id: &str, origin: &str) -> String {
+    format!("{}:{}", user_id, origin)
+}
+
+/// Turns an origin like "localhost:8080" into a safe filename "localhost_8080".
+fn sanitize_origin_for_filename(origin: &str) -> String {
+    origin.replace(':', "_")
+}
+
+/// Returns the path to the JSON file that stores a (user_id, origin) pair on disk.
+pub fn storage_file_path(app: &tauri::AppHandle, user_id: &str, origin: &str) -> Option<std::path::PathBuf> {
+    let base = app.path().app_data_dir().ok()?;
+    let sanitized = sanitize_origin_for_filename(origin);
+    Some(base.join("browser_storage").join(user_id).join(format!("{}.json", sanitized)))
+}
+
+/// Writes the current in-memory data for a (user_id, origin) pair to disk.
+pub fn persist_origin_storage(app: &tauri::AppHandle, user_id: &str, origin: &str, store: &BrowserStorageStore) {
+    let key = storage_composite_key(user_id, origin);
+    let data: std::collections::HashMap<String, String> = store
+        .get(&key)
+        .map(|m| m.clone())
+        .unwrap_or_default();
+    if let Some(path) = storage_file_path(app, user_id, origin) {
+        if let Ok(json) = serde_json::to_string(&data) {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&path, json);
+        }
+    }
+}
+
+/// Loads a (user_id, origin) pair from disk into memory if not already present.
+/// No-op if the key is already in memory or if there is no file on disk.
+pub fn ensure_origin_loaded(app: &tauri::AppHandle, user_id: &str, origin: &str, store: &BrowserStorageStore) {
+    let key = storage_composite_key(user_id, origin);
+    if store.contains_key(&key) {
+        return; // already hydrated
+    }
+    let Some(path) = storage_file_path(app, user_id, origin) else { return; };
+    if let Ok(contents) = std::fs::read_to_string(&path) {
+        if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, String>>(&contents) {
+            store.insert(key, map);
+        }
+    }
+}
+
+// ── Console REPL ──────────────────────────────────────────────────────────────
+
+/// Result of evaluating arbitrary Lua code in a tab's context.
+#[derive(serde::Serialize)]
+pub struct EvalLuaResult {
+    pub output: Vec<String>,
+    pub error: Option<String>,
+}
+
+/// Strips `local` from variable/function declarations at the start of each line.
+///
+/// In Lua, `local` variables are scoped to the chunk. Since each REPL eval is a
+/// new chunk, locals die immediately. By promoting them to globals (which live in
+/// the tab's sandboxed Lua state), variables defined in one REPL input persist
+/// to the next — matching the interactive console experience users expect.
+///
+/// Only strips `local ` at the logical start of a line (after whitespace), so
+/// `local` inside strings or comments that don't start the line are unaffected.
+fn strip_repl_locals(code: &str) -> String {
+    if !code.contains("local ") {
+        return code.to_string();
+    }
+    code.lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("local ") {
+                let indent_len = line.len() - trimmed.len();
+                format!("{}{}", &line[..indent_len], &trimmed["local ".len()..])
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Evaluates arbitrary Lua code in an existing tab's Lua state.
+/// Captures print() output. Returns output lines and optional error message.
+/// If the tab has no Lua state (built-in page), returns an error.
+///
+/// `local` declarations are automatically promoted to tab-global scope so that
+/// variables defined in one REPL input are accessible in subsequent inputs.
+pub fn eval_lua(store: &TabStateStore, tab_id: &str, code: &str) -> EvalLuaResult {
+    let state = match store.get_mut(tab_id) {
+        Some(s) => s,
+        None => {
+            return EvalLuaResult {
+                output: vec![],
+                error: Some("No Lua context for this tab (built-in page)".into()),
+            }
+        }
+    };
+
+    // Promote `local` declarations to globals so they persist across REPL inputs.
+    let processed = strip_repl_locals(code);
+
+    // Clear print log before execution
+    state.print_log.lock().unwrap().clear();
+
+    // Execute the processed code in the tab's Lua state
+    let result = state.lua.load(&processed).exec();
+
+    // Collect print() output
+    let output = std::mem::take(&mut *state.print_log.lock().unwrap());
+
+    EvalLuaResult {
+        output,
+        error: result.err().map(|e| e.to_string()),
+    }
 }

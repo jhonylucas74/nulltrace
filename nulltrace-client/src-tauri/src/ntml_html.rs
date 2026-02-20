@@ -2,7 +2,26 @@
 //! No script, no inline event handlers; only structure and styles.
 
 /// Base document styles (html, body). The Rust Tailwind engine generates only utility classes.
-const NTML_BASE_STYLES: &str = "html,body{margin:0;min-height:100vh;background:#09090b;color:#e4e4e7;}";
+const NTML_BASE_STYLES: &str = "html,body{margin:0;min-height:100vh;background:#09090b;color:#e4e4e7;}\
+.ntml-markdown{line-height:1.7;color:#d4d4d8;}\
+.ntml-markdown h1,.ntml-markdown h2,.ntml-markdown h3,.ntml-markdown h4{color:#f4f4f5;font-weight:700;margin:1.5em 0 0.5em;line-height:1.25;}\
+.ntml-markdown h1{font-size:2rem;}\
+.ntml-markdown h2{font-size:1.5rem;border-bottom:1px solid #3f3f46;padding-bottom:0.3em;}\
+.ntml-markdown h3{font-size:1.2rem;}\
+.ntml-markdown p{margin:0.75em 0;}\
+.ntml-markdown a{color:#f59e0b;text-decoration:underline;}\
+.ntml-markdown code{font-family:monospace;font-size:0.875em;background:#27272a;color:#fbbf24;padding:0.15em 0.4em;border-radius:4px;}\
+.ntml-markdown pre{background:#18181b;border:1px solid #3f3f46;border-radius:8px;padding:1rem 1.25rem;overflow-x:auto;margin:1em 0;}\
+.ntml-markdown pre code{background:none;color:#d4d4d8;padding:0;font-size:0.82rem;}\
+.ntml-markdown ul,.ntml-markdown ol{padding-left:1.5em;margin:0.75em 0;}\
+.ntml-markdown li{margin:0.35em 0;}\
+.ntml-markdown blockquote{border-left:3px solid #f59e0b;margin:1em 0;padding:0.5em 1em;background:#27272a;color:#a1a1aa;border-radius:0 4px 4px 0;}\
+.ntml-markdown table{border-collapse:collapse;width:100%;margin:1em 0;}\
+.ntml-markdown th,.ntml-markdown td{border:1px solid #3f3f46;padding:0.5em 0.75em;text-align:left;}\
+.ntml-markdown th{background:#27272a;font-weight:600;color:#f4f4f5;}\
+.ntml-markdown hr{border:none;border-top:1px solid #3f3f46;margin:2em 0;}\
+.ntml-markdown strong{color:#f4f4f5;font-weight:700;}\
+.ntml-markdown em{font-style:italic;color:#a1a1aa;}";
 
 use nulltrace_ntml::components::*;
 use nulltrace_ntml::tailwind;
@@ -13,6 +32,7 @@ use nulltrace_ntml::style::{
 use nulltrace_ntml::{parse_component_file, parse_document, Component, ComponentFile, Style};
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::sync::OnceLock;
 
 /// Override for a component by id. Only fields that are set are applied.
 #[derive(Default, Clone)]
@@ -86,13 +106,15 @@ pub fn ntml_to_html_with_imports(
     imports: &[NtmlImport],
     base_url: Option<&str>,
 ) -> Result<String, String> {
-    ntml_to_html_with_imports_and_patches(yaml, imports, &[], base_url)
+    ntml_to_html_with_imports_and_patches(yaml, imports, &HashMap::new(), &[], base_url)
 }
 
 /// Converts NTML to safe HTML with imports and patches applied.
+/// `markdowns` maps external src paths (e.g. `/content/welcome.md`) to their fetched content.
 pub fn ntml_to_html_with_imports_and_patches(
     yaml: &str,
     imports: &[NtmlImport],
+    markdowns: &HashMap<String, String>,
     patches: &[crate::ntml_runtime::Patch],
     base_url: Option<&str>,
 ) -> Result<String, String> {
@@ -100,6 +122,15 @@ pub fn ntml_to_html_with_imports_and_patches(
 
     let title = doc.head().map(|h| h.title.as_str()).unwrap_or("Page");
     let root = doc.root_component();
+
+    // Pre-process: resolve external Markdown src references into inline content
+    let resolved_root;
+    let render_root = if markdowns.is_empty() {
+        root
+    } else {
+        resolved_root = resolve_markdown_srcs(root, markdowns);
+        &resolved_root
+    };
 
     let import_map: HashMap<String, ComponentFile> = imports
         .iter()
@@ -114,14 +145,15 @@ pub fn ntml_to_html_with_imports_and_patches(
 
     // Build body HTML first so we can extract classes and generate CSS
     let mut body_html = String::new();
-    component_to_html_with_imports(root, &mut body_html, &import_map, &patch_map, base_url)
+    component_to_html_with_imports(render_root, &mut body_html, &import_map, &patch_map, base_url)
         .map_err(|e| e.to_string())?;
 
     let generated_css = tailwind::generate_css(&body_html);
+    let syntect_css = syntect_highlight_css();
     let css = if generated_css.is_empty() {
-        NTML_BASE_STYLES.to_string()
+        format!("{}{}", NTML_BASE_STYLES, syntect_css)
     } else {
-        format!("{}{}", NTML_BASE_STYLES, generated_css)
+        format!("{}{}{}", NTML_BASE_STYLES, generated_css, syntect_css)
     };
 
     let mut html = String::new();
@@ -364,6 +396,101 @@ fn substitute_props_in_component(
     }
 }
 
+/// Pre-processes the component tree: replaces `Markdown { src }` nodes with
+/// `Markdown { content }` using the fetched markdown contents map.
+fn resolve_markdown_srcs(
+    c: &Component,
+    markdowns: &HashMap<String, String>,
+) -> Component {
+    match c {
+        Component::Markdown(m) => {
+            if let Some(src) = &m.src {
+                let content = markdowns.get(src.as_str()).cloned().unwrap_or_default();
+                Component::Markdown(Markdown {
+                    content: Some(content),
+                    src: None,
+                    ..m.clone()
+                })
+            } else {
+                c.clone()
+            }
+        }
+        Component::Container(ct) => Component::Container(Container {
+            children: ct.children.as_ref().map(|ch| {
+                ch.iter().map(|c| resolve_markdown_srcs(c, markdowns)).collect()
+            }),
+            ..ct.clone()
+        }),
+        Component::Flex(f) => Component::Flex(Flex {
+            children: f.children.as_ref().map(|ch| {
+                ch.iter().map(|c| resolve_markdown_srcs(c, markdowns)).collect()
+            }),
+            ..f.clone()
+        }),
+        Component::Grid(g) => Component::Grid(Grid {
+            children: g.children.as_ref().map(|ch| {
+                ch.iter().map(|c| resolve_markdown_srcs(c, markdowns)).collect()
+            }),
+            ..g.clone()
+        }),
+        Component::Stack(s) => Component::Stack(Stack {
+            children: s.children.as_ref().map(|ch| {
+                ch.iter().map(|c| resolve_markdown_srcs(c, markdowns)).collect()
+            }),
+            ..s.clone()
+        }),
+        Component::Row(r) => Component::Row(Row {
+            children: r.children.as_ref().map(|ch| {
+                ch.iter().map(|c| resolve_markdown_srcs(c, markdowns)).collect()
+            }),
+            ..r.clone()
+        }),
+        Component::Column(col) => Component::Column(Column {
+            children: col.children.as_ref().map(|ch| {
+                ch.iter().map(|c| resolve_markdown_srcs(c, markdowns)).collect()
+            }),
+            ..col.clone()
+        }),
+        Component::Button(b) => Component::Button(Button {
+            children: b.children.as_ref().map(|ch| {
+                ch.iter().map(|c| resolve_markdown_srcs(c, markdowns)).collect()
+            }),
+            ..b.clone()
+        }),
+        Component::Link(lnk) => Component::Link(Link {
+            children: lnk.children.as_ref().map(|ch| {
+                ch.iter().map(|c| resolve_markdown_srcs(c, markdowns)).collect()
+            }),
+            ..lnk.clone()
+        }),
+        Component::List(l) => Component::List(List {
+            children: l.children.as_ref().map(|ch| {
+                ch.iter().map(|c| resolve_markdown_srcs(c, markdowns)).collect()
+            }),
+            ..l.clone()
+        }),
+        Component::ListItem(li) => Component::ListItem(ListItem {
+            children: li.children.as_ref().map(|ch| {
+                ch.iter().map(|c| resolve_markdown_srcs(c, markdowns)).collect()
+            }),
+            ..li.clone()
+        }),
+        Component::Blockquote(bq) => Component::Blockquote(Blockquote {
+            children: bq.children.as_ref().map(|ch| {
+                ch.iter().map(|c| resolve_markdown_srcs(c, markdowns)).collect()
+            }),
+            ..bq.clone()
+        }),
+        Component::Details(d) => Component::Details(Details {
+            children: d.children.as_ref().map(|ch| {
+                ch.iter().map(|c| resolve_markdown_srcs(c, markdowns)).collect()
+            }),
+            ..d.clone()
+        }),
+        _ => c.clone(),
+    }
+}
+
 fn component_to_html_with_imports(
     c: &Component,
     out: &mut String,
@@ -398,6 +525,7 @@ const MARKDOWN_ALLOWED_TAGS: &[&str] = &[
 ];
 
 /// Render markdown to sanitized HTML (safe tags only, no script URLs).
+/// Code blocks (```ntml, ```lua, etc.) are syntax-highlighted via syntect.
 fn markdown_to_sanitized_html(md: &str) -> String {
     use pulldown_cmark::{Options, Parser};
     let mut opts = Options::empty();
@@ -406,9 +534,130 @@ fn markdown_to_sanitized_html(md: &str) -> String {
     let parser = Parser::new_ext(md, opts);
     let mut html = String::new();
     pulldown_cmark::html::push_html(&mut html, parser);
-    // Remove script URLs from href and strip disallowed tags
+    // Remove script URLs from href
     let html = html.replace("javascript:", "");
+    // Apply syntax highlighting to code blocks
+    let html = replace_code_blocks_with_highlighted(&html);
     sanitize_html_fragment(&html)
+}
+
+/// Unescape HTML entities in code block content (reverse of escape_html).
+fn unescape_html_content(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+}
+
+/// Map markdown language token to syntect syntax token.
+fn syntect_lang_for(lang: &str) -> &str {
+    match lang.to_lowercase().as_str() {
+        "ntml" => "xml", // NTML is XML-based
+        "lua" | "luau" => "lua",
+        "css" => "css",
+        "yaml" | "yml" => "yaml",
+        "json" => "json",
+        "html" => "html",
+        _ => lang,
+    }
+}
+
+/// Class style for syntect (prefix avoids CSS conflicts).
+fn syntect_class_style() -> syntect::html::ClassStyle {
+    syntect::html::ClassStyle::SpacedPrefixed { prefix: "hl-" }
+}
+
+static SYNTRACT_CSS: OnceLock<String> = OnceLock::new();
+
+/// Get syntect theme CSS for code block highlighting (cached).
+fn syntect_highlight_css() -> &'static str {
+    SYNTRACT_CSS.get_or_init(|| {
+        use syntect::highlighting::ThemeSet;
+        use syntect::html::css_for_theme_with_class_style;
+
+        let ts = ThemeSet::load_defaults();
+        let theme = ts
+            .themes
+            .get("base16-ocean.dark")
+            .or_else(|| ts.themes.get("InspiredGitHub"))
+            .or_else(|| ts.themes.values().next())
+            .expect("at least one theme");
+        css_for_theme_with_class_style(theme, syntect_class_style()).unwrap_or_default()
+    })
+}
+
+/// Syntax-highlight a code block using syntect. Returns HTML with span elements.
+fn highlight_code_block(lang: &str, source: &str) -> String {
+    use syntect::html::ClassedHTMLGenerator;
+    use syntect::parsing::SyntaxSet;
+    use syntect::util::LinesWithEndings;
+
+    let ss = SyntaxSet::load_defaults_newlines();
+    let syntect_lang = syntect_lang_for(lang);
+    let syntax = ss
+        .find_syntax_by_token(syntect_lang)
+        .unwrap_or_else(|| ss.find_syntax_plain_text());
+
+    let mut html_gen =
+        ClassedHTMLGenerator::new_with_class_style(syntax, &ss, syntect_class_style());
+    for line in LinesWithEndings::from(source) {
+        if html_gen.parse_html_for_line_which_includes_newline(line).is_err() {
+            return escape_html(source);
+        }
+    }
+    html_gen.finalize()
+}
+
+/// Find and replace <pre><code class="language-xxx">...</code></pre> blocks with highlighted HTML.
+fn replace_code_blocks_with_highlighted(html: &str) -> String {
+    const OPEN: &str = "<pre><code class=\"language-";
+    const OPEN_END: &str = "\">";
+    const CLOSE: &str = "</code></pre>";
+
+    let mut result = String::with_capacity(html.len());
+    let mut i = 0;
+    let bytes = html.as_bytes();
+
+    while i < bytes.len() {
+        if let Some(start) = find_substring(bytes, i, OPEN.as_bytes()) {
+            let lang_start = start + OPEN.len();
+            let lang_end = match bytes[lang_start..].iter().position(|&b| b == b'"') {
+                Some(p) => lang_start + p,
+                None => {
+                    i = start + 1;
+                    continue;
+                }
+            };
+            let lang = std::str::from_utf8(&bytes[lang_start..lang_end]).unwrap_or("");
+            let content_start = lang_end + OPEN_END.len();
+            if let Some(content_end) = find_substring(bytes, content_start, CLOSE.as_bytes()) {
+                let content = std::str::from_utf8(&bytes[content_start..content_end]).unwrap_or("");
+                let raw = unescape_html_content(content);
+                let highlighted = highlight_code_block(lang, &raw);
+                result.push_str(std::str::from_utf8(&bytes[i..start]).unwrap_or(""));
+                result.push_str(OPEN);
+                result.push_str(lang);
+                result.push_str(OPEN_END);
+                result.push_str(&highlighted);
+                result.push_str(CLOSE);
+                i = content_end + CLOSE.len();
+                continue;
+            }
+        }
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+    result
+}
+
+fn find_substring(haystack: &[u8], start: usize, needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || start + needle.len() > haystack.len() {
+        return None;
+    }
+    haystack[start..]
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .map(|p| start + p)
 }
 
 /// Keep only allowed tags; escape others so they display as text.
@@ -1575,7 +1824,7 @@ fn component_to_html(
                 .unwrap_or_default();
             let cls = compute_class(m.id.as_deref(), m.style.as_ref(), patches);
             let attrs = build_attrs(m.id.as_deref(), cls.as_deref());
-            let inner = markdown_to_sanitized_html(&m.content);
+            let inner = markdown_to_sanitized_html(m.content.as_deref().unwrap_or(""));
             write!(out, "<div{} class=\"ntml-markdown\" style=\"{}\">{}</div>", attrs, style_css, inner)?;
         }
         Component::List(list) => {

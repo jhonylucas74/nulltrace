@@ -49,10 +49,10 @@ function generateTabId() {
 }
 
 export default function Browser() {
-  const { token } = useAuth();
+  const { token, playerId } = useAuth();
   const tauri = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
-  const { open: openWindow } = useWindowManager();
-  const { setInspectedTab, pushNetwork, pushConsole, setSource } = useDevTools();
+  const { open: openWindow, windows, setFocus, getWindowIdsByType } = useWindowManager();
+  const { pushNetwork, pushConsole, setSource, setTabUrl, removeTabData } = useDevTools();
 
   const [tabs, setTabs] = useState<BrowserTab[]>(() => {
     const isVm = isVmUrl(DEFAULT_BROWSER_URL);
@@ -86,22 +86,35 @@ export default function Browser() {
     if (activeTab) setAddressBarValue(activeTab.url);
   }, [activeTab?.id, activeTab?.url]);
 
-  // Sync DevTools with the active browser tab.
+  // Sync DevTools URL map when active tab changes.
   useEffect(() => {
-    if (activeTab) setInspectedTab(activeTab.id, activeTab.url);
-  }, [activeTab?.id, activeTab?.url, setInspectedTab]);
+    if (activeTab) setTabUrl(activeTab.id, activeTab.url);
+  }, [activeTab?.id, activeTab?.url, setTabUrl]);
 
-  // F12 → open DevTools window.
+  // F12 → open DevTools for current tab (or focus existing one).
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "F12") {
         e.preventDefault();
-        openWindow("devtools");
+        if (!activeTabId) return;
+        const devtoolsIds = getWindowIdsByType("devtools");
+        const existing = devtoolsIds.find((wid) => {
+          const w = windows.find((win) => win.id === wid);
+          return w?.metadata?.tabId === activeTabId;
+        });
+        if (existing) {
+          setFocus(existing);
+        } else {
+          openWindow("devtools", {
+            title: `DevTools — ${activeTab?.title || activeTabId}`,
+            metadata: { tabId: activeTabId, url: activeTab?.url ?? "" },
+          });
+        }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [openWindow]);
+  }, [openWindow, activeTabId, activeTab?.title, activeTab?.url, windows, getWindowIdsByType, setFocus]);
 
   // Resolve [data-lucide] placeholders in NTML-rendered iframe to Lucide SVG icons.
   useEffect(() => {
@@ -160,7 +173,7 @@ export default function Browser() {
         const parsed = parseHttpResponse(res.stdout);
         console.log("[Browser VM fetch]", { url: curlUrl, exitCode: res.exit_code, parsed });
 
-        // Track in DevTools network log
+        // Track in DevTools network log (per-tab)
         pushNetwork({
           origin: "browser",
           url: curlUrl,
@@ -171,7 +184,7 @@ export default function Browser() {
           size: parsed ? parsed.body.length : null,
           response: parsed ? parsed.body.slice(0, 8000) : null,
           timestamp: reqStart,
-        });
+        }, tabId);
 
         if (!parsed) {
           setTabs((prev) =>
@@ -228,6 +241,7 @@ export default function Browser() {
             const resources = await invoke<{
               scripts: { src: string }[];
               imports: { src: string; alias: string }[];
+              markdowns: { src: string }[];
             }>("ntml_get_head_resources", { yaml: parsed.body });
 
             const baseUrl = url;
@@ -268,17 +282,39 @@ export default function Browser() {
 
             const baseUrlForImages =
               url.startsWith("http") ? new URL(url).origin : `http://${getBaseHost(baseUrl)}`;
+
+            // Fetch external Markdown files referenced by Markdown { src: "..." } components
+            const markdownContents: { src: string; content: string }[] = [];
+            for (const md of resources.markdowns ?? []) {
+              const mdUrl = resolveScriptUrl(baseUrl, md.src);
+              try {
+                const mdRes = await invoke<{ stdout: string; exit_code: number }>(
+                  "grpc_run_process",
+                  { binName: "curl", args: [mdUrl], token }
+                );
+                const mdParsed = parseHttpResponse(mdRes.stdout);
+                if (mdParsed && mdParsed.status === 200) {
+                  markdownContents.push({ src: md.src, content: mdParsed.body });
+                }
+              } catch {
+                // Skip failed markdown fetch
+              }
+            }
+
             await invoke("ntml_create_tab_state", {
               tabId,
               baseUrl: baseUrlForImages,
               scriptSources,
               componentYaml: parsed.body,
               imports: importContents,
+              markdownContents: markdownContents.length > 0 ? markdownContents : undefined,
+              userId: playerId ?? "",
             });
 
             const html = await invoke<string>("ntml_to_html", {
               yaml: parsed.body,
               imports: importContents,
+              markdownContents: markdownContents.length > 0 ? markdownContents : undefined,
               baseUrl: baseUrlForImages,
             });
             setTabs((prev) =>
@@ -433,7 +469,7 @@ export default function Browser() {
         })
           .then((res) => {
             if (res.print_output && res.print_output.length > 0) {
-              pushConsole(res.print_output);
+              pushConsole(res.print_output, activeTabId);
             }
             setTabs((prev) =>
               prev.map((t) =>
@@ -530,6 +566,7 @@ export default function Browser() {
 
   const closeTab = useCallback((tabId: string) => {
     invoke("ntml_close_tab", { tabId }).catch(() => {});
+    removeTabData(tabId);
     setTabs((prev) => {
       const idx = prev.findIndex((t) => t.id === tabId);
       if (idx < 0) return prev;
@@ -553,7 +590,7 @@ export default function Browser() {
       }
       return next;
     });
-  }, [activeTabId]);
+  }, [activeTabId, removeTabData]);
 
   const canBack = historyIndex > 0;
   const canForward = historyIndex < history.length - 1;

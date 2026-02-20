@@ -1,5 +1,5 @@
 <head>
-  <title>HTTP — NTML</title>
+  <title>HTTP - NTML</title>
 </head>
 <body>
   <Container class="min-h-screen bg-zinc-950 text-zinc-200 flex flex-col font-sans antialiased">
@@ -42,72 +42,7 @@
         </Container>
         <Column gap="10" class="flex-1 min-w-0 max-w-3xl pl-0 md:pl-12">
           <Link href="/"><Text text="← Home" class="text-sm text-amber-400 hover:text-amber-300 transition-colors duration-200" /></Link>
-          <Column gap="6">
-            <Heading level="1" text="HTTP protocol (Lua)" class="text-3xl md:text-4xl font-bold text-zinc-100 tracking-tight" />
-            <Text text="The http table builds and parses raw HTTP/1.1 messages. Use with net.send/recv for building in-VM servers and clients. This is the low-level API — for UI scripts, use http.get/post in the Lua API instead." class="text-zinc-400 leading-relaxed text-lg" />
-          </Column>
-          <Column gap="8">
-            <Column gap="4">
-              <Heading level="2" text="Functions" class="text-xl font-semibold text-zinc-100" />
-              <Code language="lua" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[-- Build raw HTTP request string
-http.build_request(method, path, body?)
--- Returns: string
-
--- Parse raw HTTP request string
-http.parse_request(data)
--- Returns: { method, path, headers, body }
-
--- Build raw HTTP response string
-http.build_response(status, body?)
--- Returns: string
-
--- Parse raw HTTP response string
-http.parse_response(data)
--- Returns: { status, reason, headers, body }]]></Code>
-            </Column>
-            <Column gap="4">
-              <Heading level="2" text="Server pattern" class="text-xl font-semibold text-zinc-100" />
-              <Text text="Listen on a port, receive packets, parse requests, and send responses. Runs inside a VM bootstrap script." class="text-zinc-400 text-sm leading-relaxed" />
-              <Code language="lua" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[net.listen(80)
-while true do
-  local pkt = net.recv()
-  if pkt and pkt.dst_port == 80 then
-    local req = http.parse_request(pkt.data)
-    local body = "Hello from " .. req.path
-    local res = http.build_response(200, body)
-    net.send(pkt.src_ip, pkt.src_port, res)
-  end
-end]]></Code>
-            </Column>
-            <Column gap="4">
-              <Heading level="2" text="Client pattern" class="text-xl font-semibold text-zinc-100" />
-              <Code language="lua" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[local host = "10.0.1.50"
-local conn = net.connect(host, 80)
-conn:send(http.build_request("GET", "/api/status", nil))
-while true do
-  local r = conn:recv()
-  if r then
-    local res = http.parse_response(r.data)
-    print(res.status, res.body)
-    break
-  end
-end
-conn:close()]]></Code>
-              <Text text="localhost and 127.x.x.x resolve to loopback (same VM). Use net.connect for cross-VM calls." class="text-zinc-500 text-sm" />
-            </Column>
-            <Column gap="4">
-              <Heading level="2" text="JSON handling" class="text-xl font-semibold text-zinc-100" />
-              <Text text="Use json.encode and json.decode to work with JSON bodies. The json module is available in all Lua scripts." class="text-zinc-400 text-sm leading-relaxed" />
-              <Code language="lua" block="true" class="bg-zinc-800/90 border border-zinc-700 rounded-xl p-6 text-sm text-zinc-300 overflow-x-auto shadow-lg font-mono"><![CDATA[-- Server: return JSON response
-local data = json.encode({ ok = true, user = "jhony" })
-local res = http.build_response(200, data)
-
--- Client: parse JSON body
-local res = http.parse_response(raw)
-local obj = json.decode(res.body)
-print(obj.user)]]></Code>
-            </Column>
-          </Column>
+          <Markdown src="/content/http.md" />
           <Container class="pt-10 mt-2 border-t border-zinc-800">
             <Row justify="spaceBetween">
               <Link href="/lua-api">

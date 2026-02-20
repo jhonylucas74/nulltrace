@@ -1344,26 +1344,38 @@ fn parse_code_node(node: Node) -> NtmlResult<Code> {
 }
 
 fn parse_markdown_node(node: Node) -> NtmlResult<Markdown> {
-    let content = node
-        .attribute("content")
-        .map(|s| s.to_string())
-        .or_else(|| {
-            let c = node_text_content(node);
-            let trimmed = c.trim_matches('\n');
-            if !trimmed.is_empty() {
-                Some(trimmed.to_string())
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| NtmlError::MissingProperty {
-            component: "Markdown".to_string(),
-            property: "content".to_string(),
-        })?;
+    let src = node.attribute("src").map(|s| s.to_string());
+
+    let content = if src.is_some() {
+        // When src is provided, content is not required
+        node.attribute("content").map(|s| s.to_string())
+    } else {
+        // No src: require inline content (attribute or text body)
+        let inline = node
+            .attribute("content")
+            .map(|s| s.to_string())
+            .or_else(|| {
+                let c = node_text_content(node);
+                let trimmed = c.trim_matches('\n');
+                if !trimmed.is_empty() {
+                    Some(trimmed.to_string())
+                } else {
+                    None
+                }
+            });
+        if inline.is_none() {
+            return Err(NtmlError::MissingProperty {
+                component: "Markdown".to_string(),
+                property: "content".to_string(),
+            });
+        }
+        inline
+    };
 
     Ok(Markdown {
         id: get_id(node),
         content,
+        src,
         style: parse_style_from_node(node)?,
         data: parse_data_attributes(node)?,
     })

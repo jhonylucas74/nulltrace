@@ -532,7 +532,12 @@ pub struct Code {
 pub struct Markdown {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    pub content: String,
+    /// Inline markdown text (mutually exclusive with `src`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    /// Path to an external `.md` file to be fetched and rendered (mutually exclusive with `content`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub src: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<Style>,
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
