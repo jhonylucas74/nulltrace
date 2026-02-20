@@ -91,6 +91,7 @@ fn ntml_create_tab_state(
     component_yaml: String,
     imports: Vec<ntml_runtime::TabImport>,
     store: tauri::State<ntml_runtime::TabStateStore>,
+    storage: tauri::State<ntml_runtime::BrowserStorageStore>,
 ) -> Result<(), String> {
     ntml_runtime::create_tab_state(
         &store,
@@ -99,6 +100,7 @@ fn ntml_create_tab_state(
         script_sources,
         component_yaml,
         imports,
+        (*storage).clone(),
     )
 }
 
@@ -110,9 +112,10 @@ fn ntml_run_handler(
     event_data: Option<std::collections::HashMap<String, String>>,
     store: tauri::State<ntml_runtime::TabStateStore>,
 ) -> Result<ntml_run_handler_result::NtmlRunHandlerResult, String> {
-    let patches = ntml_runtime::run_handler(&store, &tab_id, &action, form_values, event_data)?;
+    let (patches, print_output) =
+        ntml_runtime::run_handler(&store, &tab_id, &action, form_values, event_data)?;
     let html = ntml_runtime::render_with_accumulated_patches(&store, &tab_id, &patches)?;
-    Ok(ntml_run_handler_result::NtmlRunHandlerResult { patches, html })
+    Ok(ntml_run_handler_result::NtmlRunHandlerResult { patches, html, print_output })
 }
 
 mod ntml_run_handler_result {
@@ -122,6 +125,7 @@ mod ntml_run_handler_result {
     pub struct NtmlRunHandlerResult {
         pub patches: Vec<crate::ntml_runtime::Patch>,
         pub html: String,
+        pub print_output: Vec<String>,
     }
 }
 
@@ -133,6 +137,58 @@ fn ntml_close_tab(tab_id: String, store: tauri::State<ntml_runtime::TabStateStor
 #[tauri::command]
 fn ntml_get_head_resources(yaml: String) -> Result<ntml_runtime::NtmlHeadResources, String> {
     ntml_runtime::get_head_resources(&yaml)
+}
+
+// ── Browser LocalStorage API ──────────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StorageKvEntry {
+    key: String,
+    value: String,
+}
+
+#[tauri::command]
+fn browser_storage_get_all(
+    origin: String,
+    store: tauri::State<ntml_runtime::BrowserStorageStore>,
+) -> Vec<StorageKvEntry> {
+    store
+        .get(&origin)
+        .map(|m| {
+            m.iter()
+                .map(|(k, v)| StorageKvEntry { key: k.clone(), value: v.clone() })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn browser_storage_set(
+    origin: String,
+    key: String,
+    value: String,
+    store: tauri::State<ntml_runtime::BrowserStorageStore>,
+) {
+    store.entry(origin).or_default().insert(key, value);
+}
+
+#[tauri::command]
+fn browser_storage_delete(
+    origin: String,
+    key: String,
+    store: tauri::State<ntml_runtime::BrowserStorageStore>,
+) {
+    if let Some(mut m) = store.get_mut(&origin) {
+        m.remove(&key);
+    }
+}
+
+#[tauri::command]
+fn browser_storage_clear(
+    origin: String,
+    store: tauri::State<ntml_runtime::BrowserStorageStore>,
+) {
+    store.remove(&origin);
 }
 
 #[tauri::command]
@@ -147,6 +203,7 @@ pub fn run() {
         .manage(grpc::new_terminal_sessions())
         .manage(grpc::new_process_spy_state())
         .manage(ntml_runtime::new_tab_state_store())
+        .manage(ntml_runtime::new_browser_storage_store())
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             ntml_to_html,
@@ -155,6 +212,10 @@ pub fn run() {
             ntml_close_tab,
             ntml_get_head_resources,
             run_luau,
+            browser_storage_get_all,
+            browser_storage_set,
+            browser_storage_delete,
+            browser_storage_clear,
             grpc::grpc_ping,
             grpc::grpc_login,
             grpc::grpc_refresh_token,

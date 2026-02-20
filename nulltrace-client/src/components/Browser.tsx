@@ -19,6 +19,8 @@ import {
 } from "../lib/browserVm";
 import { renderLucideIconToSvg } from "../lib/lucideNtmlIcons";
 import { useAuth } from "../contexts/AuthContext";
+import { useDevTools } from "../contexts/DevToolsContext";
+import { useWindowManager } from "../contexts/WindowManagerContext";
 import styles from "./Browser.module.css";
 
 export interface HistoryEntry {
@@ -49,6 +51,8 @@ function generateTabId() {
 export default function Browser() {
   const { token } = useAuth();
   const tauri = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+  const { open: openWindow } = useWindowManager();
+  const { setInspectedTab, pushNetwork, pushConsole, setSource } = useDevTools();
 
   const [tabs, setTabs] = useState<BrowserTab[]>(() => {
     const isVm = isVmUrl(DEFAULT_BROWSER_URL);
@@ -81,6 +85,23 @@ export default function Browser() {
   useEffect(() => {
     if (activeTab) setAddressBarValue(activeTab.url);
   }, [activeTab?.id, activeTab?.url]);
+
+  // Sync DevTools with the active browser tab.
+  useEffect(() => {
+    if (activeTab) setInspectedTab(activeTab.id, activeTab.url);
+  }, [activeTab?.id, activeTab?.url, setInspectedTab]);
+
+  // F12 → open DevTools window.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "F12") {
+        e.preventDefault();
+        openWindow("devtools");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [openWindow]);
 
   // Resolve [data-lucide] placeholders in NTML-rendered iframe to Lucide SVG icons.
   useEffect(() => {
@@ -128,14 +149,30 @@ export default function Browser() {
         return;
       }
       const curlUrl = normalizeVmUrl(url);
+      const reqStart = Date.now();
       try {
         const res = await invoke<{ stdout: string; exit_code: number }>("grpc_run_process", {
           binName: "curl",
           args: [curlUrl],
           token,
         });
+        const reqDuration = Date.now() - reqStart;
         const parsed = parseHttpResponse(res.stdout);
         console.log("[Browser VM fetch]", { url: curlUrl, exitCode: res.exit_code, parsed });
+
+        // Track in DevTools network log
+        pushNetwork({
+          origin: "browser",
+          url: curlUrl,
+          method: "GET",
+          status: parsed?.status ?? null,
+          duration: reqDuration,
+          contentType: parsed?.contentType ?? null,
+          size: parsed ? parsed.body.length : null,
+          response: parsed ? parsed.body.slice(0, 8000) : null,
+          timestamp: reqStart,
+        });
+
         if (!parsed) {
           setTabs((prev) =>
             prev.map((t) =>
@@ -185,6 +222,8 @@ export default function Browser() {
             )
           );
         } else if (ct.includes("application/x-ntml")) {
+          // Store NTML source in DevTools
+          setSource(tabId, parsed.body);
           try {
             const resources = await invoke<{
               scripts: { src: string }[];
@@ -304,7 +343,7 @@ export default function Browser() {
         );
       }
     },
-    [tauri, token]
+    [tauri, token, pushNetwork, setSource]
   );
 
   // Fetch initial VM URL on mount (e.g. ntml.org).
@@ -386,13 +425,16 @@ export default function Browser() {
           });
         }
         const eventData = d.eventData && typeof d.eventData === "object" ? d.eventData : undefined;
-        invoke<{ html: string }>("ntml_run_handler", {
+        invoke<{ html: string; print_output?: string[] }>("ntml_run_handler", {
           tabId: activeTabId,
           action: d.action,
           formValues: Object.keys(formValues).length > 0 ? formValues : undefined,
           eventData,
         })
           .then((res) => {
+            if (res.print_output && res.print_output.length > 0) {
+              pushConsole(res.print_output);
+            }
             setTabs((prev) =>
               prev.map((t) =>
                 t.id === activeTabId ? { ...t, content: res.html } : t
@@ -425,7 +467,7 @@ export default function Browser() {
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [tauri, activeTabId, navigateTo, fetchVmUrl, token]);
+  }, [tauri, activeTabId, navigateTo, fetchVmUrl, token, pushConsole]);
 
   const goBack = useCallback(() => {
     if (historyIndex <= 0) return;
@@ -466,19 +508,25 @@ export default function Browser() {
     [history, navigateTo]
   );
 
-  const addTab = useCallback(() => {
+  const openInNewTab = useCallback((url: string = DEFAULT_BROWSER_URL) => {
+    const isVm = isVmUrl(url);
     const newTab: BrowserTab = {
       id: generateTabId(),
-      url: DEFAULT_BROWSER_URL,
-      title: getPageTitle(DEFAULT_BROWSER_URL),
-      content: getPageHtml(DEFAULT_BROWSER_URL),
-      loading: false,
+      url,
+      title: getPageTitle(url),
+      content: isVm ? null : getPageHtml(url),
+      loading: isVm,
       error: false,
-      contentType: "html",
+      contentType: isVm ? null : ("html" as const),
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(newTab.id);
-  }, []);
+    if (isVm && token) {
+      fetchVmUrl(newTab.id, url);
+    }
+  }, [fetchVmUrl, token]);
+
+  const addTab = useCallback(() => openInNewTab(), [openInNewTab]);
 
   const closeTab = useCallback((tabId: string) => {
     invoke("ntml_close_tab", { tabId }).catch(() => {});
@@ -605,13 +653,37 @@ export default function Browser() {
           <button
             type="button"
             className={styles.toolbarBtn}
-            onClick={() => navigateTo(BROWSER_HISTORY_URL)}
+            onClick={() => openInNewTab(BROWSER_HISTORY_URL)}
             aria-label="History"
             title="History"
           >
             <HistoryIcon />
           </button>
         </div>
+        {favorites.length > 0 && (
+          <div className={styles.favoritesBar}>
+            {favorites.map((fav) => (
+              <div key={fav.url} className={styles.favoritesBarItem}>
+                <button
+                  type="button"
+                  className={styles.favoritesBarLink}
+                  onClick={() => navigateTo(fav.url)}
+                  title={fav.url}
+                >
+                  {fav.title || fav.url}
+                </button>
+                <button
+                  type="button"
+                  className={styles.favoritesBarRemove}
+                  onClick={() => setFavorites((prev) => prev.filter((f) => f.url !== fav.url))}
+                  aria-label="Remove from favorites"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className={styles.content}>
@@ -659,7 +731,7 @@ function groupHistoryByDate(entries: HistoryEntry[]): { label: string; entries: 
     { label: "Older", entries: [] },
   ];
 
-  entries.forEach((entry, index) => {
+  [...entries.map((entry, index) => ({ entry, index }))].reverse().forEach(({ entry, index }) => {
     if (entry.url === BROWSER_HISTORY_URL) return;
     const t = entry.timestamp;
     const item = { entry, index };

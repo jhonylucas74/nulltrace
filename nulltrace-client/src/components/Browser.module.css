@@ -392,3 +392,68 @@
   color: var(--text-primary);
   background: var(--bg-primary);
 }
+
+/* Favorites bar */
+.favoritesBar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.75rem;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  overflow-x: auto;
+  min-height: 28px;
+  scrollbar-width: none;
+}
+
+.favoritesBar::-webkit-scrollbar {
+  display: none;
+}
+
+.favoritesBarItem {
+  display: flex;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.favoritesBarLink {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s;
+}
+
+.favoritesBarLink:hover {
+  color: var(--text-primary);
+}
+
+.favoritesBarRemove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.favoritesBarRemove:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}

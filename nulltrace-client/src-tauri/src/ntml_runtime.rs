@@ -50,6 +50,24 @@ pub struct TabLuaState {
     pub imports: Vec<TabImport>,
     /// Form values for current handler invocation (set before run_handler, read by ui.get_value).
     pub form_values: Arc<Mutex<Option<std::collections::HashMap<String, String>>>>,
+    /// Captured print() output during handler execution.
+    pub print_log: Arc<Mutex<Vec<String>>>,
+}
+
+/// Global key-value storage: origin → (key → value). Shared across all tabs of same origin.
+pub type BrowserStorageStore = Arc<DashMap<String, std::collections::HashMap<String, String>>>;
+
+pub fn new_browser_storage_store() -> BrowserStorageStore {
+    Arc::new(DashMap::new())
+}
+
+fn extract_origin(base_url: &str) -> String {
+    let u = base_url.replace("http://", "").replace("https://", "");
+    let idx = u.find('/');
+    match idx {
+        Some(i) => u[..i].to_string(),
+        None => u.to_string(),
+    }
 }
 
 /// Global storage for tab states. Key = tab_id.
@@ -65,6 +83,9 @@ fn create_tab_lua(
     patches: Arc<Mutex<Vec<Patch>>>,
     _base_url: String,
     form_values: Arc<Mutex<Option<std::collections::HashMap<String, String>>>>,
+    print_log: Arc<Mutex<Vec<String>>>,
+    storage_store: BrowserStorageStore,
+    origin: String,
 ) -> Result<Lua, mlua::Error> {
     let lua = Lua::new();
     let _ = lua.sandbox(true);
@@ -79,6 +100,27 @@ fn create_tab_lua(
             })?,
         )?;
     }
+
+    // Register print() → captured to print_log
+    let pl = print_log.clone();
+    lua.globals().set(
+        "print",
+        lua.create_function(move |_, args: mlua::Variadic<mlua::Value>| {
+            let parts: Vec<String> = args
+                .iter()
+                .map(|v| match v {
+                    mlua::Value::String(s) => String::from_utf8_lossy(&s.as_bytes()).to_string(),
+                    mlua::Value::Integer(i) => i.to_string(),
+                    mlua::Value::Number(n) => n.to_string(),
+                    mlua::Value::Boolean(b) => b.to_string(),
+                    mlua::Value::Nil => "nil".to_string(),
+                    _ => format!("{:?}", v),
+                })
+                .collect();
+            pl.lock().unwrap().push(parts.join("\t"));
+            Ok(())
+        })?,
+    )?;
 
     // Interrupt: yield every 2 calls (same style as nulltrace-core os.rs)
     let count = AtomicU64::new(0);
@@ -174,6 +216,73 @@ fn create_tab_lua(
     )?;
     lua.globals().set("ui", ui)?;
 
+    // Register storage API
+    let storage = lua.create_table()?;
+
+    let ss1 = storage_store.clone();
+    let o1 = origin.clone();
+    storage.set(
+        "set",
+        lua.create_function(move |_, (key, value): (String, String)| {
+            ss1.entry(o1.clone()).or_default().insert(key, value);
+            Ok(())
+        })?,
+    )?;
+
+    let ss2 = storage_store.clone();
+    let o2 = origin.clone();
+    storage.set(
+        "get",
+        lua.create_function(move |lua, key: String| {
+            let val = ss2
+                .get(&o2)
+                .and_then(|m| m.get(&key).cloned());
+            match val {
+                Some(s) => Ok(mlua::Value::String(lua.create_string(&s)?)),
+                None => Ok(mlua::Value::Nil),
+            }
+        })?,
+    )?;
+
+    let ss3 = storage_store.clone();
+    let o3 = origin.clone();
+    storage.set(
+        "remove",
+        lua.create_function(move |_, key: String| {
+            if let Some(mut m) = ss3.get_mut(&o3) {
+                m.remove(&key);
+            }
+            Ok(())
+        })?,
+    )?;
+
+    let ss4 = storage_store.clone();
+    let o4 = origin.clone();
+    storage.set(
+        "clear",
+        lua.create_function(move |_, _: ()| {
+            ss4.remove(&o4);
+            Ok(())
+        })?,
+    )?;
+
+    let ss5 = storage_store.clone();
+    let o5 = origin.clone();
+    storage.set(
+        "keys",
+        lua.create_function(move |lua, _: ()| {
+            let tbl = lua.create_table()?;
+            if let Some(m) = ss5.get(&o5) {
+                for (i, key) in m.keys().enumerate() {
+                    tbl.set(i + 1, key.clone())?;
+                }
+            }
+            Ok(tbl)
+        })?,
+    )?;
+
+    lua.globals().set("storage", storage)?;
+
     Ok(lua)
 }
 
@@ -192,12 +301,22 @@ pub fn create_tab_state(
     script_sources: Vec<ScriptSource>,
     component_yaml: String,
     imports: Vec<TabImport>,
+    storage_store: BrowserStorageStore,
 ) -> Result<(), String> {
     let patches = Arc::new(Mutex::new(Vec::new()));
     let accumulated_patches = Arc::new(Mutex::new(Vec::new()));
     let form_values = Arc::new(Mutex::new(None));
-    let lua = create_tab_lua(patches.clone(), base_url.clone(), form_values.clone())
-        .map_err(|e| e.to_string())?;
+    let print_log = Arc::new(Mutex::new(Vec::new()));
+    let origin = extract_origin(&base_url);
+    let lua = create_tab_lua(
+        patches.clone(),
+        base_url.clone(),
+        form_values.clone(),
+        print_log.clone(),
+        storage_store,
+        origin,
+    )
+    .map_err(|e| e.to_string())?;
 
     // Load scripts in order
     let mut all_script = String::new();
@@ -221,6 +340,7 @@ pub fn create_tab_state(
             component_yaml,
             imports,
             form_values,
+            print_log,
         },
     );
     Ok(())
@@ -286,7 +406,7 @@ pub fn render_with_accumulated_patches(
     )
 }
 
-/// Runs a Lua handler by name. Returns collected patches or error.
+/// Runs a Lua handler by name. Returns collected patches and print output, or error.
 /// Uses timeout (200ms) and instruction yield (core style).
 pub fn run_handler(
     store: &TabStateStore,
@@ -294,7 +414,7 @@ pub fn run_handler(
     action: &str,
     form_values: Option<std::collections::HashMap<String, String>>,
     event_data: Option<std::collections::HashMap<String, String>>,
-) -> Result<Vec<Patch>, String> {
+) -> Result<(Vec<Patch>, Vec<String>), String> {
     let state = store
         .get_mut(tab_id)
         .ok_or_else(|| format!("Tab {} not found", tab_id))?;
@@ -387,10 +507,13 @@ pub fn run_handler(
 
     let patches = state.patches.lock().unwrap().clone();
 
+    // Drain print_log
+    let print_output: Vec<String> = std::mem::take(&mut *state.print_log.lock().unwrap());
+
     // Clear form_values after handler
     *state.form_values.lock().unwrap() = None;
 
-    Ok(patches)
+    Ok((patches, print_output))
 }
 
 /// Removes a tab state (call when tab is closed).

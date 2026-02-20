@@ -184,6 +184,7 @@ export function getAppTitle(type: WindowType, username?: string | null): string 
     codelab: "Codelab",
     diskmanager: "Disk Manager",
     pspy: "Proc Spy",
+    devtools: "DevTools",
   };
   return titles[type];
 }

@@ -49,6 +49,8 @@ import PacketApp from "../components/PacketApp";
 import CodelabApp from "../components/CodelabApp";
 import DiskManagerApp from "../components/DiskManagerApp";
 import ProcessSpyApp from "../components/ProcessSpyApp";
+import DevTools from "../components/DevTools";
+import { DevToolsContextProvider } from "../contexts/DevToolsContext";
 import { getAppTitle } from "../lib/appList";
 import styles from "./Desktop.module.css";
 
@@ -199,6 +201,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   codelab: <GraduationCap size={12} />,
   diskmanager: <HardDrive size={12} />,
   pspy: <Activity size={12} />,
+  devtools: <Cpu size={12} />,
 };
 
 function PlaceholderContent({ title }: { title: string }) {
@@ -573,6 +576,9 @@ function DesktopContent() {
     if (win.type === "pspy") {
       return <ProcessSpyApp />;
     }
+    if (win.type === "devtools") {
+      return <DevTools />;
+    }
     return <PlaceholderContent title={win.title} />;
   }
 
@@ -712,17 +718,19 @@ export default function Desktop() {
           <PaymentFeedbackProvider>
             <WallpaperProvider>
               <WindowManagerProvider>
-                <WorkspaceLayoutProvider>
-                  <FilePickerProvider>
-                    <NotificationProvider>
-                      <AppLauncherProvider>
-                        <InstalledAppsProvider>
-                          <DesktopContent />
-                        </InstalledAppsProvider>
-                      </AppLauncherProvider>
-                    </NotificationProvider>
-                  </FilePickerProvider>
-                </WorkspaceLayoutProvider>
+                <DevToolsContextProvider>
+                  <WorkspaceLayoutProvider>
+                    <FilePickerProvider>
+                      <NotificationProvider>
+                        <AppLauncherProvider>
+                          <InstalledAppsProvider>
+                            <DesktopContent />
+                          </InstalledAppsProvider>
+                        </AppLauncherProvider>
+                      </NotificationProvider>
+                    </FilePickerProvider>
+                  </WorkspaceLayoutProvider>
+                </DevToolsContextProvider>
               </WindowManagerProvider>
             </WallpaperProvider>
           </PaymentFeedbackProvider>
