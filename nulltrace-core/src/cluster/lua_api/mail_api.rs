@@ -74,10 +74,18 @@ pub fn register(
                     if !valid {
                         return Err(mlua::Error::runtime("Invalid email token"));
                     }
+                    let cc_for_display = cc.as_deref();
                     let inbox_record = tokio::task::block_in_place(|| {
                         tokio::runtime::Handle::current().block_on(async {
                             email_svc
-                                .insert_email(&from_address, &to_address, &subject, &body, "inbox")
+                                .insert_email(
+                                    &from_address,
+                                    &to_address,
+                                    &subject,
+                                    &body,
+                                    "inbox",
+                                    cc_for_display,
+                                )
                                 .await
                         })
                     })
@@ -87,7 +95,14 @@ pub fn register(
                         if let Ok(cc_record) = tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(async {
                                 email_svc
-                                    .insert_email(&from_address, cc_addr, &subject, &body, "inbox")
+                                    .insert_email(
+                                        &from_address,
+                                        cc_addr,
+                                        &subject,
+                                        &body,
+                                        "inbox",
+                                        None,
+                                    )
                                     .await
                             })
                         }) {
@@ -98,7 +113,14 @@ pub fn register(
                         if let Ok(bcc_record) = tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(async {
                                 email_svc
-                                    .insert_email(&from_address, bcc_addr, &subject, &body, "inbox")
+                                    .insert_email(
+                                        &from_address,
+                                        bcc_addr,
+                                        &subject,
+                                        &body,
+                                        "inbox",
+                                        None,
+                                    )
                                     .await
                             })
                         }) {
@@ -110,10 +132,11 @@ pub fn register(
                             email_svc
                                 .insert_email(
                                     &from_address,
-                                    &from_address,
+                                    &to_address,
                                     &subject,
                                     &body,
                                     "sent",
+                                    cc_for_display,
                                 )
                                 .await
                         })
@@ -125,36 +148,41 @@ pub fn register(
         )?;
     }
 
-    // mail.list(address, token, folder) -> table of emails or error
+    // mail.list(address, token, folder, page) -> (emails_table, has_more); page is 0-based, required
     {
         let email_svc = email_service.clone();
         let account_svc = email_account_service.clone();
         mail.set(
             "list",
-            lua.create_function(move |lua, (address, token, folder): (String, String, String)| {
-                let account_svc = account_svc.clone();
-                let email_svc = email_svc.clone();
-                let valid = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        account_svc.validate_token(&address, &token).await
+            lua.create_function(
+                move |lua, (address, token, folder, page): (String, String, String, i32)| {
+                    let account_svc = account_svc.clone();
+                    let email_svc = email_svc.clone();
+                    let valid = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            account_svc.validate_token(&address, &token).await
+                        })
                     })
-                })
-                .map_err(|e| mlua::Error::runtime(e.to_string()))?;
-                if !valid {
-                    return Err(mlua::Error::runtime("Invalid email token"));
-                }
-                let records = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        email_svc.list_emails(&address, &folder).await
+                    .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+                    if !valid {
+                        return Err(mlua::Error::runtime("Invalid email token"));
+                    }
+                    let (records, has_more) = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            email_svc.list_emails_page(&address, &folder, page).await
+                        })
                     })
-                })
-                .map_err(|e| mlua::Error::runtime(e.to_string()))?;
-                let result = lua.create_table()?;
-                for (i, r) in records.iter().enumerate() {
-                    result.set(i + 1, record_to_lua_table(lua, r)?)?;
-                }
-                Ok(Value::Table(result))
-            })?,
+                    .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+                    let emails_table = lua.create_table()?;
+                    for (i, r) in records.iter().enumerate() {
+                        emails_table.set(i + 1, record_to_lua_table(lua, r)?)?;
+                    }
+                    let result = lua.create_table()?;
+                    result.set("emails", emails_table)?;
+                    result.set("has_more", has_more)?;
+                    Ok(Value::Table(result))
+                },
+            )?,
         )?;
     }
 

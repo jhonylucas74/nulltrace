@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO emails (from_address, to_address, subject, body, folder)\n               VALUES ($1, $2, $3, $4, $5)\n               RETURNING id, from_address, to_address, subject, body, folder, read, sent_at, created_at",
+  "query": "INSERT INTO emails (from_address, to_address, subject, body, folder, cc_address)\n               VALUES ($1, $2, $3, $4, $5, $6)\n               RETURNING id, from_address, to_address, subject, body, folder, read, sent_at, created_at, cc_address",
   "describe": {
     "columns": [
       {
@@ -47,10 +47,16 @@
         "ordinal": 8,
         "name": "created_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "cc_address",
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text",
         "Text",
         "Text",
@@ -67,8 +73,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "68caf087f74a24125ed575a078990fc2a3863d55774c40edf5e7aadcebceeeea"
+  "hash": "921e9349f6eca95e608d0c0338b708f294d20e87f930a1298bad33121211839d"
 }

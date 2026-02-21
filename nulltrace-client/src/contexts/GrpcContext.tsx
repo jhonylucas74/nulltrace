@@ -39,6 +39,8 @@ export interface EmailMessage {
   folder: string;
   read: boolean;
   sent_at_ms: number;
+  /** CC recipients (optional; only set when email was sent with CC). */
+  cc_address?: string;
 }
 
 export interface GrpcContextValue {
@@ -48,7 +50,12 @@ export interface GrpcContextValue {
   getPlayerProfile: (token: string) => Promise<GetPlayerProfileResponse>;
   setPreferredTheme: (token: string, preferredTheme: string) => Promise<void>;
   setShortcuts: (token: string, shortcutsOverridesJson: string) => Promise<void>;
-  getEmails: (emailAddress: string, mailToken: string, folder: string) => Promise<EmailMessage[]>;
+  getEmails: (
+    emailAddress: string,
+    mailToken: string,
+    folder: string,
+    page: number
+  ) => Promise<{ emails: EmailMessage[]; hasMore: boolean }>;
   sendEmail: (
     fromAddress: string,
     mailToken: string,
@@ -93,8 +100,13 @@ export function GrpcProvider({ children }: { children: React.ReactNode }) {
             throw new Error(res.error_message);
           }
         }),
-      getEmails: (emailAddress: string, mailToken: string, folder: string) =>
-        invoke<EmailMessage[]>("grpc_get_emails", { emailAddress, mailToken, folder }),
+      getEmails: (emailAddress: string, mailToken: string, folder: string, page: number) =>
+        invoke<{ emails: EmailMessage[]; hasMore: boolean }>("grpc_get_emails", {
+          emailAddress,
+          mailToken,
+          folder,
+          page,
+        }),
       sendEmail: (
         fromAddress: string,
         mailToken: string,

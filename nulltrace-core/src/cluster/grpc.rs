@@ -1677,9 +1677,10 @@ impl GameService for ClusterGameService {
         if !valid {
             return Err(Status::unauthenticated("Invalid email token"));
         }
-        let records = self
+        let page = req.page;
+        let (records, has_more) = self
             .email_service
-            .list_emails(&req.email_address, &req.folder)
+            .list_emails_page(&req.email_address, &req.folder, page)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         let emails = records
@@ -1693,9 +1694,13 @@ impl GameService for ClusterGameService {
                 folder: r.folder,
                 read: r.read,
                 sent_at_ms: r.sent_at.timestamp_millis(),
+                cc_address: r.cc_address.unwrap_or_default(),
             })
             .collect();
-        Ok(Response::new(GetEmailsResponse { emails }))
+        Ok(Response::new(GetEmailsResponse {
+            emails,
+            has_more,
+        }))
     }
 
     async fn send_email(
@@ -1711,10 +1716,22 @@ impl GameService for ClusterGameService {
         if !valid {
             return Err(Status::unauthenticated("Invalid email token"));
         }
+        let cc_for_display = if req.cc_address.is_empty() {
+            None
+        } else {
+            Some(req.cc_address.as_str())
+        };
         // Insert into main recipient's inbox and notify.
         let inbox_record = self
             .email_service
-            .insert_email(&req.from_address, &req.to_address, &req.subject, &req.body, "inbox")
+            .insert_email(
+                &req.from_address,
+                &req.to_address,
+                &req.subject,
+                &req.body,
+                "inbox",
+                cc_for_display,
+            )
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         super::mailbox_hub::notify_new_email(&self.mailbox_hub, &req.to_address, inbox_record);
@@ -1722,7 +1739,14 @@ impl GameService for ClusterGameService {
         if !req.cc_address.is_empty() {
             if let Ok(cc_record) = self
                 .email_service
-                .insert_email(&req.from_address, &req.cc_address, &req.subject, &req.body, "inbox")
+                .insert_email(
+                    &req.from_address,
+                    &req.cc_address,
+                    &req.subject,
+                    &req.body,
+                    "inbox",
+                    None,
+                )
                 .await
             {
                 super::mailbox_hub::notify_new_email(&self.mailbox_hub, &req.cc_address, cc_record);
@@ -1732,16 +1756,30 @@ impl GameService for ClusterGameService {
         if !req.bcc_address.is_empty() {
             if let Ok(bcc_record) = self
                 .email_service
-                .insert_email(&req.from_address, &req.bcc_address, &req.subject, &req.body, "inbox")
+                .insert_email(
+                    &req.from_address,
+                    &req.bcc_address,
+                    &req.subject,
+                    &req.body,
+                    "inbox",
+                    None,
+                )
                 .await
             {
                 super::mailbox_hub::notify_new_email(&self.mailbox_hub, &req.bcc_address, bcc_record);
             }
         }
-        // Insert a copy into sender's sent folder.
+        // Insert a copy into sender's sent folder (to_address = actual recipient so UI shows "To: ...").
         let _ = self
             .email_service
-            .insert_email(&req.from_address, &req.from_address, &req.subject, &req.body, "sent")
+            .insert_email(
+                &req.from_address,
+                &req.to_address,
+                &req.subject,
+                &req.body,
+                "sent",
+                cc_for_display,
+            )
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(SendEmailResponse {
@@ -1863,6 +1901,7 @@ impl GameService for ClusterGameService {
                                         folder: record.folder,
                                         read: record.read,
                                         sent_at_ms: record.sent_at.timestamp_millis(),
+                                        cc_address: record.cc_address.unwrap_or_default(),
                                     },
                                 )),
                             },

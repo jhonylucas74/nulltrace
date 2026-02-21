@@ -117,9 +117,10 @@ fn test_empty_document() {
 
 #[test]
 fn test_empty_text_validation() {
+    // Empty text is allowed (e.g. for cells updated via ui.set_text); validator permits it.
     let xml = r#"<Text text="" />"#;
     let result = parse_ntml(xml);
-    assert!(result.is_err());
+    assert!(result.is_ok(), "empty text should be allowed: {:?}", result);
 }
 
 #[test]

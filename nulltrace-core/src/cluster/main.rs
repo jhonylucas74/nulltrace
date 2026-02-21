@@ -409,7 +409,7 @@ async fn load_game_vms(
         manager.clear_active_vms();
     }
 
-    // 1c. Create NPC VM emailbox.null: sends 10 emails to Haru, serves received emails at /logs
+    // 1c. Create NPC VM emailbox.null: sends 10 emails to Haru, serves received emails at /inbox
     {
         let config = VmConfig {
             hostname: "emailbox".to_string(),
@@ -435,9 +435,9 @@ async fn load_game_vms(
         let _ = fs_service
             .write_file(vm_id, "/var/www/body.txt", body_content, Some("text/plain"), "root")
             .await;
-        let logs_header = b"# Received emails (from=... to=... subject=... id=... date=...)\n";
+        let inbox_header = b"# Received emails (from=... to=... subject=... id=... date=...)\n";
         let _ = fs_service
-            .write_file(vm_id, "/var/www/logs", logs_header, Some("text/plain"), "root")
+            .write_file(vm_id, "/var/www/inbox", inbox_header, Some("text/plain"), "root")
             .await;
         let index_header = b"# Sent emails (to=... subject=... n=...)\n";
         let _ = fs_service

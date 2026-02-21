@@ -8869,7 +8869,7 @@ while true do end
         let email_service = Arc::new(EmailService::new(pool.clone()));
         let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 100, 0), 24);
-        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), Arc::new(EmailAccountService::new(pool.clone())), subnet);
+        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), email_account_service.clone(), email_service.clone(), mailbox_hub.clone(), subnet);
         let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-ext-srv".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
             ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
@@ -8928,7 +8928,7 @@ while true do end
         let email_service = Arc::new(EmailService::new(pool.clone()));
         let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 101, 0), 24);
-        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), Arc::new(EmailAccountService::new(pool.clone())), subnet);
+        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), email_account_service.clone(), email_service.clone(), mailbox_hub.clone(), subnet);
         let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-404-srv".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
             ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
@@ -8987,7 +8987,7 @@ while true do end
         let email_service = Arc::new(EmailService::new(pool.clone()));
         let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 102, 0), 24);
-        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), Arc::new(EmailAccountService::new(pool.clone())), subnet);
+        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), email_account_service.clone(), email_service.clone(), mailbox_hub.clone(), subnet);
         let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-404c-srv".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
             ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
@@ -9046,7 +9046,7 @@ while true do end
         let email_service = Arc::new(EmailService::new(pool.clone()));
         let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 103, 0), 24);
-        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), Arc::new(EmailAccountService::new(pool.clone())), subnet);
+        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), email_account_service.clone(), email_service.clone(), mailbox_hub.clone(), subnet);
         let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-amb-srv".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
             ip: None, subnet: None, gateway: None, mac: None, owner_id: None,

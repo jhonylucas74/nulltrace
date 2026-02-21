@@ -447,16 +447,19 @@ message EmailMessage {
   string folder = 6;
   bool read = 7;
   int64 sent_at_ms = 8;
+  string cc_address = 9;  // empty = not set (display only; BCC never returned)
 }
 
 message GetEmailsRequest {
   string email_address = 1;
   string mail_token = 2;
   string folder = 3;
+  int32 page = 4;  // 0-based; server uses fixed page size 50
 }
 
 message GetEmailsResponse {
   repeated EmailMessage emails = 1;
+  bool has_more = 2;
 }
 
 message SendEmailRequest {

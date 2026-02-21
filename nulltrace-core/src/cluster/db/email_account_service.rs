@@ -66,3 +66,75 @@ impl EmailAccountService {
         Ok(account.map(|a| a.token == token).unwrap_or(false))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn test_create_account() {
+        let pool = super::super::test_pool().await;
+        let svc = EmailAccountService::new(pool);
+
+        // player_id None: no FK to players table (NPC / unowned VM account).
+        let rec = svc
+            .create_account(None, "alice@test.local", "secret-token")
+            .await
+            .unwrap();
+
+        assert_eq!(rec.email_address, "alice@test.local");
+        assert_eq!(rec.token, "secret-token");
+        assert_eq!(rec.player_id, None);
+    }
+
+    #[tokio::test]
+    async fn test_get_by_email() {
+        let pool = super::super::test_pool().await;
+        let svc = EmailAccountService::new(pool);
+
+        svc.create_account(None, "bob@test.local", "token-bob")
+            .await
+            .unwrap();
+
+        let found = svc.get_by_email("bob@test.local").await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().token, "token-bob");
+
+        let missing = svc.get_by_email("nobody@test.local").await.unwrap();
+        assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_validate_token() {
+        let pool = super::super::test_pool().await;
+        let svc = EmailAccountService::new(pool);
+
+        svc.create_account(None, "validate@test.local", "correct-token")
+            .await
+            .unwrap();
+
+        assert!(svc.validate_token("validate@test.local", "correct-token").await.unwrap());
+        assert!(!svc.validate_token("validate@test.local", "wrong-token").await.unwrap());
+        assert!(!svc.validate_token("unknown@test.local", "any").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_create_account_upsert_same_address() {
+        let pool = super::super::test_pool().await;
+        let svc = EmailAccountService::new(pool);
+
+        let first = svc
+            .create_account(None, "upsert@test.local", "old-token")
+            .await
+            .unwrap();
+        let second = svc
+            .create_account(Some(Uuid::new_v4()), "upsert@test.local", "new-token")
+            .await
+            .unwrap();
+
+        assert_eq!(first.id, second.id, "same row updated");
+        assert_eq!(second.token, "new-token");
+        assert_eq!(second.email_address, "upsert@test.local");
+    }
+}

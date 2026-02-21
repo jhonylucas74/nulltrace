@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import type { EmailMessage } from "../contexts/GrpcContext";
 import { useGrpc } from "../contexts/GrpcContext";
@@ -60,12 +61,27 @@ function formatTimestamp(ms: number): string {
 }
 
 export default function EmailApp() {
+  const { t } = useTranslation("email");
+  const { t: tCommon } = useTranslation("common");
   const { emailAddress, mailToken, setUnreadCount, inboxInvalidated } = useEmail();
   const { getEmails, sendEmail, markEmailRead, moveEmail, deleteEmail } = useGrpc();
 
   const [messages, setMessages] = useState<EmailMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [folder, setFolder] = useState<EmailFolder>("inbox");
+  const [pageByFolder, setPageByFolder] = useState<Record<EmailFolder, number>>({
+    inbox: 0,
+    sent: 0,
+    spam: 0,
+    trash: 0,
+  });
+  const [hasMoreByFolder, setHasMoreByFolder] = useState<Record<EmailFolder, boolean>>({
+    inbox: true,
+    sent: true,
+    spam: true,
+    trash: true,
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
   const [replyingTo, setReplyingTo] = useState<EmailMessage | null>(null);
@@ -103,40 +119,56 @@ export default function EmailApp() {
     : validContacts;
 
   const fetchMessages = useCallback(
-    async (f: EmailFolder) => {
+    async (f: EmailFolder, page: number = 0) => {
       if (!emailAddress || !mailToken) return;
-      setLoading(true);
+      if (page === 0) setLoading(true);
       try {
-        const emails = await getEmails(emailAddress, mailToken, f);
+        const { emails, hasMore } = await getEmails(emailAddress, mailToken, f, page);
         setMessages((prev) => {
-          // Merge fetched emails into the local state (replace same-folder entries)
           const otherFolders = prev.filter((m) => m.folder !== f);
-          return [...otherFolders, ...emails];
+          if (page === 0) return [...otherFolders, ...emails];
+          return [...prev, ...emails];
         });
-        if (f === "inbox") {
+        setHasMoreByFolder((prev) => ({ ...prev, [f]: hasMore }));
+        setPageByFolder((prev) => ({ ...prev, [f]: page + 1 }));
+        if (f === "inbox" && page === 0) {
           const unread = emails.filter((e) => !e.read).length;
           setUnreadCount(unread);
         }
       } catch (e) {
         console.error("[EmailApp] fetchMessages failed:", e);
       } finally {
-        setLoading(false);
+        if (page === 0) setLoading(false);
       }
     },
     [emailAddress, mailToken, getEmails, setUnreadCount]
   );
 
-  // Fetch when folder or credentials change
+  const loadMoreMessages = useCallback(() => {
+    if (!emailAddress || !mailToken || loadingMore) return;
+    const nextPage = pageByFolder[folder];
+    setLoadingMore(true);
+    getEmails(emailAddress, mailToken, folder, nextPage)
+      .then(({ emails, hasMore }) => {
+        setMessages((prev) => [...prev, ...emails]);
+        setHasMoreByFolder((prev) => ({ ...prev, [folder]: hasMore }));
+        setPageByFolder((prev) => ({ ...prev, [folder]: nextPage + 1 }));
+      })
+      .catch((e: unknown) => console.error("[EmailApp] loadMore failed:", e))
+      .finally(() => setLoadingMore(false));
+  }, [emailAddress, mailToken, folder, pageByFolder, loadingMore, getEmails]);
+
+  // Fetch first page when folder or credentials change
   useEffect(() => {
     if (emailAddress && mailToken) {
-      fetchMessages(folder);
+      fetchMessages(folder, 0);
     }
   }, [folder, emailAddress, mailToken, fetchMessages]);
 
-  // Real-time: when mailbox stream signals new email, refetch inbox so the list updates
+  // Real-time: when mailbox stream signals new email, refetch inbox first page only
   useEffect(() => {
     if (emailAddress && mailToken && inboxInvalidated > 0) {
-      fetchMessages("inbox");
+      fetchMessages("inbox", 0);
     }
   }, [emailAddress, mailToken, inboxInvalidated, fetchMessages]);
 
@@ -393,6 +425,20 @@ export default function EmailApp() {
                     <td>{formatTimestamp(m.sent_at_ms)}</td>
                   </tr>
                 ))}
+              {!loading && hasMoreByFolder[folder] && (
+                <tr>
+                  <td colSpan={3} className={styles.loadMoreCell}>
+                    <button
+                      type="button"
+                      className={styles.loadMoreButton}
+                      onClick={loadMoreMessages}
+                      disabled={loadingMore}
+                    >
+                      {loadingMore ? tCommon("loading") : t("load_more")}
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
           {!loading && filteredMessages.length === 0 && (
@@ -628,7 +674,22 @@ export default function EmailApp() {
               <div className={styles.thread}>
                 <div className={styles.threadMessage}>
                   <div className={styles.readMeta}>
-                    <span className={styles.readFrom}>{selectedMessage.from_address}</span>
+                    <div className={styles.readMetaLines}>
+                      <div className={styles.readMetaRow}>
+                        <span className={styles.readMetaLabel}>From</span>
+                        <span>{selectedMessage.from_address}</span>
+                      </div>
+                      <div className={styles.readMetaRow}>
+                        <span className={styles.readMetaLabel}>To</span>
+                        <span>{selectedMessage.to_address}</span>
+                      </div>
+                      {selectedMessage.cc_address && selectedMessage.cc_address.trim() !== "" && (
+                        <div className={styles.readMetaRow}>
+                          <span className={styles.readMetaLabel}>CC</span>
+                          <span>{selectedMessage.cc_address}</span>
+                        </div>
+                      )}
+                    </div>
                     <span className={styles.readDate}>{formatTimestamp(selectedMessage.sent_at_ms)}</span>
                   </div>
                   <div className={styles.readBody}>{selectedMessage.body}</div>

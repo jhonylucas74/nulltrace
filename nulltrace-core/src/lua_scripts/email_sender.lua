@@ -1,10 +1,10 @@
--- Emailbox NPC: discover credentials, send 10 emails to Haru, then append received emails to /var/www/logs.
+-- Emailbox NPC: discover credentials, send 10 emails to Haru, then append received emails to /var/www/inbox.
 -- Run as: lua /var/www/email_sender.lua (started from /etc/bootstrap).
 
 local TICKS_PER_20_SEC = 600   -- ~20 seconds at 30 TPS
 local HARU_ADDRESS = "haru@mail.null"
-local LOGS_PATH = "/var/www/logs"
-local LOGS_SEEN_PATH = "/var/www/logs.seen"
+local INBOX_PATH = "/var/www/inbox"
+local INBOX_SEEN_PATH = "/var/www/.inbox.seen"
 local INDEX_PATH = "/var/www/index"   -- sent emails (emailbox.null/index)
 local BODY_PATH = "/var/www/body.txt"
 
@@ -50,7 +50,7 @@ end
 -- Load set of already-logged email ids (one id per line)
 local function load_seen_ids()
   local seen = {}
-  local content = fs.read(LOGS_SEEN_PATH)
+  local content = fs.read(INBOX_SEEN_PATH)
   if content then
     for line in content:gmatch("[^\r\n]+") do
       local id = line:match("^%s*(.-)%s*$")
@@ -62,8 +62,8 @@ local function load_seen_ids()
   return seen
 end
 
--- Append id to logs.seen and append formatted line to logs
-local function append_email_to_logs(seen, email)
+-- Append id to .inbox.seen and append formatted line to inbox
+local function append_email_to_inbox(seen, email)
   local id = email.id
   if seen[id] then
     return
@@ -77,25 +77,34 @@ local function append_email_to_logs(seen, email)
     id,
     tostring(email.sent_at_ms or "")
   )
-  local old_logs = fs.read(LOGS_PATH)
-  local new_logs = (old_logs or "") .. line
-  fs.write(LOGS_PATH, new_logs, "text/plain")
-  local old_seen = fs.read(LOGS_SEEN_PATH)
+  local old_inbox = fs.read(INBOX_PATH)
+  local new_inbox = (old_inbox or "") .. line
+  fs.write(INBOX_PATH, new_inbox, "text/plain")
+  local old_seen = fs.read(INBOX_SEEN_PATH)
   local new_seen = (old_seen or "") .. id .. "\n"
-  fs.write(LOGS_SEEN_PATH, new_seen, "text/plain")
+  fs.write(INBOX_SEEN_PATH, new_seen, "text/plain")
 end
 
--- Loop: list inbox, append new emails to logs (run forever)
+-- Loop: list inbox by page, append new emails to /var/www/inbox (run forever)
 local seen = load_seen_ids()
 while true do
-  local ok, list_result = pcall(mail.list, address, token, "inbox")
-  if ok and list_result and type(list_result) == "table" then
-    for j = 1, #list_result do
-      local email = list_result[j]
-      if type(email) == "table" and email.id then
-        append_email_to_logs(seen, email)
+  local page = 0
+  local has_more = true
+  while has_more do
+    local ok, r = pcall(mail.list, address, token, "inbox", page)
+    if ok and r and type(r) == "table" then
+      local emails = r.emails or {}
+      for j = 1, #emails do
+        local email = emails[j]
+        if type(email) == "table" and email.id then
+          append_email_to_inbox(seen, email)
+        end
       end
+      has_more = r.has_more
+    else
+      has_more = false
     end
+    page = page + 1
   end
   -- Poll every ~5 seconds (150 ticks at 30 TPS)
   for _ = 1, 150 do

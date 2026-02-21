@@ -24,5 +24,6 @@
   "not_spam": "Not spam",
   "delete_forever": "Delete forever",
   "select_prompt": "Select a message or click Compose.",
-  "reply_prefix": "Re:"
+  "reply_prefix": "Re:",
+  "load_more": "Load more"
 }

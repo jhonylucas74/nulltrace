@@ -379,6 +379,7 @@ impl GameService for MyGameService {
     ) -> Result<Response<GetEmailsResponse>, Status> {
         Ok(Response::new(GetEmailsResponse {
             emails: vec![],
+            has_more: false,
         }))
     }
 

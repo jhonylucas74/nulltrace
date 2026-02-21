@@ -1722,15 +1722,27 @@ pub struct EmailMessageResponse {
     pub folder: String,
     pub read: bool,
     pub sent_at_ms: i64,
+    /// CC recipients (optional; only when email was sent with CC).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cc_address: Option<String>,
 }
 
-/// Tauri command: Fetch emails for a given address and folder.
+/// Response for grpc_get_emails: one page of emails and whether more pages exist.
+#[derive(serde::Serialize)]
+pub struct GetEmailsResult {
+    pub emails: Vec<EmailMessageResponse>,
+    #[serde(rename = "hasMore")]
+    pub has_more: bool,
+}
+
+/// Tauri command: Fetch one page of emails (page size 50, 0-based page).
 #[tauri::command]
 pub async fn grpc_get_emails(
     email_address: String,
     mail_token: String,
     folder: String,
-) -> Result<Vec<EmailMessageResponse>, String> {
+    page: i32,
+) -> Result<GetEmailsResult, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
     let response = client
@@ -1738,11 +1750,12 @@ pub async fn grpc_get_emails(
             email_address,
             mail_token,
             folder,
+            page,
         }))
         .await
         .map_err(|e| e.to_string())?
         .into_inner();
-    Ok(response
+    let emails = response
         .emails
         .into_iter()
         .map(|e| EmailMessageResponse {
@@ -1754,8 +1767,17 @@ pub async fn grpc_get_emails(
             folder: e.folder,
             read: e.read,
             sent_at_ms: e.sent_at_ms,
+            cc_address: if e.cc_address.is_empty() {
+                None
+            } else {
+                Some(e.cc_address)
+            },
         })
-        .collect())
+        .collect();
+    Ok(GetEmailsResult {
+        emails,
+        has_more: response.has_more,
+    })
 }
 
 /// Tauri command: Send an email.
@@ -1903,6 +1925,7 @@ pub async fn mailbox_connect(
                             "folder": email.folder,
                             "read": email.read,
                             "sent_at_ms": email.sent_at_ms,
+                            "cc_address": email.cc_address,
                         }
                     })
                 }
