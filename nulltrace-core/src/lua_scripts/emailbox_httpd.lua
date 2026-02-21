@@ -51,7 +51,12 @@ while true do
           end
           return table.concat(lines, ""), 200
         else
-          return httpd.serve(root, path_only)
+          -- Root "/" or "" must map to "index" so httpd.serve finds /var/www/index
+          local serve_path = path_only
+          if serve_path == "/" or serve_path == "" then
+            serve_path = "index"
+          end
+          return httpd.serve(root, serve_path)
         end
       end)
 
