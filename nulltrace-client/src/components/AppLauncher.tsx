@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
 import { useAppLauncher } from "../contexts/AppLauncherContext";
 import { useAuth } from "../contexts/AuthContext";
 import { useInstalledApps } from "../contexts/InstalledAppsContext";
-import { LAUNCHABLE_APPS, getAppTitle } from "../lib/appList";
+import { LAUNCHABLE_APPS, getAppTitle, getAppLabelKey } from "../lib/appList";
 import { STORE_CATALOG } from "../lib/storeCatalog";
 import type { LaunchableApp } from "../lib/appList";
 import styles from "./AppLauncher.module.css";
@@ -16,12 +17,13 @@ function useLaunchableAppsList(): LaunchableApp[] {
     const installedSet = new Set(installedAppTypes);
     const installedOnly = STORE_CATALOG.filter(
       (entry) => !builtInTypes.has(entry.type) && installedSet.has(entry.type)
-    ).map((entry) => ({ type: entry.type, label: entry.name, icon: entry.icon }));
+    ).map((entry) => ({ type: entry.type, label: entry.name, labelKey: getAppLabelKey(entry.type), icon: entry.icon }));
     return [...LAUNCHABLE_APPS, ...installedOnly];
   }, [installedAppTypes]);
 }
 
 export default function AppLauncher() {
+  const { t } = useTranslation("common");
   const { isOpen, close } = useAppLauncher();
   const { openApp } = useWorkspaceLayout();
   const { username } = useAuth();
@@ -51,8 +53,9 @@ export default function AppLauncher() {
     return () => document.removeEventListener("keydown", handleEscape);
   }, [isOpen, close]);
 
+  const { t: tApps } = useTranslation("apps");
   function handleAppClick(type: LaunchableApp["type"]) {
-    openApp(type, { title: getAppTitle(type, username) });
+    openApp(type, { title: getAppTitle(type, username, tApps) });
     close();
   }
 
@@ -63,7 +66,7 @@ export default function AppLauncher() {
       className={styles.overlay}
       role="dialog"
       aria-modal="true"
-      aria-label="App launcher"
+      aria-label={t("app_launcher")}
       onClick={(e) => e.target === e.currentTarget && close()}
     >
       <div className={styles.panel} onClick={(e) => e.stopPropagation()}>
@@ -71,7 +74,7 @@ export default function AppLauncher() {
           ref={inputRef}
           type="text"
           className={styles.search}
-          placeholder="Search apps…"
+          placeholder={t("search_apps")}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           onKeyDown={(e) => {
@@ -80,11 +83,11 @@ export default function AppLauncher() {
               handleAppClick(filtered[0].type);
             }
           }}
-          aria-label="Search apps"
+          aria-label={t("search_apps")}
         />
         <div className={styles.grid}>
           {filtered.length === 0 ? (
-            <p className={styles.empty}>No results</p>
+            <p className={styles.empty}>{t("no_results")}</p>
           ) : (
             filtered.map((app, index) => (
               <button
@@ -95,7 +98,7 @@ export default function AppLauncher() {
                 onClick={() => handleAppClick(app.type)}
               >
                 <span className={styles.appIcon}>{app.icon}</span>
-                <span className={styles.appLabel}>{app.label}</span>
+                <span className={styles.appLabel}>{tApps(app.labelKey)}</span>
               </button>
             ))
           )}

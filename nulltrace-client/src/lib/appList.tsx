@@ -1,10 +1,52 @@
 import React from "react";
+import type { TFunction } from "i18next";
 import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Package, GraduationCap, HardDrive } from "lucide-react";
 import type { WindowType } from "../contexts/WindowManagerContext";
+
+/** Maps WindowType to apps.json label key (e.g. explorer -> "files"). */
+export const APP_LABEL_KEY: Record<WindowType, string> = {
+  terminal: "terminal",
+  explorer: "files",
+  browser: "browser",
+  editor: "code",
+  theme: "theme",
+  email: "mail",
+  wallet: "wallet",
+  sysinfo: "nullfetch",
+  shortcuts: "shortcuts",
+  sysmon: "system_monitor",
+  nullcloud: "nullcloud",
+  hackerboard: "hackerboard",
+  startup: "startup",
+  wallpaper: "background",
+  settings: "settings",
+  traceroute: "traceroute",
+  store: "store",
+  pixelart: "pixel_art",
+  packet: "packet",
+  codelab: "codelab",
+  diskmanager: "disk_manager",
+  apps: "all_apps",
+  sound: "sound",
+  network: "network",
+  minesweeper: "minesweeper",
+  pspy: "proc_spy",
+  devtools: "devtools",
+};
+
+export function getAppLabelKey(type: WindowType): string {
+  return APP_LABEL_KEY[type] ?? type;
+}
+
+/** Apps namespace key for description (e.g. desc_terminal, desc_files). */
+export function getDescKey(type: WindowType): string {
+  return "desc_" + getAppLabelKey(type);
+}
 
 export interface LaunchableApp {
   type: WindowType;
   label: string;
+  labelKey: string;
   icon: React.ReactNode;
 }
 
@@ -126,27 +168,27 @@ function StoreIcon() {
 
 /** Launchable apps shown in the app launcher grid (excludes All Apps itself). */
 export const LAUNCHABLE_APPS: LaunchableApp[] = [
-  { type: "terminal", label: "Terminal", icon: <TerminalIcon /> },
-  { type: "explorer", label: "Files", icon: <ExplorerIcon /> },
-  { type: "browser", label: "Browser", icon: <BrowserIcon /> },
-  { type: "editor", label: "Code", icon: <EditorIcon /> },
-  { type: "theme", label: "Theme", icon: <ThemeIcon /> },
-  { type: "email", label: "Mail", icon: <MailIcon /> },
-  { type: "wallet", label: "Wallet", icon: <WalletIcon /> },
-  { type: "sysinfo", label: "Nullfetch", icon: <SysinfoIcon /> },
-  { type: "shortcuts", label: "Shortcuts", icon: <ShortcutsIcon /> },
-  { type: "sysmon", label: "System Monitor", icon: <SysmonIcon /> },
-  { type: "nullcloud", label: "NullCloud", icon: <NullCloudIcon /> },
-  { type: "hackerboard", label: "Hackerboard", icon: <HackerboardIcon /> },
-  { type: "startup", label: "Startup", icon: <StartupIcon /> },
-  { type: "wallpaper", label: "Background", icon: <BackgroundIcon /> },
-  { type: "settings", label: "Settings", icon: <SettingsIcon /> },
-  { type: "traceroute", label: "TraceRoute", icon: <TraceRouteIcon /> },
-  { type: "store", label: "Store", icon: <StoreIcon /> },
-  { type: "pixelart", label: "Pixel Art", icon: <PixelArtIcon /> },
-  { type: "packet", label: "Packet", icon: <Package size={24} /> },
-  { type: "codelab", label: "Codelab", icon: <GraduationCap size={24} /> },
-  { type: "diskmanager", label: "Disk Manager", icon: <HardDrive size={24} /> },
+  { type: "terminal", label: "Terminal", labelKey: "terminal", icon: <TerminalIcon /> },
+  { type: "explorer", label: "Files", labelKey: "files", icon: <ExplorerIcon /> },
+  { type: "browser", label: "Browser", labelKey: "browser", icon: <BrowserIcon /> },
+  { type: "editor", label: "Code", labelKey: "code", icon: <EditorIcon /> },
+  { type: "theme", label: "Theme", labelKey: "theme", icon: <ThemeIcon /> },
+  { type: "email", label: "Mail", labelKey: "mail", icon: <MailIcon /> },
+  { type: "wallet", label: "Wallet", labelKey: "wallet", icon: <WalletIcon /> },
+  { type: "sysinfo", label: "Nullfetch", labelKey: "nullfetch", icon: <SysinfoIcon /> },
+  { type: "shortcuts", label: "Shortcuts", labelKey: "shortcuts", icon: <ShortcutsIcon /> },
+  { type: "sysmon", label: "System Monitor", labelKey: "system_monitor", icon: <SysmonIcon /> },
+  { type: "nullcloud", label: "NullCloud", labelKey: "nullcloud", icon: <NullCloudIcon /> },
+  { type: "hackerboard", label: "Hackerboard", labelKey: "hackerboard", icon: <HackerboardIcon /> },
+  { type: "startup", label: "Startup", labelKey: "startup", icon: <StartupIcon /> },
+  { type: "wallpaper", label: "Background", labelKey: "background", icon: <BackgroundIcon /> },
+  { type: "settings", label: "Settings", labelKey: "settings", icon: <SettingsIcon /> },
+  { type: "traceroute", label: "TraceRoute", labelKey: "traceroute", icon: <TraceRouteIcon /> },
+  { type: "store", label: "Store", labelKey: "store", icon: <StoreIcon /> },
+  { type: "pixelart", label: "Pixel Art", labelKey: "pixel_art", icon: <PixelArtIcon /> },
+  { type: "packet", label: "Packet", labelKey: "packet", icon: <Package size={24} /> },
+  { type: "codelab", label: "Codelab", labelKey: "codelab", icon: <GraduationCap size={24} /> },
+  { type: "diskmanager", label: "Disk Manager", labelKey: "disk_manager", icon: <HardDrive size={24} /> },
 ];
 
 /** Get launchable app entry by type (for dock icon/label). */
@@ -154,37 +196,41 @@ export function getAppByType(type: WindowType): LaunchableApp | undefined {
   return LAUNCHABLE_APPS.find((a) => a.type === type);
 }
 
-/** Default window title for a given app type (optional username for Terminal). */
-export function getAppTitle(type: WindowType, username?: string | null): string {
-  if (type === "terminal") return username ? `${username}@nulltrace` : "Terminal";
-  const titles: Record<WindowType, string> = {
-    terminal: username ? `${username}@nulltrace` : "Terminal",
-    explorer: "Files",
-    browser: "Browser",
-    apps: "All Apps",
-    editor: "Code",
-    theme: "Theme",
-    sound: "Sound",
-    network: "Network",
-    email: "Mail",
-    wallet: "Wallet",
-    pixelart: "Pixel Art",
-    sysinfo: "Nullfetch",
-    shortcuts: "Shortcuts",
-    sysmon: "System Monitor",
-    nullcloud: "NullCloud",
-    hackerboard: "Hackerboard",
-    startup: "Startup",
-    wallpaper: "Background",
-    settings: "Settings",
-    traceroute: "TraceRoute",
-    store: "Store",
-    minesweeper: "Minesweeper",
-    packet: "Packet",
-    codelab: "Codelab",
-    diskmanager: "Disk Manager",
-    pspy: "Proc Spy",
-    devtools: "DevTools",
-  };
-  return titles[type];
+/** Default window title for a given app type (optional username for Terminal). Uses t for i18n. */
+export function getAppTitle(type: WindowType, username?: string | null, t?: TFunction): string {
+  if (type === "terminal") return username ? `${username}@nulltrace` : (t ? t("apps:terminal") : "Terminal");
+  if (!t) {
+    const fallback: Record<WindowType, string> = {
+      terminal: "Terminal",
+      explorer: "Files",
+      browser: "Browser",
+      apps: "All Apps",
+      editor: "Code",
+      theme: "Theme",
+      sound: "Sound",
+      network: "Network",
+      email: "Mail",
+      wallet: "Wallet",
+      pixelart: "Pixel Art",
+      sysinfo: "Nullfetch",
+      shortcuts: "Shortcuts",
+      sysmon: "System Monitor",
+      nullcloud: "NullCloud",
+      hackerboard: "Hackerboard",
+      startup: "Startup",
+      wallpaper: "Background",
+      settings: "Settings",
+      traceroute: "TraceRoute",
+      store: "Store",
+      minesweeper: "Minesweeper",
+      packet: "Packet",
+      codelab: "Codelab",
+      diskmanager: "Disk Manager",
+      pspy: "Proc Spy",
+      devtools: "DevTools",
+    };
+    return fallback[type];
+  }
+  const key = getAppLabelKey(type);
+  return t("apps:" + key);
 }

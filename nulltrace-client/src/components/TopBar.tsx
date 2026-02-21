@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Settings, Bell } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useNotification } from "../contexts/NotificationContext";
@@ -8,6 +9,7 @@ import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
 import styles from "./TopBar.module.css";
 
 export default function TopBar() {
+  const { t } = useTranslation(["common", "notifications", "apps"]);
   const [time, setTime] = useState(() => formatTime(new Date()));
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -45,7 +47,7 @@ export default function TopBar() {
     if (ids.length > 0) {
       setFocus(ids[ids.length - 1]);
     } else {
-      openApp("sound", { title: "Sound" });
+      openApp("sound", { title: t("apps:sound") });
     }
   }
 
@@ -54,7 +56,7 @@ export default function TopBar() {
     if (ids.length > 0) {
       setFocus(ids[ids.length - 1]);
     } else {
-      openApp("network", { title: "Network" });
+      openApp("network", { title: t("apps:network") });
     }
   }
 
@@ -63,7 +65,7 @@ export default function TopBar() {
     if (ids.length > 0) {
       setFocus(ids[ids.length - 1]);
     } else {
-      openApp("settings", { title: "Settings" });
+      openApp("settings", { title: t("apps:settings") });
     }
   }
 
@@ -85,8 +87,8 @@ export default function TopBar() {
           type="button"
           className={styles.notificationBtn}
           onClick={handleNotificationClick}
-          title="Notifications"
-          aria-label="Notifications"
+          title={t("notifications:title")}
+          aria-label={t("notifications:title")}
           aria-expanded={isDrawerOpen}
           aria-haspopup="true"
         >
@@ -101,8 +103,8 @@ export default function TopBar() {
           type="button"
           className={styles.iconBtn}
           onClick={handleWifiClick}
-          title="Network"
-          aria-label="Network"
+          title={t("apps:network")}
+          aria-label={t("apps:network")}
         >
           <WifiIcon />
         </button>
@@ -110,8 +112,8 @@ export default function TopBar() {
           type="button"
           className={styles.iconBtn}
           onClick={handleSoundClick}
-          title="Sound"
-          aria-label="Sound"
+          title={t("apps:sound")}
+          aria-label={t("apps:sound")}
         >
           <SoundIcon />
         </button>
@@ -120,8 +122,8 @@ export default function TopBar() {
           type="button"
           className={styles.iconBtn}
           onClick={handleSettingsClick}
-          title="Settings"
-          aria-label="Settings"
+          title={t("apps:settings")}
+          aria-label={t("apps:settings")}
         >
           <Settings size={18} />
         </button>
@@ -143,7 +145,7 @@ export default function TopBar() {
                 <span>{username ?? "User"}</span>
               </div>
               <button type="button" className={styles.userDropdownItem} onClick={handleEndSession}>
-                End session
+                {t("common:end_session")}
               </button>
             </div>
           )}

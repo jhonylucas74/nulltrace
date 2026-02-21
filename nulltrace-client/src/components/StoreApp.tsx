@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { Package, Download, Search } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useInstalledApps } from "../contexts/InstalledAppsContext";
@@ -14,6 +15,7 @@ import styles from "./StoreApp.module.css";
 type Section = "discover" | "installed";
 
 export default function StoreApp() {
+  const { t } = useTranslation("apps");
   const { username } = useAuth();
   const { install, isInstalled, installedAppTypes } = useInstalledApps();
   const { openApp } = useWorkspaceLayout();
@@ -39,10 +41,9 @@ export default function StoreApp() {
   const filterBySearch = (entry: (typeof STORE_CATALOG)[number]) => {
     const q = searchTerm.trim().toLowerCase();
     if (!q) return true;
-    return (
-      entry.name.toLowerCase().includes(q) ||
-      entry.description.toLowerCase().includes(q)
-    );
+    const name = t(entry.nameKey).toLowerCase();
+    const description = t(entry.descKey).toLowerCase();
+    return name.includes(q) || description.includes(q);
   };
 
   const discoverFiltered = useMemo(() => {
@@ -54,22 +55,22 @@ export default function StoreApp() {
       if (aInstalled && !bInstalled) return 1;
       return 0;
     });
-  }, [discoverEntries, searchTerm, installedAppTypes]);
+  }, [discoverEntries, searchTerm, installedAppTypes, t]);
 
   const installedFiltered = useMemo(
     () => installedEntries.filter(filterBySearch),
-    [installedEntries, searchTerm]
+    [installedEntries, searchTerm, t]
   );
 
   const entriesToShow = section === "discover" ? discoverFiltered : installedFiltered;
 
   const handleOpen = (type: (typeof STORE_CATALOG)[number]["type"]) => {
-    openApp(type, { title: getAppTitle(type, username) });
+    openApp(type, { title: getAppTitle(type, username, t) });
   };
 
   const handleInstall = (type: (typeof STORE_CATALOG)[number]["type"]) => {
     install(type).then((success) => {
-      if (success) openApp(type, { title: getAppTitle(type, username) });
+      if (success) openApp(type, { title: getAppTitle(type, username, t) });
     });
   };
 
@@ -134,9 +135,9 @@ export default function StoreApp() {
                 <div key={entry.type} className={styles.card}>
                   <div className={styles.cardIconWrap}>{entry.icon}</div>
                   <div className={styles.cardTitleRow}>
-                    <span className={styles.cardTitle}>{entry.name}</span>
+                    <span className={styles.cardTitle}>{t(entry.nameKey)}</span>
                   </div>
-                  <p className={styles.cardDesc}>{entry.description}</p>
+                  <p className={styles.cardDesc}>{t(entry.descKey)}</p>
                   {showOpen ? (
                     <button
                       type="button"

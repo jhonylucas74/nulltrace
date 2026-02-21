@@ -1,4 +1,5 @@
 import { useRef, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useWindowManager } from "../contexts/WindowManagerContext";
 import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
 import { useAppLauncher } from "../contexts/AppLauncherContext";
@@ -34,7 +35,7 @@ const FIXED_DOCK_APPS: LaunchableApp[] = LAUNCHABLE_APPS.filter(
     app.type !== "packet"
 );
 
-const ALL_APPS_ENTRY: LaunchableApp = { type: "apps", label: "All Apps", icon: <AppsIcon /> };
+const ALL_APPS_ENTRY: LaunchableApp = { type: "apps", label: "All Apps", labelKey: "all_apps", icon: <AppsIcon /> };
 
 interface DockProps {
   username?: string | null;
@@ -45,10 +46,11 @@ function getAppEntryForDock(type: WindowType, isInstalled: (t: WindowType) => bo
   if (builtIn) return builtIn;
   if (!isInstalled(type)) return undefined;
   const entry = STORE_CATALOG.find((e) => e.type === type);
-  return entry ? { type: entry.type, label: entry.name, icon: entry.icon } : undefined;
+  return entry ? { type: entry.type, label: entry.name, labelKey: entry.nameKey, icon: entry.icon } : undefined;
 }
 
 export default function Dock({ username }: DockProps) {
+  const { t } = useTranslation("apps");
   const { openApp, setActiveWorkspace, activeWorkspaceId, workspaces } = useWorkspaceLayout();
   const { windows, setFocus, getWindowIdsByType } = useWindowManager();
   const { open: openAppLauncher } = useAppLauncher();
@@ -94,7 +96,7 @@ export default function Dock({ username }: DockProps) {
       }
       setFocus(winId);
     } else {
-      openApp(type, { title: getAppTitle(type, username) });
+      openApp(type, { title: getAppTitle(type, username, t) });
     }
   }
 
@@ -113,7 +115,7 @@ export default function Dock({ username }: DockProps) {
               type="button"
               className={`${styles.dockItem} ${impactClass}`.trim()}
               onClick={() => handleAppClick(app.type)}
-              title={app.label}
+              title={t(app.labelKey)}
             >
               <span className={styles.dockIcon}>{app.icon}</span>
               {hasOpen && <span className={styles.indicator} />}

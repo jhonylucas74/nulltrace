@@ -881,7 +881,15 @@ impl VmManager {
                     let (stream_tx, stream_rx) = mpsc::channel(32);
                     let _ = response_tx.send(Ok(stream_rx));
                     let mut hub = process_run_hub.lock().unwrap();
-                    hub.active_runs.insert((vm_id, pid), (stream_tx, 0));
+                    hub.active_runs.insert(
+                        (vm_id, pid),
+                        super::process_run_hub::ActiveRun {
+                            stream_tx,
+                            last_stdout_len: 0,
+                            started_at: std::time::Instant::now(),
+                            bin_name: bin_name.clone(),
+                        },
+                    );
                 }
             }
 
@@ -1315,12 +1323,25 @@ impl VmManager {
                 }
             }
 
-            // Process run hub: drain stdout from active runs, send Finished when process exits
+            // Process run hub: drain stdout from active runs, send Finished when process exits or timeout (30s)
             {
                 let mut to_remove = Vec::new();
+                let timeout_duration = super::process_run_hub::RUN_PROCESS_TIMEOUT;
+                let curl_timeout_response = super::process_run_hub::CURL_TIMEOUT_HTTP_RESPONSE;
                 {
                     let mut hub = process_run_hub.lock().unwrap();
-                    for ((vm_id, pid), (stream_tx, last_len)) in hub.active_runs.iter_mut() {
+                    for ((vm_id, pid), run) in hub.active_runs.iter_mut() {
+                        // Timeout: kill run and send HTTP 504 for curl so browser shows error
+                        if run.started_at.elapsed() >= timeout_duration {
+                            if run.bin_name == "curl" {
+                                let _ = run.stream_tx.try_send(RunProcessStreamMsg::Stdout(
+                                    curl_timeout_response.to_string(),
+                                ));
+                            }
+                            let _ = run.stream_tx.try_send(RunProcessStreamMsg::Finished(1));
+                            to_remove.push((*vm_id, *pid));
+                            continue;
+                        }
                         let Some(vm) = vms.iter().find(|v| v.id == *vm_id) else {
                             to_remove.push((*vm_id, *pid));
                             continue;
@@ -1331,18 +1352,18 @@ impl VmManager {
                         };
                         if let Ok(mut guard) = p.stdout.lock() {
                             let len = guard.len();
-                            if len > *last_len {
-                                let suffix = guard[*last_len..].to_string();
+                            if len > run.last_stdout_len {
+                                let suffix = guard[run.last_stdout_len..].to_string();
                                 guard.clear();
-                                *last_len = 0;
+                                run.last_stdout_len = 0;
                                 drop(guard);
-                                if stream_tx.try_send(RunProcessStreamMsg::Stdout(suffix)).is_err() {
+                                if run.stream_tx.try_send(RunProcessStreamMsg::Stdout(suffix)).is_err() {
                                     to_remove.push((*vm_id, *pid));
                                 }
                             }
                         }
                         if p.is_finished() {
-                            let _ = stream_tx.try_send(RunProcessStreamMsg::Finished(0));
+                            let _ = run.stream_tx.try_send(RunProcessStreamMsg::Finished(0));
                             to_remove.push((*vm_id, *pid));
                         }
                     }

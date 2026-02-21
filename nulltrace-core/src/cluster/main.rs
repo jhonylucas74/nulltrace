@@ -409,7 +409,7 @@ async fn load_game_vms(
         manager.clear_active_vms();
     }
 
-    // 1c. Create NPC VM emailbox.null: sends 10 emails to Haru, serves received emails at /inbox
+    // 1c. Create NPC VM emailbox.null: sends 10 emails to Haru; GET /inbox is a controller (first page of inbox)
     {
         let config = VmConfig {
             hostname: "emailbox".to_string(),
@@ -435,13 +435,20 @@ async fn load_game_vms(
         let _ = fs_service
             .write_file(vm_id, "/var/www/body.txt", body_content, Some("text/plain"), "root")
             .await;
-        let inbox_header = b"# Received emails (from=... to=... subject=... id=... date=...)\n";
-        let _ = fs_service
-            .write_file(vm_id, "/var/www/inbox", inbox_header, Some("text/plain"), "root")
-            .await;
         let index_header = b"# Sent emails (to=... subject=... n=...)\n";
         let _ = fs_service
             .write_file(vm_id, "/var/www/index", index_header, Some("text/plain"), "root")
+            .await;
+
+        let emailbox_httpd_lua = include_str!("../lua_scripts/emailbox_httpd.lua");
+        let _ = fs_service
+            .write_file(
+                vm_id,
+                "/var/www/emailbox_httpd.lua",
+                emailbox_httpd_lua.as_bytes(),
+                Some("text/plain"),
+                "root",
+            )
             .await;
 
         let email_sender_lua = include_str!("../lua_scripts/email_sender.lua");
@@ -455,7 +462,7 @@ async fn load_game_vms(
             )
             .await;
 
-        let bootstrap_content = "httpd /var/www\nlua /var/www/email_sender.lua\n";
+        let bootstrap_content = "lua /var/www/emailbox_httpd.lua\nlua /var/www/email_sender.lua\n";
         let _ = fs_service
             .write_file(
                 vm_id,
@@ -466,7 +473,7 @@ async fn load_game_vms(
             )
             .await;
 
-        println!("[cluster] ✓ NPC VM emailbox.null created (httpd + email_sender)");
+        println!("[cluster] ✓ NPC VM emailbox.null created (emailbox_httpd + email_sender)");
     }
 
     // 2. Restore all running/crashed player VMs from database

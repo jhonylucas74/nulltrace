@@ -9,6 +9,7 @@
   "from": "From",
   "subject": "Subject",
   "date": "Date",
+  "message": "Message",
   "new_badge": "New",
   "no_deleted": "No deleted messages.",
   "no_spam": "No spam messages.",
@@ -25,5 +26,6 @@
   "delete_forever": "Delete forever",
   "select_prompt": "Select a message or click Compose.",
   "reply_prefix": "Re:",
-  "load_more": "Load more"
+  "load_more": "Load more",
+  "wrote": "wrote"
 }

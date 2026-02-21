@@ -7,6 +7,7 @@ import {
   DEFAULT_BROWSER_URL,
   BROWSER_HISTORY_URL,
   CONNECTION_ERROR_HTML,
+  SITE_NOT_FOUND_HTML,
   NTML_PROCESSING_ERROR_HTML,
   httpErrorHtml,
 } from "../lib/browserPages";
@@ -14,8 +15,10 @@ import {
   isVmUrl,
   normalizeVmUrl,
   parseHttpResponse,
+  resolveRedirectUrl,
   resolveScriptUrl,
   getBaseHost,
+  MAX_HTTP_REDIRECTS,
 } from "../lib/browserVm";
 import { renderLucideIconToSvgAsync } from "../lib/lucideNtmlIcons";
 import { useAuth } from "../contexts/AuthContext";
@@ -118,6 +121,7 @@ export default function Browser() {
 
   // Resolve [data-lucide] placeholders in NTML-rendered iframe to Lucide SVG icons.
   // Also scroll to hash anchor (e.g. #spacing) when URL has a fragment.
+  // Inject user-select: text so non-NTML (and NTML) content allows text selection.
   useEffect(() => {
     if (activeTab?.contentType !== "html" || !activeTab?.content) return;
     let cancelled = false;
@@ -125,6 +129,13 @@ export default function Browser() {
       const iframe = iframeRef.current;
       if (!iframe?.contentDocument) return;
       const doc = iframe.contentDocument;
+      // Allow text selection in iframe content (plain HTML or NTML).
+      if (!doc.getElementById("browser-select-style")) {
+        const style = doc.createElement("style");
+        style.id = "browser-select-style";
+        style.textContent = "body { user-select: text; -webkit-user-select: text; }";
+        (doc.head || doc.documentElement).appendChild(style);
+      }
       const hash = activeTab?.url?.includes("#")
         ? activeTab.url.slice(activeTab.url.indexOf("#") + 1)
         : null;
@@ -157,7 +168,7 @@ export default function Browser() {
   }, [activeTab?.id, activeTab?.content, activeTab?.contentType, activeTab?.url]);
 
   const fetchVmUrl = useCallback(
-    async (tabId: string, url: string) => {
+    async (tabId: string, url: string, redirectCount = 0) => {
       if (!tauri || !token) {
         setTabs((prev) =>
           prev.map((t) =>
@@ -215,6 +226,26 @@ export default function Browser() {
           );
           return;
         }
+        // Status 0 or invalid HTTP: no real response (host not found, connection failed, or curl error)
+        // Like a real browser: ERR_NAME_NOT_RESOLVED / "This site can't be reached"
+        const validHttpStatus = parsed.status >= 100 && parsed.status <= 599;
+        if (!validHttpStatus) {
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id === tabId
+                ? {
+                    ...t,
+                    loading: false,
+                    error: true,
+                    content: SITE_NOT_FOUND_HTML,
+                    contentType: "html" as const,
+                  }
+                : t
+            )
+          );
+          return;
+        }
+        // 4xx/5xx: show error page (like a real browser)
         if (parsed.status >= 400) {
           setTabs((prev) =>
             prev.map((t) =>
@@ -232,6 +263,21 @@ export default function Browser() {
           );
           return;
         }
+        // 3xx: follow redirect if Location present and under limit
+        const isRedirect = parsed.status >= 301 && parsed.status <= 308;
+        if (
+          isRedirect &&
+          parsed.location &&
+          redirectCount < MAX_HTTP_REDIRECTS
+        ) {
+          const resolvedUrl = resolveRedirectUrl(url, parsed.location);
+          setTabs((prev) =>
+            prev.map((t) => (t.id === tabId ? { ...t, url: resolvedUrl } : t))
+          );
+          fetchVmUrl(tabId, resolvedUrl, redirectCount + 1);
+          return;
+        }
+        // 2xx or 3xx without followable redirect: render body
         const ct = parsed.contentType?.toLowerCase() ?? "";
         if (ct.includes("text/plain")) {
           setTabs((prev) =>

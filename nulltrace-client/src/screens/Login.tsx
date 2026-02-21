@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Power } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useGrpc } from "../contexts/GrpcContext";
@@ -19,6 +20,8 @@ function formatDate(d: Date): string {
 }
 
 export default function Login() {
+  const { t } = useTranslation("login");
+  const { t: tCommon } = useTranslation("common");
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -103,10 +106,10 @@ export default function Login() {
         }
         navigate("/desktop", { replace: true });
       } else {
-        setError(res.error_message || "Invalid credentials");
+        setError(res.error_message || t("invalid_credentials"));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Cannot reach server");
+      setError(err instanceof Error ? err.message : t("server_error"));
     } finally {
       setSubmitting(false);
     }
@@ -132,7 +135,7 @@ export default function Login() {
           <span className={styles.logoWordmarkTrace}>trace</span>
         </h1>
         {serverReachable === false && (
-          <p className={styles.errorText}>Cannot reach server. Check that the backend is running.</p>
+          <p className={styles.errorText}>{t("server_error")}</p>
         )}
         {!selectedUser ? (
           <div className={styles.userList}>
@@ -153,7 +156,7 @@ export default function Login() {
             <form onSubmit={handleSubmit} className={styles.passwordForm}>
               <input
                 type="password"
-                placeholder="Password"
+                placeholder={t("password_placeholder")}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className={styles.input}
@@ -162,7 +165,7 @@ export default function Login() {
                 disabled={submitting}
               />
               {error && <p className={styles.errorText}>{error}</p>}
-              <p className={styles.sessionLabel}>Session: Nulltrace · Press Enter to sign in</p>
+              <p className={styles.sessionLabel}>{t("session_label")}</p>
             </form>
             <div className={styles.userCircles}>
               {MOCK_USERS.map((user) => (
@@ -182,7 +185,7 @@ export default function Login() {
       </div>
 
       <button type="button" className={styles.createUser} onClick={handleCreateUser}>
-        Create new user
+        {t("create_user")}
       </button>
 
       <div className={styles.powerWrap} ref={powerMenuRef}>
@@ -190,8 +193,8 @@ export default function Login() {
           type="button"
           className={styles.powerBtn}
           onClick={() => setPowerMenuOpen((o) => !o)}
-          title="Power options"
-          aria-label="Power options"
+          title={tCommon("power_options")}
+          aria-label={tCommon("power_options")}
           aria-expanded={powerMenuOpen}
           aria-haspopup="true"
         >
@@ -204,7 +207,7 @@ export default function Login() {
               className={styles.powerDropdownItem}
               onClick={handleQuitGame}
             >
-              Quit game
+              {tCommon("quit_game")}
             </button>
           </div>
         )}

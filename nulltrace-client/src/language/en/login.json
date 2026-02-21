@@ -2,5 +2,6 @@
   "server_error": "Cannot reach server. Check that the backend is running.",
   "password_placeholder": "Password",
   "session_label": "Session: Nulltrace · Press Enter to sign in",
-  "create_user": "Create new user"
+  "create_user": "Create new user",
+  "invalid_credentials": "Invalid credentials"
 }

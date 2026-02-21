@@ -179,6 +179,27 @@ export const CONNECTION_ERROR_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+/** Error page when host/site is not found (no response = DNS/host unknown, like ERR_NAME_NOT_RESOLVED). */
+export const SITE_NOT_FOUND_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Site not found</title>
+<style>
+  body { font-family: Arial,sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f1f1f1; color: #333; }
+  .box { text-align: center; padding: 2rem; max-width: 360px; }
+  h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+  p { color: #666; font-size: 0.9rem; line-height: 1.5; }
+  .hint { margin-top: 1rem; padding: 0.75rem; background: #f8f8f8; border-radius: 6px; font-size: 0.8rem; color: #555; text-align: left; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>This site can't be reached</h1>
+    <p>The host might be wrong or the site doesn't exist in this network. Check the address and try again.</p>
+    <div class="hint">The address was not found (host unknown or no server at this address).</div>
+  </div>
+</body>
+</html>`;
+
 /** Error page when NTML processing fails (parse/render error). */
 export const NTML_PROCESSING_ERROR_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -198,10 +219,28 @@ export const NTML_PROCESSING_ERROR_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-/** Error page for HTTP 4xx/5xx responses. */
+/** Error page for any non-200 HTTP response (4xx, 5xx, 3xx, etc.). */
 export function httpErrorHtml(status: number, reason?: string): string {
-  const title = status === 404 ? "404 Not Found" : `${status} Error`;
-  const msg = reason || (status === 404 ? "The requested page was not found." : "The server encountered an error.");
+  const titles: Record<number, string> = {
+    400: "400 Bad Request",
+    401: "401 Unauthorized",
+    403: "403 Forbidden",
+    404: "404 Not Found",
+    500: "500 Server Error",
+    502: "502 Bad Gateway",
+    503: "503 Service Unavailable",
+  };
+  const title = titles[status] ?? `${status} Error`;
+  const defaultMessages: Record<number, string> = {
+    400: "The request was invalid.",
+    401: "Authentication is required.",
+    403: "You don't have permission to view this page.",
+    404: "The requested page was not found.",
+    500: "The server encountered an error.",
+    502: "The server is temporarily unavailable (bad gateway).",
+    503: "The service is temporarily unavailable.",
+  };
+  const msg = reason ?? defaultMessages[status] ?? "The server returned an error.";
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><title>${title}</title>

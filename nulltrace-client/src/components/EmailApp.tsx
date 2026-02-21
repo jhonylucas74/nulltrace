@@ -216,10 +216,11 @@ export default function EmailApp() {
     setComposing(true);
     setSentBanner(false);
     setComposeTo(msg.from_address);
-    const subj = msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`;
+    const replyPrefix = t("reply_prefix");
+    const subj = msg.subject.startsWith(replyPrefix) ? msg.subject : `${replyPrefix} ${msg.subject}`;
     setComposeSubject(subj);
-    setComposeBody(`\n\n---\n${msg.from_address} wrote:\n\n${msg.body}`);
-  }, []);
+    setComposeBody(`\n\n---\n${msg.from_address} ${t("wrote")}:\n\n${msg.body}`);
+  }, [t]);
 
   const handleSend = useCallback(async () => {
     if (!composeTo.trim() || !composeSubject.trim() || !emailAddress || !mailToken) return;
@@ -325,7 +326,7 @@ export default function EmailApp() {
     return (
       <div className={styles.app}>
         <div className={styles.loadingAccount}>
-          <p className={styles.loadingAccountText}>Loading email account…</p>
+          <p className={styles.loadingAccountText}>{t("loading_account")}</p>
           <Loader2 size={28} className={styles.loadingAccountSpinner} aria-hidden />
         </div>
       </div>
@@ -337,7 +338,7 @@ export default function EmailApp() {
       <div className={styles.toolbar}>
         <button type="button" className={styles.toolbarBtn} onClick={handleCompose}>
           <ComposeIcon />
-          <span>Compose</span>
+          <span>{t("compose")}</span>
         </button>
         <div className={styles.folderTabs}>
           <button
@@ -346,7 +347,7 @@ export default function EmailApp() {
             onClick={() => setFolder("inbox")}
           >
             <InboxIcon />
-            <span>Inbox</span>
+            <span>{t("inbox")}</span>
             {inboxUnread > 0 && <span className={styles.unreadBadge}>{inboxUnread}</span>}
           </button>
           <button
@@ -355,7 +356,7 @@ export default function EmailApp() {
             onClick={() => setFolder("sent")}
           >
             <SentIcon />
-            <span>Sent</span>
+            <span>{t("sent")}</span>
           </button>
           <button
             type="button"
@@ -363,7 +364,7 @@ export default function EmailApp() {
             onClick={() => setFolder("spam")}
           >
             <SpamIcon />
-            <span>Spam</span>
+            <span>{t("spam")}</span>
             {messages.filter((m) => m.folder === "spam").length > 0 && (
               <span className={styles.folderCount}>
                 {messages.filter((m) => m.folder === "spam").length}
@@ -376,7 +377,7 @@ export default function EmailApp() {
             onClick={() => setFolder("trash")}
           >
             <TrashIcon />
-            <span>Trash</span>
+            <span>{t("trash")}</span>
             {messages.filter((m) => m.folder === "trash").length > 0 && (
               <span className={styles.folderCount}>
                 {messages.filter((m) => m.folder === "trash").length}
@@ -391,16 +392,16 @@ export default function EmailApp() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th className={styles.colFrom}>{folder === "sent" ? "To" : "From"}</th>
-                <th className={styles.colSubject}>Subject</th>
-                <th className={styles.colDate}>Date</th>
+                <th className={styles.colFrom}>{folder === "sent" ? t("to") : t("from")}</th>
+                <th className={styles.colSubject}>{t("subject")}</th>
+                <th className={styles.colDate}>{t("date")}</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
                   <td colSpan={3} className={styles.emptyFolder}>
-                    Loading…
+                    {tCommon("loading")}
                   </td>
                 </tr>
               )}
@@ -418,7 +419,7 @@ export default function EmailApp() {
                       <span className={styles.subjectCell}>
                         <span className={styles.subjectText}>{m.subject}</span>
                         {!m.read && folder === "inbox" && (
-                          <span className={styles.newTag}>New</span>
+                          <span className={styles.newTag}>{t("new_badge")}</span>
                         )}
                       </span>
                     </td>
@@ -444,18 +445,18 @@ export default function EmailApp() {
           {!loading && filteredMessages.length === 0 && (
             <p className={styles.emptyFolder}>
               {folder === "trash"
-                ? "No deleted messages."
+                ? t("no_deleted")
                 : folder === "spam"
-                  ? "No spam messages."
+                  ? t("no_spam")
                   : folder === "sent"
-                    ? "No sent messages."
-                    : "No messages."}
+                    ? t("no_sent")
+                    : t("no_messages")}
             </p>
           )}
         </div>
 
         <div className={styles.panel}>
-          {sentBanner && <div className={styles.sentBanner}>Message sent.</div>}
+          {sentBanner && <div className={styles.sentBanner}>{tCommon("message_sent")}</div>}
           {composing ? (
             <form
               className={styles.composeForm}
@@ -468,19 +469,19 @@ export default function EmailApp() {
                 {replyingTo ? (
                   <>
                     <div className={styles.composeField}>
-                      <span className={styles.composeLabel}>To</span>
+                      <span className={styles.composeLabel}>{t("to")}</span>
                       <span className={styles.composeFixedValue}>{composeTo}</span>
                     </div>
                     <div className={styles.composeField}>
-                      <span className={styles.composeLabel}>Subject</span>
+                      <span className={styles.composeLabel}>{t("subject")}</span>
                       <span className={styles.composeFixedValue}>{composeSubject}</span>
                     </div>
                   </>
                 ) : (
                   <>
                     <div className={styles.composeFieldFull}>
-                      <span className={styles.composeLabel}>To</span>
-                      <div className={styles.composeToWrap}>
+<span className={styles.composeLabel}>{t("to")}</span>
+                        <div className={styles.composeToWrap}>
                         <input
                           type="text"
                           value={composeTo}
@@ -491,7 +492,7 @@ export default function EmailApp() {
                           }}
                           onFocus={() => setToDropdownOpen(true)}
                           onBlur={() => setTimeout(() => setToDropdownOpen(false), 180)}
-                          placeholder="recipient@mail.null or pick a contact"
+                          placeholder={t("placeholder_to")}
                           className={styles.composeInput}
                           autoComplete="off"
                         />
@@ -523,7 +524,7 @@ export default function EmailApp() {
                         onClick={() => setShowCc(true)}
                         style={{ display: showCc ? "none" : undefined }}
                       >
-                        CC
+                        {t("cc")}
                       </button>
                       <button
                         type="button"
@@ -531,40 +532,40 @@ export default function EmailApp() {
                         onClick={() => setShowBcc(true)}
                         style={{ display: showBcc ? "none" : undefined }}
                       >
-                        Cco
+                        {t("bcc")}
                       </button>
                     </div>
                     {showCc && (
                       <label className={styles.composeFieldFull}>
-                        <span className={styles.composeLabel}>CC</span>
+                        <span className={styles.composeLabel}>{t("cc")}</span>
                         <input
                           type="text"
                           value={composeCc}
                           onChange={(e) => setComposeCc(e.target.value)}
-                          placeholder="cc@mail.null (optional)"
+                          placeholder={t("placeholder_cc")}
                           className={styles.composeInput}
                         />
                       </label>
                     )}
                     {showBcc && (
                       <label className={styles.composeFieldFull}>
-                        <span className={styles.composeLabel}>Cco (Bcc)</span>
+                        <span className={styles.composeLabel}>{t("bcc")}</span>
                         <input
                           type="text"
                           value={composeBcc}
                           onChange={(e) => setComposeBcc(e.target.value)}
-                          placeholder="bcc@mail.null (optional)"
+                          placeholder={t("placeholder_bcc")}
                           className={styles.composeInput}
                         />
                       </label>
                     )}
                     <label className={styles.composeFieldFull}>
-                      <span className={styles.composeLabel}>Subject</span>
+                      <span className={styles.composeLabel}>{t("subject")}</span>
                       <input
                         type="text"
                         value={composeSubject}
                         onChange={(e) => setComposeSubject(e.target.value)}
-                        placeholder="Subject"
+                        placeholder={t("subject")}
                         className={styles.composeInput}
                       />
                     </label>
@@ -572,23 +573,23 @@ export default function EmailApp() {
                 )}
               </div>
               <label className={styles.composeMessageLabel}>
-                <span className={styles.composeLabel}>Message</span>
+                <span className={styles.composeLabel}>{t("message")}</span>
                 <textarea
                   className={styles.composeTextarea}
                   value={composeBody}
                   onChange={(e) => setComposeBody(e.target.value)}
-                  placeholder="Write your message…"
+                  placeholder={t("placeholder_body")}
                 />
               </label>
               <div className={styles.submitRow}>
                 <button type="submit" className={styles.toolbarBtn}>
-                  Send
+                  {tCommon("send")}
                 </button>
                 <button type="button" className={styles.toolbarBtn} onClick={handleCancelCompose}>
-                  Cancel
+                  {tCommon("cancel")}
                 </button>
                 <button type="button" className={styles.toolbarBtn} onClick={handleClearCompose}>
-                  Clear all
+                  {tCommon("clear_all")}
                 </button>
               </div>
             </form>
@@ -603,7 +604,7 @@ export default function EmailApp() {
                       className={styles.actionBtn}
                       onClick={() => handleReply(selectedMessage)}
                     >
-                      Reply
+                      {tCommon("reply")}
                     </button>
                   )}
                   {folder === "inbox" && (
@@ -613,14 +614,14 @@ export default function EmailApp() {
                         className={styles.actionBtnDanger}
                         onClick={() => handleMarkAsSpam(selectedMessage.id)}
                       >
-                        Mark as spam
+                        {t("mark_spam")}
                       </button>
                       <button
                         type="button"
                         className={styles.actionBtn}
                         onClick={() => handleDelete(selectedMessage.id)}
                       >
-                        Delete
+                        {tCommon("delete")}
                       </button>
                     </>
                   )}
@@ -630,7 +631,7 @@ export default function EmailApp() {
                       className={styles.actionBtn}
                       onClick={() => handlePermanentDelete(selectedMessage.id)}
                     >
-                      Delete
+                      {tCommon("delete")}
                     </button>
                   )}
                   {folder === "spam" && (
@@ -640,14 +641,14 @@ export default function EmailApp() {
                         className={styles.actionBtn}
                         onClick={() => handleNotSpam(selectedMessage.id)}
                       >
-                        Not spam
+                        {t("not_spam")}
                       </button>
                       <button
                         type="button"
                         className={styles.actionBtn}
                         onClick={() => handleDelete(selectedMessage.id)}
                       >
-                        Delete
+                        {tCommon("delete")}
                       </button>
                     </>
                   )}
@@ -658,14 +659,14 @@ export default function EmailApp() {
                         className={styles.actionBtn}
                         onClick={() => handleRestore(selectedMessage.id)}
                       >
-                        Restore
+                        {tCommon("restore")}
                       </button>
                       <button
                         type="button"
                         className={styles.actionBtnDanger}
                         onClick={() => handlePermanentDelete(selectedMessage.id)}
                       >
-                        Delete forever
+                        {t("delete_forever")}
                       </button>
                     </>
                   )}
@@ -676,30 +677,31 @@ export default function EmailApp() {
                   <div className={styles.readMeta}>
                     <div className={styles.readMetaLines}>
                       <div className={styles.readMetaRow}>
-                        <span className={styles.readMetaLabel}>From</span>
+                        <span className={styles.readMetaLabel}>{t("from")}</span>
                         <span>{selectedMessage.from_address}</span>
                       </div>
                       <div className={styles.readMetaRow}>
-                        <span className={styles.readMetaLabel}>To</span>
+                        <span className={styles.readMetaLabel}>{t("to")}</span>
                         <span>{selectedMessage.to_address}</span>
                       </div>
                       {selectedMessage.cc_address && selectedMessage.cc_address.trim() !== "" && (
                         <div className={styles.readMetaRow}>
-                          <span className={styles.readMetaLabel}>CC</span>
+                          <span className={styles.readMetaLabel}>{t("cc")}</span>
                           <span>{selectedMessage.cc_address}</span>
                         </div>
                       )}
                     </div>
                     <span className={styles.readDate}>{formatTimestamp(selectedMessage.sent_at_ms)}</span>
                   </div>
-                  <div className={styles.readBody}>{selectedMessage.body}</div>
+                  <div className={styles.readBodyWrap}>
+                    <div className={styles.readBodyLabel}>{t("message")}</div>
+                    <div className={styles.readBody}>{selectedMessage.body || ""}</div>
+                  </div>
                 </div>
               </div>
             </>
           ) : (
-            <p className={styles.panelEmpty}>
-              Select a message or click Compose.
-            </p>
+            <p className={styles.panelEmpty}>{t("select_prompt")}</p>
           )}
         </div>
       </div>

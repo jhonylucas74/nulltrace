@@ -1,80 +1,67 @@
 import React from "react";
 import { Volume2, Wifi, Grid3X3, Palette, Terminal } from "lucide-react";
 import type { WindowType } from "../contexts/WindowManagerContext";
-import { LAUNCHABLE_APPS, getAppByType } from "./appList";
+import { LAUNCHABLE_APPS, getAppByType, getDescKey } from "./appList";
 
 export interface StoreEntry {
   type: WindowType;
   name: string;
   description: string;
+  /** Key in apps namespace for display name (e.g. terminal, files). */
+  nameKey: string;
+  /** Key in apps namespace for description (e.g. desc_terminal, desc_files). */
+  descKey: string;
   icon: React.ReactNode;
 }
 
-/** Short descriptions for store listing (generic, no real brands). */
-const DESCRIPTION_BY_TYPE: Partial<Record<WindowType, string>> = {
-  terminal: "Command-line terminal for the system.",
-  explorer: "Browse and manage files and folders.",
-  browser: "Browse the web.",
-  editor: "Edit code and text files.",
-  theme: "Change desktop theme and appearance.",
-  email: "Send and read mail.",
-  wallet: "Manage balance and payments.",
-  pixelart: "Create and edit pixel art.",
-  sysinfo: "View system information.",
-  shortcuts: "View and customize keyboard shortcuts.",
-  sysmon: "Monitor CPU, memory, and processes.",
-  pspy: "Spy on VM processes: view and inject stdin and stdout in real time.",
-  nullcloud: "Cloud machines and VPS.",
-  hackerboard: "Leaderboard and challenges.",
-  startup: "Choose which apps start with the system.",
-  wallpaper: "Set desktop background and grid.",
-  settings: "Window and display preferences.",
-  traceroute: "Trace network routes on a world map.",
-  sound: "System sound mixer and volume.",
-  network: "Network connections and status.",
-  minesweeper: "Classic minesweeper game.",
-};
-
-function getDescription(type: WindowType): string {
-  return DESCRIPTION_BY_TYPE[type] ?? "Official app.";
-}
-
-/** All apps shown in the Store (built-in + installable). */
+/** All apps shown in the Store (built-in + installable). Names and descriptions are resolved via apps namespace (nameKey, descKey). */
 export const STORE_CATALOG: StoreEntry[] = [
   ...LAUNCHABLE_APPS.map((app) => ({
     type: app.type,
     name: app.label,
-    description: getDescription(app.type),
+    description: "",
+    nameKey: app.labelKey,
+    descKey: getDescKey(app.type),
     icon: app.icon,
   })),
   {
     type: "sound",
     name: "Sound",
-    description: "System sound mixer and volume.",
+    description: "",
+    nameKey: "sound",
+    descKey: "desc_sound",
     icon: <Volume2 size={24} />,
   },
   {
     type: "network",
     name: "Network",
-    description: "Network connections and status.",
+    description: "",
+    nameKey: "network",
+    descKey: "desc_network",
     icon: <Wifi size={24} />,
   },
   {
     type: "minesweeper",
     name: "Minesweeper",
-    description: "Classic minesweeper game.",
+    description: "",
+    nameKey: "minesweeper",
+    descKey: "desc_minesweeper",
     icon: <Grid3X3 size={24} />,
   },
   {
     type: "pixelart",
     name: "Pixel Art",
-    description: "Create and edit pixel art.",
+    description: "",
+    nameKey: "pixel_art",
+    descKey: "desc_pixel_art",
     icon: <Palette size={24} />,
   },
   {
     type: "pspy",
     name: "Proc Spy",
-    description: "Spy on VM processes: view and inject stdin and stdout in real time.",
+    description: "",
+    nameKey: "proc_spy",
+    descKey: "desc_proc_spy",
     icon: <Terminal size={24} />,
   },
 ];

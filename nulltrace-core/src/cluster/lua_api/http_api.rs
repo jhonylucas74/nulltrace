@@ -82,6 +82,23 @@ pub fn register(lua: &Lua) -> Result<()> {
         })?,
     )?;
 
+    // http.normalize_request_path(path) -> path trimmed and query string stripped (avoids gsub/match in Lua; can trigger yield across C-boundary).
+    http.set(
+        "normalize_request_path",
+        lua.create_function(|_lua, path: String| {
+            let s = path.trim();
+            let without_query = s.split('?').next().unwrap_or(s).trim();
+            let path_only = if without_query.is_empty() {
+                "/".to_string()
+            } else if without_query.starts_with('/') {
+                without_query.to_string()
+            } else {
+                format!("/{}", without_query)
+            };
+            Ok(path_only)
+        })?,
+    )?;
+
     // http.parse_response(data) -> { status, reason, headers, body } | nil on error
     http.set(
         "parse_response",

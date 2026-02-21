@@ -384,6 +384,7 @@ end
 "##;
 
 /// Curl: HTTP GET client. Args: [host[:port]/path] or [host] [path]. Connects via net.connect, sends GET, writes raw HTTP response to stdout.
+/// Subject to a 30s process timeout (enforced by run_process hub); on timeout the process is killed and the client receives HTTP 504 Gateway Timeout.
 /// Example: curl ntml.org/robot or curl 10.0.1.5/robot
 pub const CURL: &str = r#"
 local args = os.get_args()

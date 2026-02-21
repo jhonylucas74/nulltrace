@@ -58,6 +58,8 @@ export function normalizeVmUrl(url: string): string {
 export interface ParsedHttpResponse {
   status: number;
   contentType: string | null;
+  /** Location header (for 3xx redirects). */
+  location: string | null;
   body: string;
   raw: string;
 }
@@ -93,6 +95,7 @@ export function parseHttpResponse(raw: string): ParsedHttpResponse | null {
   const status = statusMatch ? parseInt(statusMatch[1], 10) : 0;
 
   let contentType: string | null = null;
+  let location: string | null = null;
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     const colonIdx = line.indexOf(":");
@@ -101,12 +104,13 @@ export function parseHttpResponse(raw: string): ParsedHttpResponse | null {
       const value = line.slice(colonIdx + 1).trim();
       if (name === "content-type") {
         contentType = value.split(";")[0]?.trim() ?? value;
-        break;
+      } else if (name === "location") {
+        location = value || null;
       }
     }
   }
 
-  return { status, contentType, body, raw };
+  return { status, contentType, location, body, raw };
 }
 
 /**
@@ -117,6 +121,33 @@ export function getBaseHost(url: string): string {
   const u = normalizeVmUrl(url);
   const slashIdx = u.indexOf("/");
   return slashIdx >= 0 ? u.slice(0, slashIdx) : u;
+}
+
+/** Max redirects to follow (avoid infinite loops). */
+export const MAX_HTTP_REDIRECTS = 5;
+
+/**
+ * Resolves a redirect Location header against the current request URL.
+ * Returns a VM-style URL (host/path) suitable for a follow-up fetch.
+ * - Absolute: "http://host/path" or "https://host/path" -> "host/path"
+ * - Relative: "/path" -> baseHost + "/path"; "path" -> baseHost + "/currentDir/path" (simple: treat as "/path" if no slash)
+ */
+export function resolveRedirectUrl(currentUrl: string, locationHeader: string): string {
+  const loc = locationHeader.trim();
+  if (!loc) return currentUrl;
+  const lower = loc.toLowerCase();
+  if (lower.startsWith("https://")) {
+    return loc.slice(8).split("#")[0]?.trim() || currentUrl;
+  }
+  if (lower.startsWith("http://")) {
+    return loc.slice(7).split("#")[0]?.trim() || currentUrl;
+  }
+  const baseHost = getBaseHost(currentUrl);
+  if (loc.startsWith("/")) {
+    return baseHost + loc.split("#")[0]?.trim();
+  }
+  // Relative path without leading slash: treat as same host, path = /loc
+  return baseHost + "/" + loc.split("#")[0]?.trim();
 }
 
 /**

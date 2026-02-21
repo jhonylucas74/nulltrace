@@ -1,28 +1,30 @@
+import { useTranslation } from "react-i18next";
 import { Monitor } from "lucide-react";
 import { useWindowConfig } from "../contexts/WindowConfigContext";
 import styles from "./SettingsApp.module.css";
 
 export default function SettingsApp() {
+  const { t } = useTranslation("settings");
   const { fullscreen, startMaximized, setFullscreen, setStartMaximized } = useWindowConfig();
 
   return (
     <div className={styles.app}>
       <aside className={styles.sidebar}>
-        <div className={styles.sidebarTitle}>Settings</div>
+        <div className={styles.sidebarTitle}>{t("title")}</div>
         <div className={styles.navItemActive}>
           <span className={styles.navIcon}>
             <Monitor size={18} />
           </span>
-          Config Window
+          {t("config_window")}
         </div>
       </aside>
       <div className={styles.main}>
         <div className={styles.content}>
           <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>Config Window</h2>
+            <h2 className={styles.sectionTitle}>{t("config_window")}</h2>
           </div>
           <p className={styles.hint}>
-            Options for the game window. Fullscreen applies immediately; start maximized applies on next launch.
+            {t("window_hint")}
           </p>
           <div className={styles.card}>
             <label className={styles.checkLabel}>
@@ -32,10 +34,10 @@ export default function SettingsApp() {
                 checked={fullscreen}
                 onChange={(e) => setFullscreen(e.target.checked)}
               />
-              Fullscreen
+              {t("fullscreen")}
             </label>
             <p className={styles.cardHint}>
-              Run the game in fullscreen. Applies immediately when toggled.
+              {t("fullscreen_hint")}
             </p>
             <label className={styles.checkLabel}>
               <input
@@ -45,12 +47,12 @@ export default function SettingsApp() {
                 onChange={(e) => setStartMaximized(e.target.checked)}
                 disabled={fullscreen}
               />
-              Start maximized
+              {t("start_maximized")}
             </label>
             <p className={styles.cardHint}>
               {fullscreen
-                ? "Unavailable when fullscreen is enabled."
-                : "Maximize the window when the app launches."}
+                ? t("maximized_unavailable")
+                : t("maximized_hint")}
             </p>
           </div>
         </div>

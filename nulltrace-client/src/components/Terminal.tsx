@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { runMockCommand, isClearCommand } from "../lib/mockCommands";
@@ -107,9 +108,6 @@ interface TerminalOutputPayload {
   data?: string;
 }
 
-const CONNECT_ERROR_MESSAGE =
-  "Unexpected error. Could not load the shell (missing or corrupted). The terminal will close.";
-
 const MAX_LINES = 100;
 
 /** Tab size for expanding tabs in terminal output (column alignment). */
@@ -177,12 +175,18 @@ function trimToLast<T>(arr: T[]): T[] {
 }
 
 export default function Terminal({ username, windowId }: TerminalProps) {
+  const { t } = useTranslation("terminal");
+  const { t: tCommon } = useTranslation("common");
   const { playerId, token, logout } = useAuth();
   const navigate = useNavigate();
   const { close } = useWindowManager();
-  const [lines, setLines] = useState<LineItem[]>([
-    { type: "output", content: "Welcome to nulltrace. Type 'help' for commands." },
-  ]);
+  const [lines, setLines] = useState<LineItem[]>([]);
+  const welcomeSetRef = useRef(false);
+  useEffect(() => {
+    if (welcomeSetRef.current) return;
+    welcomeSetRef.current = true;
+    setLines([{ type: "output", content: t("welcome") }]);
+  }, [t]);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
@@ -366,7 +370,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
           } else if (payload.type === "closed") {
             setSessionEnded(true);
             setWaitingForPrompt(false);
-            setLines((prev) => trimToLast([...prev, { type: "output", content: "Session ended." }]));
+            setLines((prev) => trimToLast([...prev, { type: "output", content: t("session_ended") }]));
             sessionIdRef.current = null;
             setSessionId(null);
           } else if (payload.type === "error" && payload.data) {
@@ -402,7 +406,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
         invoke("terminal_disconnect", { sessionId: sid }).catch(() => {});
       }
     };
-  }, [playerId, token, logout, navigate]);
+  }, [playerId, token, logout, navigate, t]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -592,22 +596,22 @@ export default function Terminal({ username, windowId }: TerminalProps) {
       <Modal
         open={connectErrorModalOpen}
         onClose={handleConnectErrorModalClose}
-        title="Unexpected Error"
-        primaryButton={{ label: "OK", onClick: handleConnectErrorModalClose }}
+        title={t("error_title")}
+        primaryButton={{ label: tCommon("ok"), onClick: handleConnectErrorModalClose }}
       >
-        <p>{CONNECT_ERROR_MESSAGE}</p>
+        <p>{t("shell_error")}</p>
       </Modal>
       <Modal
         open={memoryLimitModalOpen}
         onClose={handleMemoryLimitModalClose}
-        title="Memory Limit Reached"
-        primaryButton={{ label: "OK", onClick: handleMemoryLimitModalClose }}
+        title={t("memory_limit_title")}
+        primaryButton={{ label: tCommon("ok"), onClick: handleMemoryLimitModalClose }}
       >
         <p className={styles.memoryModalText}>
-          All processes have been killed.
+          {t("processes_killed")}
         </p>
         <p className={styles.memoryModalSubtext}>
-          You can open a new terminal session to continue.
+          {t("new_session_hint")}
         </p>
       </Modal>
       <div className={styles.scroll} ref={scrollRef}>
@@ -642,7 +646,7 @@ export default function Terminal({ username, windowId }: TerminalProps) {
               autoCorrect="off"
               autoCapitalize="off"
               autoFocus
-              aria-label="Command input"
+              aria-label={t("command_input")}
               readOnly={waitingForPrompt}
               tabIndex={waitingForPrompt ? -1 : 0}
             />
