@@ -2,6 +2,7 @@ mod auth;
 mod bench_scripts;
 mod bin_programs;
 mod file_search;
+mod mailbox_hub;
 mod path_util;
 mod process;
 mod process_parser;
@@ -19,6 +20,8 @@ mod vm_manager;
 mod vm_worker;
 
 use dashmap::DashMap;
+use db::email_account_service::EmailAccountService;
+use db::email_service::EmailService;
 use db::faction_service::FactionService;
 use db::fs_service::FsService;
 use db::player_service::PlayerService;
@@ -44,10 +47,20 @@ fn create_vm_lua_state(
     pool: sqlx::PgPool,
     fs_service: Arc<FsService>,
     user_service: Arc<UserService>,
+    email_service: Arc<EmailService>,
+    email_account_service: Arc<EmailAccountService>,
+    mailbox_hub: mailbox_hub::MailboxHub,
 ) -> Result<mlua::Lua, mlua::Error> {
     let lua = os::create_lua_state();
     lua.set_app_data(VmContext::new(pool));
-    lua_api::register_all(&lua, fs_service, user_service)?;
+    lua_api::register_all(
+        &lua,
+        fs_service,
+        user_service,
+        email_service,
+        email_account_service,
+        mailbox_hub,
+    )?;
     lua.set_memory_limit(os::LUA_MEMORY_LIMIT_BYTES)?;
     Ok(lua)
 }
@@ -78,6 +91,9 @@ async fn main() {
     let player_service = Arc::new(PlayerService::new(pool.clone()));
     let faction_service = Arc::new(FactionService::new(pool.clone()));
     let shortcuts_service = Arc::new(ShortcutsService::new(pool.clone()));
+    let email_service = Arc::new(EmailService::new(pool.clone()));
+    let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+    let mailbox_hub = mailbox_hub::new_hub();
 
     // ── Seed default player (Haru) if not present ──
     player_service
@@ -101,6 +117,9 @@ async fn main() {
         fs_service.clone(),
         user_service.clone(),
         player_service.clone(),
+        email_account_service.clone(),
+        email_service.clone(),
+        mailbox_hub.clone(),
         subnet,
     );
 
@@ -112,9 +131,27 @@ async fn main() {
 
     // ── Criar ou carregar VMs dependendo do modo ──
     let mut vms = if stress_mode {
-        create_stress_vms(pool.clone(), fs_service.clone(), user_service.clone())
+        create_stress_vms(
+            pool.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            email_service.clone(),
+            email_account_service.clone(),
+            mailbox_hub.clone(),
+        )
     } else {
-        load_game_vms(&mut manager, pool.clone(), fs_service.clone(), user_service.clone(), &player_service, &vm_service).await
+        load_game_vms(
+            &mut manager,
+            pool.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            email_service.clone(),
+            email_account_service.clone(),
+            mailbox_hub.clone(),
+            &player_service,
+            &vm_service,
+        )
+        .await
     };
 
     let terminal_hub = new_hub();
@@ -134,6 +171,9 @@ async fn main() {
         user_service.clone(),
         faction_service.clone(),
         shortcuts_service.clone(),
+        email_service.clone(),
+        email_account_service.clone(),
+        mailbox_hub.clone(),
         terminal_hub.clone(),
         process_spy_hub.clone(),
         process_run_hub.clone(),
@@ -178,6 +218,9 @@ fn create_stress_vms(
     pool: sqlx::PgPool,
     fs_service: Arc<FsService>,
     user_service: Arc<UserService>,
+    email_service: Arc<EmailService>,
+    email_account_service: Arc<EmailAccountService>,
+    mailbox_hub: mailbox_hub::MailboxHub,
 ) -> Vec<VirtualMachine> {
     const NUM_SCENARIOS: usize = 5;
     println!("[cluster] STRESS TEST MODE: Creating 5,000 VMs (in-memory), 5 scenarios...");
@@ -185,8 +228,15 @@ fn create_stress_vms(
     let start_creation = std::time::Instant::now();
 
     for i in 0..5_000 {
-        let lua = create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone())
-            .expect("Failed to create VM Lua state");
+        let lua = create_vm_lua_state(
+            pool.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            email_service.clone(),
+            email_account_service.clone(),
+            mailbox_hub.clone(),
+        )
+        .expect("Failed to create VM Lua state");
         let mut vm = VirtualMachine::new(lua);
 
         let scenario = match i % NUM_SCENARIOS {
@@ -298,6 +348,9 @@ async fn load_game_vms(
     pool: sqlx::PgPool,
     fs_service: Arc<FsService>,
     user_service: Arc<UserService>,
+    email_service: Arc<EmailService>,
+    email_account_service: Arc<EmailAccountService>,
+    mailbox_hub: mailbox_hub::MailboxHub,
     player_service: &Arc<PlayerService>,
     vm_service: &Arc<VmService>,
 ) -> Vec<VirtualMachine> {
@@ -330,6 +383,7 @@ async fn load_game_vms(
             gateway: None,
             mac: None,
             owner_id: Some(haru.id),
+            create_email_account: true,
         };
         manager.create_vm(config).await.expect("Failed to create Haru's VM");
         println!("[cluster] ✓ Haru's VM created");
@@ -353,6 +407,66 @@ async fn load_game_vms(
             println!("[cluster] Warning: load_site_vms failed: {}", e);
         }
         manager.clear_active_vms();
+    }
+
+    // 1c. Create NPC VM emailbox.null: sends 10 emails to Haru, serves received emails at /logs
+    {
+        let config = VmConfig {
+            hostname: "emailbox".to_string(),
+            dns_name: Some("emailbox.null".to_string()),
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+            create_email_account: true,
+        };
+        let (record, _nic) = manager
+            .create_vm(config)
+            .await
+            .expect("Failed to create emailbox NPC VM");
+        let vm_id = record.id;
+
+        let _ = fs_service.mkdir(vm_id, "/var/www", "root").await;
+        let body_content = b"Hello from the emailbox NPC. This is a test message.";
+        let _ = fs_service
+            .write_file(vm_id, "/var/www/body.txt", body_content, Some("text/plain"), "root")
+            .await;
+        let logs_header = b"# Received emails (from=... to=... subject=... id=... date=...)\n";
+        let _ = fs_service
+            .write_file(vm_id, "/var/www/logs", logs_header, Some("text/plain"), "root")
+            .await;
+        let index_header = b"# Sent emails (to=... subject=... n=...)\n";
+        let _ = fs_service
+            .write_file(vm_id, "/var/www/index", index_header, Some("text/plain"), "root")
+            .await;
+
+        let email_sender_lua = include_str!("../lua_scripts/email_sender.lua");
+        let _ = fs_service
+            .write_file(
+                vm_id,
+                "/var/www/email_sender.lua",
+                email_sender_lua.as_bytes(),
+                Some("text/plain"),
+                "root",
+            )
+            .await;
+
+        let bootstrap_content = "httpd /var/www\nlua /var/www/email_sender.lua\n";
+        let _ = fs_service
+            .write_file(
+                vm_id,
+                "/etc/bootstrap",
+                bootstrap_content.as_bytes(),
+                Some("text/plain"),
+                "root",
+            )
+            .await;
+
+        println!("[cluster] ✓ NPC VM emailbox.null created (httpd + email_sender)");
     }
 
     // 2. Restore all running/crashed player VMs from database
@@ -379,8 +493,15 @@ async fn load_game_vms(
             .get_active_vm(vm_id)
             .map(|a| a.cpu_cores)
             .unwrap_or(1);
-        let lua = create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone())
-            .expect("Failed to create VM Lua state");
+        let lua = create_vm_lua_state(
+            pool.clone(),
+            fs_service.clone(),
+            user_service.clone(),
+            email_service.clone(),
+            email_account_service.clone(),
+            mailbox_hub.clone(),
+        )
+        .expect("Failed to create VM Lua state");
         let mut vm = VirtualMachine::with_id_and_cpu(lua, vm_id, cpu_cores);
 
         // Attach NIC if the VM has an IP assigned

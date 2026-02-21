@@ -233,6 +233,7 @@ mod tests {
                     gateway: None,
                     mac: None,
                     owner_id: None,
+                    create_email_account: true,
                 },
             )
             .await

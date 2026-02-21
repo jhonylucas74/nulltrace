@@ -30,6 +30,17 @@ export interface GetPlayerProfileResponse {
   error_message: string;
 }
 
+export interface EmailMessage {
+  id: string;
+  from_address: string;
+  to_address: string;
+  subject: string;
+  body: string;
+  folder: string;
+  read: boolean;
+  sent_at_ms: number;
+}
+
 export interface GrpcContextValue {
   ping: () => Promise<PingResponseMessage>;
   login: (username: string, password: string) => Promise<LoginResponseMessage>;
@@ -37,6 +48,19 @@ export interface GrpcContextValue {
   getPlayerProfile: (token: string) => Promise<GetPlayerProfileResponse>;
   setPreferredTheme: (token: string, preferredTheme: string) => Promise<void>;
   setShortcuts: (token: string, shortcutsOverridesJson: string) => Promise<void>;
+  getEmails: (emailAddress: string, mailToken: string, folder: string) => Promise<EmailMessage[]>;
+  sendEmail: (
+    fromAddress: string,
+    mailToken: string,
+    toAddress: string,
+    subject: string,
+    body: string,
+    ccAddress?: string,
+    bccAddress?: string
+  ) => Promise<void>;
+  markEmailRead: (emailAddress: string, mailToken: string, emailId: string, read: boolean) => Promise<void>;
+  moveEmail: (emailAddress: string, mailToken: string, emailId: string, folder: string) => Promise<void>;
+  deleteEmail: (emailAddress: string, mailToken: string, emailId: string) => Promise<void>;
 }
 
 const GrpcContext = createContext<GrpcContextValue | null>(null);
@@ -68,6 +92,50 @@ export function GrpcProvider({ children }: { children: React.ReactNode }) {
           if (!res.success && res.error_message) {
             throw new Error(res.error_message);
           }
+        }),
+      getEmails: (emailAddress: string, mailToken: string, folder: string) =>
+        invoke<EmailMessage[]>("grpc_get_emails", { emailAddress, mailToken, folder }),
+      sendEmail: (
+        fromAddress: string,
+        mailToken: string,
+        toAddress: string,
+        subject: string,
+        body: string,
+        ccAddress?: string,
+        bccAddress?: string
+      ) =>
+        invoke<{ success?: boolean; error_message?: string } | null>("grpc_send_email", {
+          fromAddress,
+          mailToken,
+          toAddress,
+          subject,
+          body,
+          ccAddress: ccAddress ?? null,
+          bccAddress: bccAddress ?? null,
+        }).then((res) => {
+          if (res != null && res.success === false && res.error_message) {
+            throw new Error(res.error_message);
+          }
+        }),
+      markEmailRead: (emailAddress: string, mailToken: string, emailId: string, read: boolean) =>
+        invoke<void>("grpc_mark_email_read", {
+          emailAddress,
+          mailToken,
+          emailId,
+          read,
+        }),
+      moveEmail: (emailAddress: string, mailToken: string, emailId: string, folder: string) =>
+        invoke<void>("grpc_move_email", {
+          emailAddress,
+          mailToken,
+          emailId,
+          folder,
+        }),
+      deleteEmail: (emailAddress: string, mailToken: string, emailId: string) =>
+        invoke<void>("grpc_delete_email", {
+          emailAddress,
+          mailToken,
+          emailId,
         }),
     }),
     []

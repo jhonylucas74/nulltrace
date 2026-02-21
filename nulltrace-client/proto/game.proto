@@ -31,6 +31,12 @@ service GameService {
   rpc CreateFaction (CreateFactionRequest) returns (CreateFactionResponse);
   rpc LeaveFaction (LeaveFactionRequest) returns (LeaveFactionResponse);
   rpc RunProcess (RunProcessRequest) returns (stream RunProcessResponse);
+  rpc GetEmails (GetEmailsRequest) returns (GetEmailsResponse);
+  rpc SendEmail (SendEmailRequest) returns (SendEmailResponse);
+  rpc MarkEmailRead (MarkEmailReadRequest) returns (MarkEmailReadResponse);
+  rpc MoveEmail (MoveEmailRequest) returns (MoveEmailResponse);
+  rpc DeleteEmail (DeleteEmailRequest) returns (DeleteEmailResponse);
+  rpc MailboxStream (MailboxStreamRequest) returns (stream MailboxStreamMessage);
 }
 
 message HelloRequest {
@@ -428,4 +434,86 @@ message LeaveFactionRequest {}
 message LeaveFactionResponse {
   bool success = 1;
   string error_message = 2;
+}
+
+// ── Email ──────────────────────────────────────────────────────────────────
+
+message EmailMessage {
+  string id = 1;
+  string from_address = 2;
+  string to_address = 3;
+  string subject = 4;
+  string body = 5;
+  string folder = 6;
+  bool read = 7;
+  int64 sent_at_ms = 8;
+}
+
+message GetEmailsRequest {
+  string email_address = 1;
+  string mail_token = 2;
+  string folder = 3;
+}
+
+message GetEmailsResponse {
+  repeated EmailMessage emails = 1;
+}
+
+message SendEmailRequest {
+  string from_address = 1;
+  string mail_token = 2;
+  string to_address = 3;
+  string subject = 4;
+  string body = 5;
+  string cc_address = 6;  // empty = not set
+  string bcc_address = 7; // empty = not set
+}
+
+message SendEmailResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message MarkEmailReadRequest {
+  string email_address = 1;
+  string mail_token = 2;
+  string email_id = 3;
+  bool read = 4;
+}
+
+message MarkEmailReadResponse {
+  bool success = 1;
+}
+
+message MoveEmailRequest {
+  string email_address = 1;
+  string mail_token = 2;
+  string email_id = 3;
+  string folder = 4;
+}
+
+message MoveEmailResponse {
+  bool success = 1;
+}
+
+message DeleteEmailRequest {
+  string email_address = 1;
+  string mail_token = 2;
+  string email_id = 3;
+}
+
+message DeleteEmailResponse {
+  bool success = 1;
+}
+
+message MailboxStreamRequest {
+  string email_address = 1;
+  string mail_token = 2;
+}
+
+message MailboxStreamMessage {
+  oneof payload {
+    EmailMessage new_email = 1;
+    int64 unread_count = 2;
+  }
 }

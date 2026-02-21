@@ -1,0 +1,17 @@
+{
+  "cancel": "Cancel",
+  "delete": "Delete",
+  "send": "Send",
+  "clear_all": "Clear all",
+  "loading": "Loading…",
+  "reply": "Reply",
+  "restore": "Restore",
+  "no_messages": "No messages.",
+  "end_session": "End session",
+  "quit_game": "Quit game",
+  "power_options": "Power options",
+  "search_apps": "Search apps…",
+  "no_results": "No results",
+  "message_sent": "Message sent.",
+  "app_launcher": "App launcher"
+}

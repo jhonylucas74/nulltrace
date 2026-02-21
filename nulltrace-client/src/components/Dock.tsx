@@ -3,6 +3,7 @@ import { useWindowManager } from "../contexts/WindowManagerContext";
 import { useWorkspaceLayout } from "../contexts/WorkspaceLayoutContext";
 import { useAppLauncher } from "../contexts/AppLauncherContext";
 import { usePaymentFeedbackOptional } from "../contexts/PaymentFeedbackContext";
+import { useEmail } from "../contexts/EmailContext";
 import type { WindowType } from "../contexts/WindowManagerContext";
 import { useInstalledApps } from "../contexts/InstalledAppsContext";
 import { LAUNCHABLE_APPS, AppsIcon, getAppTitle, getAppByType } from "../lib/appList";
@@ -53,6 +54,7 @@ export default function Dock({ username }: DockProps) {
   const { open: openAppLauncher } = useAppLauncher();
   const { isInstalled } = useInstalledApps();
   const paymentFeedback = usePaymentFeedbackOptional();
+  const { unreadCount } = useEmail();
   const walletIconRef = useRef<HTMLButtonElement>(null);
   const firstWorkspaceId = workspaces[0]?.id ?? "";
 
@@ -115,6 +117,11 @@ export default function Dock({ username }: DockProps) {
             >
               <span className={styles.dockIcon}>{app.icon}</span>
               {hasOpen && <span className={styles.indicator} />}
+              {app.type === "email" && unreadCount > 0 && (
+                <span className={styles.emailBadge}>
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
             </button>
           );
         })}

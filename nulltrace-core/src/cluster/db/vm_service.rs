@@ -34,6 +34,8 @@ pub struct VmConfig {
     pub gateway: Option<String>,
     pub mac: Option<String>,
     pub owner_id: Option<Uuid>,
+    /// If false, skip creating email account and /etc/mail (e.g. for site/webserver VMs). Default true.
+    pub create_email_account: bool,
 }
 
 pub struct VmService {
@@ -209,6 +211,7 @@ mod tests {
             gateway: Some("10.0.1.1".to_string()),
             mac: Some("02:00:0a:00:01:0a".to_string()),
             owner_id: None,
+            create_email_account: true,
         }
     }
 

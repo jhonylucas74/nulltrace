@@ -1708,3 +1708,226 @@ pub fn process_spy_disconnect(
     s.connections.remove(&connection_id);
     // Dropping the sender makes the stream task's cmd_rx.recv() return None and the task exits
 }
+
+// ─── Email Commands ─────────────────────────────────────────────────────────
+
+/// Single email message returned by grpc_get_emails.
+#[derive(serde::Serialize, Clone)]
+pub struct EmailMessageResponse {
+    pub id: String,
+    pub from_address: String,
+    pub to_address: String,
+    pub subject: String,
+    pub body: String,
+    pub folder: String,
+    pub read: bool,
+    pub sent_at_ms: i64,
+}
+
+/// Tauri command: Fetch emails for a given address and folder.
+#[tauri::command]
+pub async fn grpc_get_emails(
+    email_address: String,
+    mail_token: String,
+    folder: String,
+) -> Result<Vec<EmailMessageResponse>, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let response = client
+        .get_emails(tonic::Request::new(game::GetEmailsRequest {
+            email_address,
+            mail_token,
+            folder,
+        }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+    Ok(response
+        .emails
+        .into_iter()
+        .map(|e| EmailMessageResponse {
+            id: e.id,
+            from_address: e.from_address,
+            to_address: e.to_address,
+            subject: e.subject,
+            body: e.body,
+            folder: e.folder,
+            read: e.read,
+            sent_at_ms: e.sent_at_ms,
+        })
+        .collect())
+}
+
+/// Tauri command: Send an email.
+#[tauri::command]
+pub async fn grpc_send_email(
+    from_address: String,
+    mail_token: String,
+    to_address: String,
+    subject: String,
+    body: String,
+    cc_address: Option<String>,
+    bcc_address: Option<String>,
+) -> Result<(), String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let response = client
+        .send_email(tonic::Request::new(game::SendEmailRequest {
+            from_address,
+            mail_token,
+            to_address,
+            subject,
+            body,
+            cc_address: cc_address.unwrap_or_default(),
+            bcc_address: bcc_address.unwrap_or_default(),
+        }))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_inner();
+    if !response.success && !response.error_message.is_empty() {
+        return Err(response.error_message);
+    }
+    Ok(())
+}
+
+/// Tauri command: Mark an email as read or unread.
+#[tauri::command]
+pub async fn grpc_mark_email_read(
+    email_address: String,
+    mail_token: String,
+    email_id: String,
+    read: bool,
+) -> Result<(), String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    client
+        .mark_email_read(tonic::Request::new(game::MarkEmailReadRequest {
+            email_address,
+            mail_token,
+            email_id,
+            read,
+        }))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Tauri command: Move an email to a different folder.
+#[tauri::command]
+pub async fn grpc_move_email(
+    email_address: String,
+    mail_token: String,
+    email_id: String,
+    folder: String,
+) -> Result<(), String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    client
+        .move_email(tonic::Request::new(game::MoveEmailRequest {
+            email_address,
+            mail_token,
+            email_id,
+            folder,
+        }))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Tauri command: Permanently delete an email.
+#[tauri::command]
+pub async fn grpc_delete_email(
+    email_address: String,
+    mail_token: String,
+    email_id: String,
+) -> Result<(), String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    client
+        .delete_email(tonic::Request::new(game::DeleteEmailRequest {
+            email_address,
+            mail_token,
+            email_id,
+        }))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Shared state for mailbox stream connections: conn_id -> JoinHandle.
+pub struct MailboxConnectionsState {
+    pub handles: HashMap<String, tokio::task::JoinHandle<()>>,
+}
+
+pub fn new_mailbox_connections() -> Arc<Mutex<MailboxConnectionsState>> {
+    Arc::new(Mutex::new(MailboxConnectionsState {
+        handles: HashMap::new(),
+    }))
+}
+
+/// Tauri command: Connect to the mailbox real-time stream.
+/// Returns a conn_id. Emits "mailbox_event" Tauri events with payloads:
+///   { type: "new_email", email: EmailMessageResponse }
+///   { type: "unread_count", count: number }
+#[tauri::command]
+pub async fn mailbox_connect(
+    email_address: String,
+    mail_token: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<Mutex<MailboxConnectionsState>>>,
+) -> Result<String, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let response = client
+        .mailbox_stream(tonic::Request::new(game::MailboxStreamRequest {
+            email_address: email_address.clone(),
+            mail_token: mail_token.clone(),
+        }))
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut stream = response.into_inner();
+    let conn_id = uuid::Uuid::new_v4().to_string();
+    let app_emit = app.clone();
+    let handle = tokio::spawn(async move {
+        while let Some(result) = stream.message().await.ok().flatten() {
+            let payload = match result.payload {
+                Some(game::mailbox_stream_message::Payload::NewEmail(email)) => {
+                    serde_json::json!({
+                        "type": "new_email",
+                        "email": {
+                            "id": email.id,
+                            "from_address": email.from_address,
+                            "to_address": email.to_address,
+                            "subject": email.subject,
+                            "body": email.body,
+                            "folder": email.folder,
+                            "read": email.read,
+                            "sent_at_ms": email.sent_at_ms,
+                        }
+                    })
+                }
+                Some(game::mailbox_stream_message::Payload::UnreadCount(count)) => {
+                    serde_json::json!({
+                        "type": "unread_count",
+                        "count": count,
+                    })
+                }
+                None => continue,
+            };
+            let _ = app_emit.emit("mailbox_event", payload);
+        }
+    });
+    state.lock().unwrap().handles.insert(conn_id.clone(), handle);
+    Ok(conn_id)
+}
+
+/// Tauri command: Disconnect from the mailbox stream.
+#[tauri::command]
+pub fn mailbox_disconnect(
+    conn_id: String,
+    state: tauri::State<'_, Arc<Mutex<MailboxConnectionsState>>>,
+) {
+    if let Some(handle) = state.lock().unwrap().handles.remove(&conn_id) {
+        handle.abort();
+    }
+}

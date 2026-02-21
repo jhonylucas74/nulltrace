@@ -51,6 +51,7 @@ import DiskManagerApp from "../components/DiskManagerApp";
 import ProcessSpyApp from "../components/ProcessSpyApp";
 import DevTools from "../components/DevTools";
 import { DevToolsContextProvider } from "../contexts/DevToolsContext";
+import { EmailProvider } from "../contexts/EmailContext";
 import { getAppTitle } from "../lib/appList";
 import styles from "./Desktop.module.css";
 
@@ -712,30 +713,32 @@ function DesktopContent() {
 
 export default function Desktop() {
   return (
-    <WalletProvider>
-      <NullCloudProvider>
-        <HackerboardProvider>
-          <PaymentFeedbackProvider>
-            <WallpaperProvider>
-              <WindowManagerProvider>
-                <DevToolsContextProvider>
-                  <WorkspaceLayoutProvider>
-                    <FilePickerProvider>
-                      <NotificationProvider>
-                        <AppLauncherProvider>
-                          <InstalledAppsProvider>
-                            <DesktopContent />
-                          </InstalledAppsProvider>
-                        </AppLauncherProvider>
-                      </NotificationProvider>
-                    </FilePickerProvider>
-                  </WorkspaceLayoutProvider>
-                </DevToolsContextProvider>
-              </WindowManagerProvider>
-            </WallpaperProvider>
-          </PaymentFeedbackProvider>
-        </HackerboardProvider>
-      </NullCloudProvider>
-    </WalletProvider>
+    <EmailProvider>
+      <WalletProvider>
+        <NullCloudProvider>
+          <HackerboardProvider>
+            <PaymentFeedbackProvider>
+              <WallpaperProvider>
+                <WindowManagerProvider>
+                  <DevToolsContextProvider>
+                    <WorkspaceLayoutProvider>
+                      <FilePickerProvider>
+                        <NotificationProvider>
+                          <AppLauncherProvider>
+                            <InstalledAppsProvider>
+                              <DesktopContent />
+                            </InstalledAppsProvider>
+                          </AppLauncherProvider>
+                        </NotificationProvider>
+                      </FilePickerProvider>
+                    </WorkspaceLayoutProvider>
+                  </DevToolsContextProvider>
+                </WindowManagerProvider>
+              </WallpaperProvider>
+            </PaymentFeedbackProvider>
+          </HackerboardProvider>
+        </NullCloudProvider>
+      </WalletProvider>
+    </EmailProvider>
   );
 }

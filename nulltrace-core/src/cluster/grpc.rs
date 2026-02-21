@@ -2,12 +2,15 @@
 //! Used by the unified cluster binary.
 
 use super::bin_programs;
+use super::db::email_account_service::EmailAccountService;
+use super::db::email_service::EmailService;
 use super::db::faction_service::FactionService;
 use super::db::fs_service::FsService;
 use super::db::player_service::PlayerService;
 use super::db::shortcuts_service::ShortcutsService;
 use super::db::user_service::{UserService, VmUser};
 use super::db::vm_service::VmService;
+use super::mailbox_hub::{MailboxHub, MailboxEvent};
 use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
 use super::process_spy_hub::{ProcessSpyConnection, ProcessSpyDownstreamMsg, ProcessSpyHub};
 use super::terminal_hub::{SessionReady, TerminalHub};
@@ -49,6 +52,11 @@ use game::{
     InstallStoreAppRequest, InstallStoreAppResponse,
     UninstallStoreAppRequest, UninstallStoreAppResponse,
     RunProcessFinished, RunProcessRequest, RunProcessResponse,
+    // Email RPCs
+    DeleteEmailRequest, DeleteEmailResponse, GetEmailsRequest, GetEmailsResponse,
+    MailboxStreamMessage, MailboxStreamRequest, MarkEmailReadRequest, MarkEmailReadResponse,
+    MoveEmailRequest, MoveEmailResponse, SendEmailRequest, SendEmailResponse,
+    EmailMessage as GrpcEmailMessage,
 };
 
 pub struct ClusterGameService {
@@ -58,6 +66,9 @@ pub struct ClusterGameService {
     user_service: Arc<UserService>,
     faction_service: Arc<FactionService>,
     shortcuts_service: Arc<ShortcutsService>,
+    email_service: Arc<EmailService>,
+    email_account_service: Arc<EmailAccountService>,
+    mailbox_hub: MailboxHub,
     terminal_hub: Arc<TerminalHub>,
     process_spy_hub: Arc<ProcessSpyHub>,
     process_run_hub: Arc<ProcessRunHub>,
@@ -73,6 +84,9 @@ impl ClusterGameService {
         user_service: Arc<UserService>,
         faction_service: Arc<FactionService>,
         shortcuts_service: Arc<ShortcutsService>,
+        email_service: Arc<EmailService>,
+        email_account_service: Arc<EmailAccountService>,
+        mailbox_hub: MailboxHub,
         terminal_hub: Arc<TerminalHub>,
         process_spy_hub: Arc<ProcessSpyHub>,
         process_run_hub: Arc<ProcessRunHub>,
@@ -86,6 +100,9 @@ impl ClusterGameService {
             user_service,
             faction_service,
             shortcuts_service,
+            email_service,
+            email_account_service,
+            mailbox_hub,
             terminal_hub,
             process_spy_hub,
             process_run_hub,
@@ -113,6 +130,7 @@ impl GameService for ClusterGameService {
     type TerminalStreamStream = ReceiverStream<Result<TerminalServerMessage, Status>>;
     type ProcessSpyStreamStream = ReceiverStream<Result<ProcessSpyServerMessage, Status>>;
     type RunProcessStream = ReceiverStream<Result<RunProcessResponse, Status>>;
+    type MailboxStreamStream = ReceiverStream<Result<MailboxStreamMessage, Status>>;
 
     async fn run_process(
         &self,
@@ -1188,14 +1206,8 @@ impl GameService for ClusterGameService {
 
         let ReadFileRequest { path } = request.into_inner();
 
-        let (vm, owner) = vm_and_owner(&self, player_id).await?;
-        if !path_under_home(&path, &owner.1) {
-            return Ok(Response::new(ReadFileResponse {
-                success: false,
-                error_message: "Path must be under home".to_string(),
-                content: vec![],
-            }));
-        }
+        let (vm, _owner) = vm_and_owner(&self, player_id).await?;
+        // Allow reading any path on the player's VM (e.g. /etc/mail/default, /etc/mail/<addr>/token).
 
         match self.fs_service.read_file(vm.id, &path).await {
             Ok(Some((data, _))) => Ok(Response::new(ReadFileResponse {
@@ -1649,6 +1661,229 @@ impl GameService for ClusterGameService {
             error_message: String::new(),
         }))
     }
+
+    // ── Email handlers ───────────────────────────────────────────────────────
+
+    async fn get_emails(
+        &self,
+        request: Request<GetEmailsRequest>,
+    ) -> Result<Response<GetEmailsResponse>, Status> {
+        let req = request.into_inner();
+        let valid = self
+            .email_account_service
+            .validate_token(&req.email_address, &req.mail_token)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        if !valid {
+            return Err(Status::unauthenticated("Invalid email token"));
+        }
+        let records = self
+            .email_service
+            .list_emails(&req.email_address, &req.folder)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        let emails = records
+            .into_iter()
+            .map(|r| GrpcEmailMessage {
+                id: r.id.to_string(),
+                from_address: r.from_address,
+                to_address: r.to_address,
+                subject: r.subject,
+                body: r.body,
+                folder: r.folder,
+                read: r.read,
+                sent_at_ms: r.sent_at.timestamp_millis(),
+            })
+            .collect();
+        Ok(Response::new(GetEmailsResponse { emails }))
+    }
+
+    async fn send_email(
+        &self,
+        request: Request<SendEmailRequest>,
+    ) -> Result<Response<SendEmailResponse>, Status> {
+        let req = request.into_inner();
+        let valid = self
+            .email_account_service
+            .validate_token(&req.from_address, &req.mail_token)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        if !valid {
+            return Err(Status::unauthenticated("Invalid email token"));
+        }
+        // Insert into main recipient's inbox and notify.
+        let inbox_record = self
+            .email_service
+            .insert_email(&req.from_address, &req.to_address, &req.subject, &req.body, "inbox")
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        super::mailbox_hub::notify_new_email(&self.mailbox_hub, &req.to_address, inbox_record);
+        // CC: insert into cc recipient's inbox and notify.
+        if !req.cc_address.is_empty() {
+            if let Ok(cc_record) = self
+                .email_service
+                .insert_email(&req.from_address, &req.cc_address, &req.subject, &req.body, "inbox")
+                .await
+            {
+                super::mailbox_hub::notify_new_email(&self.mailbox_hub, &req.cc_address, cc_record);
+            }
+        }
+        // Bcc: insert into bcc recipient's inbox and notify.
+        if !req.bcc_address.is_empty() {
+            if let Ok(bcc_record) = self
+                .email_service
+                .insert_email(&req.from_address, &req.bcc_address, &req.subject, &req.body, "inbox")
+                .await
+            {
+                super::mailbox_hub::notify_new_email(&self.mailbox_hub, &req.bcc_address, bcc_record);
+            }
+        }
+        // Insert a copy into sender's sent folder.
+        let _ = self
+            .email_service
+            .insert_email(&req.from_address, &req.from_address, &req.subject, &req.body, "sent")
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(SendEmailResponse {
+            success: true,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn mark_email_read(
+        &self,
+        request: Request<MarkEmailReadRequest>,
+    ) -> Result<Response<MarkEmailReadResponse>, Status> {
+        let req = request.into_inner();
+        let valid = self
+            .email_account_service
+            .validate_token(&req.email_address, &req.mail_token)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        if !valid {
+            return Err(Status::unauthenticated("Invalid email token"));
+        }
+        let email_id = Uuid::parse_str(&req.email_id)
+            .map_err(|_| Status::invalid_argument("Invalid email_id"))?;
+        self.email_service
+            .mark_read(email_id, req.read)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        // Push updated unread count so connected clients (e.g. multiple tabs) see the badge update.
+        if let Ok(count) = self.email_service.unread_count(&req.email_address).await {
+            super::mailbox_hub::notify_unread_count(&self.mailbox_hub, &req.email_address, count);
+        }
+        Ok(Response::new(MarkEmailReadResponse { success: true }))
+    }
+
+    async fn move_email(
+        &self,
+        request: Request<MoveEmailRequest>,
+    ) -> Result<Response<MoveEmailResponse>, Status> {
+        let req = request.into_inner();
+        let valid = self
+            .email_account_service
+            .validate_token(&req.email_address, &req.mail_token)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        if !valid {
+            return Err(Status::unauthenticated("Invalid email token"));
+        }
+        let email_id = Uuid::parse_str(&req.email_id)
+            .map_err(|_| Status::invalid_argument("Invalid email_id"))?;
+        self.email_service
+            .move_to_folder(email_id, &req.folder)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(MoveEmailResponse { success: true }))
+    }
+
+    async fn delete_email(
+        &self,
+        request: Request<DeleteEmailRequest>,
+    ) -> Result<Response<DeleteEmailResponse>, Status> {
+        let req = request.into_inner();
+        let valid = self
+            .email_account_service
+            .validate_token(&req.email_address, &req.mail_token)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        if !valid {
+            return Err(Status::unauthenticated("Invalid email token"));
+        }
+        let email_id = Uuid::parse_str(&req.email_id)
+            .map_err(|_| Status::invalid_argument("Invalid email_id"))?;
+        self.email_service
+            .delete_email(email_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(DeleteEmailResponse { success: true }))
+    }
+
+    async fn mailbox_stream(
+        &self,
+        request: Request<MailboxStreamRequest>,
+    ) -> Result<Response<Self::MailboxStreamStream>, Status> {
+        let req = request.into_inner();
+        let valid = self
+            .email_account_service
+            .validate_token(&req.email_address, &req.mail_token)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        if !valid {
+            return Err(Status::unauthenticated("Invalid email token"));
+        }
+        // Send initial unread count before streaming events.
+        let unread = self
+            .email_service
+            .unread_count(&req.email_address)
+            .await
+            .unwrap_or(0);
+        let mut receiver = super::mailbox_hub::subscribe(&self.mailbox_hub, &req.email_address);
+        let (tx, rx) = mpsc::channel(32);
+        tokio::spawn(async move {
+            // Send initial unread count.
+            let _ = tx
+                .send(Ok(MailboxStreamMessage {
+                    payload: Some(game::mailbox_stream_message::Payload::UnreadCount(unread)),
+                }))
+                .await;
+            loop {
+                match receiver.recv().await {
+                    Ok(event) => {
+                        let msg = match event {
+                            MailboxEvent::NewEmail(record) => MailboxStreamMessage {
+                                payload: Some(game::mailbox_stream_message::Payload::NewEmail(
+                                    GrpcEmailMessage {
+                                        id: record.id.to_string(),
+                                        from_address: record.from_address,
+                                        to_address: record.to_address,
+                                        subject: record.subject,
+                                        body: record.body,
+                                        folder: record.folder,
+                                        read: record.read,
+                                        sent_at_ms: record.sent_at.timestamp_millis(),
+                                    },
+                                )),
+                            },
+                            MailboxEvent::UnreadCount(count) => MailboxStreamMessage {
+                                payload: Some(game::mailbox_stream_message::Payload::UnreadCount(count)),
+                            },
+                        };
+                        if tx.send(Ok(msg)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        // Skipped messages; continue receiving.
+                        continue;
+                    }
+                }
+            }
+        });
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
 }
 
 /// Returns true if path is under home (normalized, no traversal).
@@ -1709,10 +1944,12 @@ async fn vm_and_owner(
 #[cfg(test)]
 mod tests {
     use super::super::db::{
-        self, faction_service::FactionService, fs_service::FsService,
+        self, email_account_service::EmailAccountService, email_service::EmailService,
+        faction_service::FactionService, fs_service::FsService,
         player_service::PlayerService, shortcuts_service::ShortcutsService, user_service::UserService,
         vm_service::{VmConfig, VmService},
     };
+    use super::super::mailbox_hub;
     use super::super::process_run_hub::new_hub as new_process_run_hub;
     use super::super::process_spy_hub::new_hub as new_process_spy_hub;
     use super::super::terminal_hub::new_hub;
@@ -1731,6 +1968,9 @@ mod tests {
             Arc::new(UserService::new(pool.clone())),
             Arc::new(FactionService::new(pool.clone())),
             Arc::new(ShortcutsService::new(pool.clone())),
+            Arc::new(EmailService::new(pool.clone())),
+            Arc::new(EmailAccountService::new(pool.clone())),
+            mailbox_hub::new_hub(),
             new_hub(),
             new_process_spy_hub(),
             new_process_run_hub(),
@@ -1750,6 +1990,9 @@ mod tests {
             Arc::new(UserService::new(pool.clone())),
             Arc::new(FactionService::new(pool.clone())),
             Arc::new(ShortcutsService::new(pool.clone())),
+            Arc::new(EmailService::new(pool.clone())),
+            Arc::new(EmailAccountService::new(pool.clone())),
+            mailbox_hub::new_hub(),
             new_hub(),
             new_process_spy_hub(),
             new_process_run_hub(),
@@ -1864,6 +2107,7 @@ mod tests {
                     gateway: None,
                     mac: None,
                     owner_id: Some(player_id),
+                    create_email_account: true,
                 },
             )
             .await

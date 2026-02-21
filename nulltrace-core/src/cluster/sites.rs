@@ -110,6 +110,7 @@ pub async fn load_site_vms(
             gateway: None,
             mac: None,
             owner_id: Some(owner_id),
+            create_email_account: false,
         };
 
         let (record, _) = manager

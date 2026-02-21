@@ -2,3 +2,10 @@
 # Use: cargo test-serial
 [alias]
 test-serial = "test --bin cluster -- --test-threads=1"
+
+# Use sqlx query cache so cargo build works without DATABASE_URL.
+# After adding new migrations or new sqlx queries, run:
+#   DATABASE_URL=postgres://nulltrace:nulltrace@localhost:5432/nulltrace cargo sqlx prepare
+# then commit the .sqlx directory.
+[env]
+SQLX_OFFLINE = "true"

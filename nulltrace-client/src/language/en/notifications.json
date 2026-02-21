@@ -1,0 +1,10 @@
+{
+  "title": "Notifications",
+  "empty": "No notifications",
+  "remove": "Remove notification",
+  "remove_named": "Remove {{title}} notification",
+  "just_now": "Just now",
+  "mins_ago": "{{count}} min ago",
+  "hours_ago": "{{count}} hour(s) ago",
+  "days_ago": "{{count}} day(s) ago"
+}

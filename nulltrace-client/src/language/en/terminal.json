@@ -1,0 +1,10 @@
+{
+  "welcome": "Welcome to nulltrace. Type 'help' for commands.",
+  "shell_error": "Unexpected error. Could not load the shell (missing or corrupted). The terminal will close.",
+  "error_title": "Unexpected Error",
+  "memory_limit_title": "Memory Limit Reached",
+  "processes_killed": "All processes have been killed.",
+  "new_session_hint": "You can open a new terminal session to continue.",
+  "session_ended": "Session ended.",
+  "command_input": "Command input"
+}

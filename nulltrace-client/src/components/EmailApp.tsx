@@ -1,7 +1,11 @@
-import { useState, useCallback, useMemo } from "react";
-import type { EmailMessage, EmailFolder } from "../lib/emailMessages";
-import { MOCK_INBOX } from "../lib/emailMessages";
+import { useState, useCallback, useEffect } from "react";
+import { Loader2 } from "lucide-react";
+import type { EmailMessage } from "../contexts/GrpcContext";
+import { useGrpc } from "../contexts/GrpcContext";
+import { useEmail } from "../contexts/EmailContext";
 import styles from "./EmailApp.module.css";
+
+type EmailFolder = "inbox" | "sent" | "spam" | "trash";
 
 function ComposeIcon() {
   return (
@@ -16,6 +20,14 @@ function InboxIcon() {
     <svg className={styles.toolbarIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
       <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+    </svg>
+  );
+}
+function SentIcon() {
+  return (
+    <svg className={styles.toolbarIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="22" y1="2" x2="11" y2="13" />
+      <polygon points="22 2 15 22 11 13 2 9 22 2" />
     </svg>
   );
 }
@@ -39,8 +51,8 @@ function TrashIcon() {
   );
 }
 
-function formatDate(): string {
-  const d = new Date();
+function formatTimestamp(ms: number): string {
+  const d = new Date(ms);
   const mon = d.toLocaleString("en-GB", { month: "short" });
   const day = d.getDate();
   const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -48,115 +60,245 @@ function formatDate(): string {
 }
 
 export default function EmailApp() {
-  const [messages, setMessages] = useState<EmailMessage[]>(MOCK_INBOX);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { emailAddress, mailToken, setUnreadCount, inboxInvalidated } = useEmail();
+  const { getEmails, sendEmail, markEmailRead, moveEmail, deleteEmail } = useGrpc();
+
+  const [messages, setMessages] = useState<EmailMessage[]>([]);
+  const [loading, setLoading] = useState(false);
   const [folder, setFolder] = useState<EmailFolder>("inbox");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
   const [replyingTo, setReplyingTo] = useState<EmailMessage | null>(null);
   const [sentBanner, setSentBanner] = useState(false);
   const [composeTo, setComposeTo] = useState("");
+  const [composeCc, setComposeCc] = useState("");
+  const [composeBcc, setComposeBcc] = useState("");
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
+  const [toDropdownOpen, setToDropdownOpen] = useState(false);
+  const [toSearch, setToSearch] = useState("");
+  const [showCc, setShowCc] = useState(false);
+  const [showBcc, setShowBcc] = useState(false);
 
-  const filteredMessages = useMemo(
-    () => messages.filter((m) => m.folder === folder).sort((a, b) => b.timestamp - a.timestamp),
-    [messages, folder]
+  const filteredMessages = messages
+    .filter((m) => m.folder === folder)
+    .sort((a, b) => b.sent_at_ms - a.sent_at_ms);
+
+  const selectedMessage = selectedId ? messages.find((m) => m.id === selectedId) ?? null : null;
+
+  // Valid contacts for To dropdown: unique addresses from inbox + sent (exclude spam/trash and self)
+  const validContacts = (() => {
+    const set = new Set<string>();
+    for (const m of messages) {
+      if (m.folder !== "inbox" && m.folder !== "sent") continue;
+      if (m.from_address && m.from_address !== emailAddress) set.add(m.from_address);
+      if (m.to_address && m.to_address !== emailAddress) set.add(m.to_address);
+    }
+    return Array.from(set).sort();
+  })();
+  const toFilteredContacts = toSearch.trim()
+    ? validContacts.filter((c) =>
+        c.toLowerCase().includes(toSearch.trim().toLowerCase())
+      )
+    : validContacts;
+
+  const fetchMessages = useCallback(
+    async (f: EmailFolder) => {
+      if (!emailAddress || !mailToken) return;
+      setLoading(true);
+      try {
+        const emails = await getEmails(emailAddress, mailToken, f);
+        setMessages((prev) => {
+          // Merge fetched emails into the local state (replace same-folder entries)
+          const otherFolders = prev.filter((m) => m.folder !== f);
+          return [...otherFolders, ...emails];
+        });
+        if (f === "inbox") {
+          const unread = emails.filter((e) => !e.read).length;
+          setUnreadCount(unread);
+        }
+      } catch (e) {
+        console.error("[EmailApp] fetchMessages failed:", e);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [emailAddress, mailToken, getEmails, setUnreadCount]
   );
 
-  const selectedMessage = selectedId ? messages.find((m) => m.id === selectedId) : null;
-  const threadMessages = selectedMessage
-    ? messages
-        .filter((m) => m.threadId === selectedMessage.threadId)
-        .sort((a, b) => a.timestamp - b.timestamp)
-    : [];
+  // Fetch when folder or credentials change
+  useEffect(() => {
+    if (emailAddress && mailToken) {
+      fetchMessages(folder);
+    }
+  }, [folder, emailAddress, mailToken, fetchMessages]);
 
-  const markAsRead = useCallback((id: string) => {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, unread: false } : m))
-    );
-  }, []);
+  // Real-time: when mailbox stream signals new email, refetch inbox so the list updates
+  useEffect(() => {
+    if (emailAddress && mailToken && inboxInvalidated > 0) {
+      fetchMessages("inbox");
+    }
+  }, [emailAddress, mailToken, inboxInvalidated, fetchMessages]);
 
   const handleSelectMessage = useCallback(
     (id: string) => {
       setComposing(false);
       setReplyingTo(null);
       setSelectedId(id);
-      markAsRead(id);
+      const msg = messages.find((m) => m.id === id);
+      if (msg && !msg.read && emailAddress && mailToken) {
+        markEmailRead(emailAddress, mailToken, id, true)
+          .then(() => {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === id ? { ...m, read: true } : m))
+            );
+            setUnreadCount((prev) => Math.max(0, prev - 1));
+          })
+          .catch(() => {});
+      }
     },
-    [markAsRead]
+    [messages, emailAddress, mailToken, markEmailRead, setUnreadCount]
   );
 
   const handleCompose = useCallback(() => {
     setComposing(true);
     setReplyingTo(null);
     setSentBanner(false);
+    // Keep existing draft (do not clear); use Clear all to reset.
+  }, []);
+
+  const handleClearCompose = useCallback(() => {
     setComposeTo("");
+    setComposeCc("");
+    setComposeBcc("");
     setComposeSubject("");
     setComposeBody("");
+    setReplyingTo(null);
+    setToSearch("");
+    setShowCc(false);
+    setShowBcc(false);
   }, []);
 
   const handleReply = useCallback((msg: EmailMessage) => {
     setReplyingTo(msg);
     setComposing(true);
     setSentBanner(false);
-    setComposeTo(msg.from);
+    setComposeTo(msg.from_address);
     const subj = msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`;
     setComposeSubject(subj);
-    setComposeBody(`\n\n---\nOn ${msg.date}, ${msg.from} wrote:\n\n${msg.body}`);
+    setComposeBody(`\n\n---\n${msg.from_address} wrote:\n\n${msg.body}`);
   }, []);
 
-  const handleSend = useCallback(() => {
-    if (!composeTo.trim() || !composeSubject.trim()) return;
-    const now = Date.now();
-    const newMsg: EmailMessage = {
-      id: `sent-${now}`,
-      threadId: replyingTo ? replyingTo.threadId : `t-${now}`,
-      from: "me@nulltrace.local",
-      subject: composeSubject,
-      date: formatDate(),
-      timestamp: now,
-      body: composeBody,
-      folder: "inbox",
-      unread: false,
-    };
-    setMessages((prev) => [newMsg, ...prev]);
-    setComposing(false);
-    setReplyingTo(null);
-    setSelectedId(newMsg.id);
-    setSentBanner(true);
-    setTimeout(() => setSentBanner(false), 3000);
-  }, [composeTo, composeSubject, composeBody, replyingTo]);
+  const handleSend = useCallback(async () => {
+    if (!composeTo.trim() || !composeSubject.trim() || !emailAddress || !mailToken) return;
+    try {
+      await sendEmail(
+        emailAddress,
+        mailToken,
+        composeTo.trim(),
+        composeSubject.trim(),
+        composeBody,
+        composeCc.trim() || undefined,
+        composeBcc.trim() || undefined
+      );
+      setComposing(false);
+      setReplyingTo(null);
+      setSentBanner(true);
+      setTimeout(() => setSentBanner(false), 3000);
+      handleClearCompose();
+      if (folder === "sent") {
+        fetchMessages("sent");
+      }
+    } catch (e) {
+      console.error("[EmailApp] sendEmail failed:", e);
+    }
+  }, [composeTo, composeCc, composeBcc, composeSubject, composeBody, emailAddress, mailToken, sendEmail, folder, fetchMessages, handleClearCompose]);
 
   const handleCancelCompose = useCallback(() => {
     setComposing(false);
     setReplyingTo(null);
   }, []);
 
-  const handleMarkAsSpam = useCallback((id: string) => {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, folder: "spam" as const } : m))
-    );
-    if (selectedId === id) setSelectedId(null);
-  }, [selectedId]);
+  const handleMarkAsSpam = useCallback(
+    async (id: string) => {
+      if (!emailAddress || !mailToken) return;
+      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, folder: "spam" } : m)));
+      if (selectedId === id) setSelectedId(null);
+      try {
+        await moveEmail(emailAddress, mailToken, id, "spam");
+      } catch {
+        fetchMessages(folder);
+      }
+    },
+    [emailAddress, mailToken, selectedId, moveEmail, fetchMessages, folder]
+  );
 
-  const handleNotSpam = useCallback((id: string) => {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, folder: "inbox" as const } : m))
-    );
-  }, []);
+  const handleNotSpam = useCallback(
+    async (id: string) => {
+      if (!emailAddress || !mailToken) return;
+      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, folder: "inbox" } : m)));
+      try {
+        await moveEmail(emailAddress, mailToken, id, "inbox");
+      } catch {
+        fetchMessages(folder);
+      }
+    },
+    [emailAddress, mailToken, moveEmail, fetchMessages, folder]
+  );
 
-  const handleDelete = useCallback((id: string) => {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, folder: "trash" as const } : m))
-    );
-    if (selectedId === id) setSelectedId(null);
-  }, [selectedId]);
+  const handleDelete = useCallback(
+    async (id: string) => {
+      if (!emailAddress || !mailToken) return;
+      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, folder: "trash" } : m)));
+      if (selectedId === id) setSelectedId(null);
+      try {
+        await moveEmail(emailAddress, mailToken, id, "trash");
+      } catch {
+        fetchMessages(folder);
+      }
+    },
+    [emailAddress, mailToken, selectedId, moveEmail, fetchMessages, folder]
+  );
 
-  const handleRestore = useCallback((id: string) => {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, folder: "inbox" as const } : m))
+  const handleRestore = useCallback(
+    async (id: string) => {
+      if (!emailAddress || !mailToken) return;
+      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, folder: "inbox" } : m)));
+      try {
+        await moveEmail(emailAddress, mailToken, id, "inbox");
+      } catch {
+        fetchMessages(folder);
+      }
+    },
+    [emailAddress, mailToken, moveEmail, fetchMessages, folder]
+  );
+
+  const handlePermanentDelete = useCallback(
+    async (id: string) => {
+      if (!emailAddress || !mailToken) return;
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+      if (selectedId === id) setSelectedId(null);
+      try {
+        await deleteEmail(emailAddress, mailToken, id);
+      } catch {
+        fetchMessages(folder);
+      }
+    },
+    [emailAddress, mailToken, selectedId, deleteEmail, fetchMessages, folder]
+  );
+
+  const inboxUnread = messages.filter((m) => m.folder === "inbox" && !m.read).length;
+
+  if (!emailAddress || !mailToken) {
+    return (
+      <div className={styles.app}>
+        <div className={styles.loadingAccount}>
+          <p className={styles.loadingAccountText}>Loading email account…</p>
+          <Loader2 size={28} className={styles.loadingAccountSpinner} aria-hidden />
+        </div>
+      </div>
     );
-  }, []);
+  }
 
   return (
     <div className={styles.app}>
@@ -173,11 +315,15 @@ export default function EmailApp() {
           >
             <InboxIcon />
             <span>Inbox</span>
-            {messages.filter((m) => m.folder === "inbox" && m.unread).length > 0 && (
-              <span className={styles.unreadBadge}>
-                {messages.filter((m) => m.folder === "inbox" && m.unread).length}
-              </span>
-            )}
+            {inboxUnread > 0 && <span className={styles.unreadBadge}>{inboxUnread}</span>}
+          </button>
+          <button
+            type="button"
+            className={folder === "sent" ? styles.folderTabActive : styles.folderTab}
+            onClick={() => setFolder("sent")}
+          >
+            <SentIcon />
+            <span>Sent</span>
           </button>
           <button
             type="button"
@@ -213,39 +359,51 @@ export default function EmailApp() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th className={styles.colFrom}>From</th>
+                <th className={styles.colFrom}>{folder === "sent" ? "To" : "From"}</th>
                 <th className={styles.colSubject}>Subject</th>
                 <th className={styles.colDate}>Date</th>
               </tr>
             </thead>
             <tbody>
-              {filteredMessages.map((m) => (
-                <tr
-                  key={m.id}
-                  className={
-                    selectedId === m.id ? styles.selected : m.unread ? styles.unreadRow : undefined
-                  }
-                  onClick={() => handleSelectMessage(m.id)}
-                >
-                  <td>{m.from}</td>
-                  <td>
-                    <span className={styles.subjectCell}>
-                      <span className={styles.subjectText}>{m.subject}</span>
-                      {m.unread && <span className={styles.newTag}>New</span>}
-                    </span>
+              {loading && (
+                <tr>
+                  <td colSpan={3} className={styles.emptyFolder}>
+                    Loading…
                   </td>
-                  <td>{m.date}</td>
                 </tr>
-              ))}
+              )}
+              {!loading &&
+                filteredMessages.map((m) => (
+                  <tr
+                    key={m.id}
+                    className={
+                      selectedId === m.id ? styles.selected : !m.read ? styles.unreadRow : undefined
+                    }
+                    onClick={() => handleSelectMessage(m.id)}
+                  >
+                    <td>{folder === "sent" ? m.to_address : m.from_address}</td>
+                    <td>
+                      <span className={styles.subjectCell}>
+                        <span className={styles.subjectText}>{m.subject}</span>
+                        {!m.read && folder === "inbox" && (
+                          <span className={styles.newTag}>New</span>
+                        )}
+                      </span>
+                    </td>
+                    <td>{formatTimestamp(m.sent_at_ms)}</td>
+                  </tr>
+                ))}
             </tbody>
           </table>
-          {filteredMessages.length === 0 && (
+          {!loading && filteredMessages.length === 0 && (
             <p className={styles.emptyFolder}>
               {folder === "trash"
                 ? "No deleted messages."
                 : folder === "spam"
                   ? "No spam messages."
-                  : "No messages."}
+                  : folder === "sent"
+                    ? "No sent messages."
+                    : "No messages."}
             </p>
           )}
         </div>
@@ -260,7 +418,7 @@ export default function EmailApp() {
                 handleSend();
               }}
             >
-              <div className={styles.composeToSubjectRow}>
+              <div className={styles.composeHeaderFields}>
                 {replyingTo ? (
                   <>
                     <div className={styles.composeField}>
@@ -274,17 +432,87 @@ export default function EmailApp() {
                   </>
                 ) : (
                   <>
-                    <label className={styles.composeField}>
+                    <div className={styles.composeFieldFull}>
                       <span className={styles.composeLabel}>To</span>
-                      <input
-                        type="text"
-                        value={composeTo}
-                        onChange={(e) => setComposeTo(e.target.value)}
-                        placeholder="recipient@example.local"
-                        className={styles.composeInput}
-                      />
-                    </label>
-                    <label className={styles.composeField}>
+                      <div className={styles.composeToWrap}>
+                        <input
+                          type="text"
+                          value={composeTo}
+                          onChange={(e) => {
+                            setComposeTo(e.target.value);
+                            setToSearch(e.target.value);
+                            setToDropdownOpen(true);
+                          }}
+                          onFocus={() => setToDropdownOpen(true)}
+                          onBlur={() => setTimeout(() => setToDropdownOpen(false), 180)}
+                          placeholder="recipient@mail.null or pick a contact"
+                          className={styles.composeInput}
+                          autoComplete="off"
+                        />
+                        {toDropdownOpen && toFilteredContacts.length > 0 && (
+                          <ul className={styles.composeToDropdown} role="listbox">
+                            {toFilteredContacts.slice(0, 8).map((addr) => (
+                              <li
+                                key={addr}
+                                className={styles.composeToDropdownItem}
+                                role="option"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  setComposeTo(addr);
+                                  setToSearch("");
+                                  setToDropdownOpen(false);
+                                }}
+                              >
+                                {addr}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                    <div className={styles.composeCcBccRow}>
+                      <button
+                        type="button"
+                        className={styles.composeCcBccLink}
+                        onClick={() => setShowCc(true)}
+                        style={{ display: showCc ? "none" : undefined }}
+                      >
+                        CC
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.composeCcBccLink}
+                        onClick={() => setShowBcc(true)}
+                        style={{ display: showBcc ? "none" : undefined }}
+                      >
+                        Cco
+                      </button>
+                    </div>
+                    {showCc && (
+                      <label className={styles.composeFieldFull}>
+                        <span className={styles.composeLabel}>CC</span>
+                        <input
+                          type="text"
+                          value={composeCc}
+                          onChange={(e) => setComposeCc(e.target.value)}
+                          placeholder="cc@mail.null (optional)"
+                          className={styles.composeInput}
+                        />
+                      </label>
+                    )}
+                    {showBcc && (
+                      <label className={styles.composeFieldFull}>
+                        <span className={styles.composeLabel}>Cco (Bcc)</span>
+                        <input
+                          type="text"
+                          value={composeBcc}
+                          onChange={(e) => setComposeBcc(e.target.value)}
+                          placeholder="bcc@mail.null (optional)"
+                          className={styles.composeInput}
+                        />
+                      </label>
+                    )}
+                    <label className={styles.composeFieldFull}>
                       <span className={styles.composeLabel}>Subject</span>
                       <input
                         type="text"
@@ -303,7 +531,7 @@ export default function EmailApp() {
                   className={styles.composeTextarea}
                   value={composeBody}
                   onChange={(e) => setComposeBody(e.target.value)}
-                  placeholder="Write your message..."
+                  placeholder="Write your message…"
                 />
               </label>
               <div className={styles.submitRow}>
@@ -313,18 +541,21 @@ export default function EmailApp() {
                 <button type="button" className={styles.toolbarBtn} onClick={handleCancelCompose}>
                   Cancel
                 </button>
+                <button type="button" className={styles.toolbarBtn} onClick={handleClearCompose}>
+                  Clear all
+                </button>
               </div>
             </form>
           ) : selectedMessage ? (
             <>
               <div className={styles.threadHeader}>
-                <h3 className={styles.threadSubject}>{threadMessages[0]?.subject ?? selectedMessage.subject}</h3>
+                <h3 className={styles.threadSubject}>{selectedMessage.subject}</h3>
                 <div className={styles.panelActions}>
                   {folder !== "trash" && (
                     <button
                       type="button"
                       className={styles.actionBtn}
-                      onClick={() => handleReply(threadMessages[threadMessages.length - 1] ?? selectedMessage)}
+                      onClick={() => handleReply(selectedMessage)}
                     >
                       Reply
                     </button>
@@ -347,6 +578,15 @@ export default function EmailApp() {
                       </button>
                     </>
                   )}
+                  {folder === "sent" && (
+                    <button
+                      type="button"
+                      className={styles.actionBtn}
+                      onClick={() => handlePermanentDelete(selectedMessage.id)}
+                    >
+                      Delete
+                    </button>
+                  )}
                   {folder === "spam" && (
                     <>
                       <button
@@ -366,40 +606,38 @@ export default function EmailApp() {
                     </>
                   )}
                   {folder === "trash" && (
-                    <button
-                      type="button"
-                      className={styles.actionBtn}
-                      onClick={() => handleRestore(selectedMessage.id)}
-                    >
-                      Restore
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className={styles.actionBtn}
+                        onClick={() => handleRestore(selectedMessage.id)}
+                      >
+                        Restore
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.actionBtnDanger}
+                        onClick={() => handlePermanentDelete(selectedMessage.id)}
+                      >
+                        Delete forever
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
               <div className={styles.thread}>
-                {threadMessages.map((msg) => (
-                  <div key={msg.id} className={styles.threadMessage}>
-                    <div className={styles.readMeta}>
-                      <span className={styles.readFrom}>{msg.from}</span>
-                      <span className={styles.readDate}>{msg.date}</span>
-                    </div>
-                    <div className={styles.readBody}>{msg.body}</div>
-                    {threadMessages.length > 1 && (
-                      <button
-                        type="button"
-                        className={styles.inlineReplyBtn}
-                        onClick={() => handleReply(msg)}
-                      >
-                        Reply
-                      </button>
-                    )}
+                <div className={styles.threadMessage}>
+                  <div className={styles.readMeta}>
+                    <span className={styles.readFrom}>{selectedMessage.from_address}</span>
+                    <span className={styles.readDate}>{formatTimestamp(selectedMessage.sent_at_ms)}</span>
                   </div>
-                ))}
+                  <div className={styles.readBody}>{selectedMessage.body}</div>
+                </div>
               </div>
             </>
           ) : (
             <p className={styles.panelEmpty}>
-              Select a message or click Compose. Use Inbox / Spam to filter.
+              Select a message or click Compose.
             </p>
           )}
         </div>

@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
 use super::bin_programs;
+use super::db::email_account_service::EmailAccountService;
+use super::db::email_service::EmailService;
 use super::db::fs_service::FsService;
 use super::process::push_stdin_line;
 use super::db::player_service::PlayerService;
@@ -13,6 +15,7 @@ use super::net::ip::{Ipv4Addr, Subnet};
 use super::net::net_manager::NetManager;
 use super::net::nic::NIC;
 use super::net::router::{RouteResult, Router};
+use super::mailbox_hub;
 use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
 use super::process_spy_hub::{PendingKill, PendingLuaSpawn, ProcessSpyDownstreamMsg, ProcessSpyHub, ProcessSpySubscription};
 use super::terminal_hub::{SessionReady, TerminalHub, TerminalSession};
@@ -47,11 +50,19 @@ const TPS: u32 = 60;
 const TICK_TIME: Duration = Duration::from_millis(1000 / TPS as u64);
 const TEST_DURATION_SECS: u64 = 30; // Stress test duration (30 seconds)
 
+/// Email provider domain for player VMs (e.g. MailNull).
+const PLAYER_EMAIL_DOMAIN: &str = "mail.null";
+/// Email provider domain for NPC VMs (e.g. Normies).
+const NPC_EMAIL_DOMAIN: &str = "normies.nil";
+
 pub struct VmManager {
     pub vm_service: Arc<VmService>,
     pub fs_service: Arc<FsService>,
     pub user_service: Arc<UserService>,
     pub player_service: Arc<PlayerService>,
+    pub email_account_service: Arc<EmailAccountService>,
+    pub email_service: Arc<EmailService>,
+    pub mailbox_hub: mailbox_hub::MailboxHub,
     pub dns: Arc<RwLock<DnsResolver>>,
     pub net_manager: NetManager,
     pub subnet: Subnet,
@@ -80,6 +91,9 @@ impl VmManager {
         fs_service: Arc<FsService>,
         user_service: Arc<UserService>,
         player_service: Arc<PlayerService>,
+        email_account_service: Arc<EmailAccountService>,
+        email_service: Arc<EmailService>,
+        mailbox_hub: mailbox_hub::MailboxHub,
         subnet: Subnet,
     ) -> Self {
         let mut router = Router::new();
@@ -90,6 +104,9 @@ impl VmManager {
             fs_service,
             user_service,
             player_service,
+            email_account_service,
+            email_service,
+            mailbox_hub,
             dns: Arc::new(RwLock::new(DnsResolver::new())),
             net_manager: NetManager::new("local".to_string()),
             subnet,
@@ -134,6 +151,7 @@ impl VmManager {
         let gateway_str = nic.gateway.to_string();
         let mac_str = nic.mac_string();
 
+        let create_email_account = config.create_email_account;
         let mut db_config = config;
         db_config.ip = Some(ip_str);
         db_config.subnet = Some(subnet_str);
@@ -259,6 +277,42 @@ impl VmManager {
             .write_file(id, "/etc/shadow", shadow_content.as_bytes(), Some("text/plain"), "root")
             .await
             .map_err(|e| format!("DB error writing /etc/shadow: {}", e))?;
+
+        // ── Email account setup ─────────────────────────────────────────────
+        if create_email_account {
+            // Derive email address from owner username (or hostname for NPC VMs).
+            let email_username = if let Some(owner_id) = record.owner_id {
+                if let Ok(Some(player)) = self.player_service.get_by_id(owner_id).await {
+                    player.username.to_lowercase()
+                } else {
+                    record.hostname.to_lowercase()
+                }
+            } else {
+                record.hostname.to_lowercase()
+            };
+            let domain = if record.owner_id.is_some() {
+                PLAYER_EMAIL_DOMAIN
+            } else {
+                NPC_EMAIL_DOMAIN
+            };
+            let email_address = format!("{}@{}", email_username, domain);
+            // Generate a random token using two UUID v4s concatenated (64 hex chars).
+            let mail_token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+            // Create /etc/mail and per-account directory (supports multiple accounts later).
+            let _ = self.fs_service.mkdir(id, "/etc/mail", "root").await;
+            let account_dir = format!("/etc/mail/{}", email_address);
+            let _ = self.fs_service.mkdir(id, &account_dir, "root").await;
+            let token_path = format!("{}/token", account_dir);
+            let _ = self
+                .fs_service
+                .write_file(id, &token_path, mail_token.as_bytes(), Some("text/plain"), "root")
+                .await;
+            // Persist account in DB.
+            let _ = self
+                .email_account_service
+                .create_account(record.owner_id, &email_address, &mail_token)
+                .await;
+        }
 
         // Register in DNS only if dns_name is set
         if let Some(ref dns_name) = record.dns_name {
@@ -925,7 +979,12 @@ impl VmManager {
                         let pool = pool.clone();
                         let fs = self.fs_service.clone();
                         let us = self.user_service.clone();
-                        if let Err(e) = vm.reset_lua_state(|| crate::create_vm_lua_state(pool, fs, us)) {
+                        let es = self.email_service.clone();
+                        let eas = self.email_account_service.clone();
+                        let hub = self.mailbox_hub.clone();
+                        if let Err(e) = vm.reset_lua_state(|| {
+                            crate::create_vm_lua_state(pool, fs, us, es, eas, hub)
+                        }) {
                             println!("[cluster] WARNING: VM {} memory reset failed: {}", vm_id, e);
                         } else {
                             println!("[cluster] VM {} exceeded memory limit, state reset", vm_id);
@@ -1678,7 +1737,12 @@ impl VmManager {
                     let pool = self.vm_service.pool().clone();
                     let fs = self.fs_service.clone();
                     let us = self.user_service.clone();
-                    if let Err(e) = vm.reset_lua_state(|| crate::create_vm_lua_state(pool, fs, us)) {
+                    let es = self.email_service.clone();
+                    let eas = self.email_account_service.clone();
+                    let hub = self.mailbox_hub.clone();
+                    if let Err(e) = vm.reset_lua_state(|| {
+                        crate::create_vm_lua_state(pool, fs, us, es, eas, hub)
+                    }) {
                         println!("[cluster] WARNING: VM {} memory reset failed: {}", vm.id, e);
                     } else {
                         println!("[cluster] VM {} exceeded memory limit, state reset", vm.id);
@@ -1880,7 +1944,7 @@ impl VmManager {
 #[cfg(test)]
 mod tests {
     use super::super::bin_programs;
-    use super::super::db::{self, fs_service::FsService, player_service::PlayerService};
+    use super::super::db::{self, email_account_service::EmailAccountService, email_service::EmailService, fs_service::FsService, player_service::PlayerService};
     use super::super::db::{user_service::UserService, vm_service::VmService};
     use super::super::lua_api::context::{SpawnSpec, VmContext};
     use super::super::net::ip::{Ipv4Addr, Subnet};
@@ -1900,12 +1964,18 @@ mod tests {
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 97, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
 
@@ -1920,12 +1990,13 @@ mod tests {
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
 
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -1983,12 +2054,18 @@ mod tests {
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 96, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
 
@@ -2003,12 +2080,13 @@ mod tests {
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
 
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -2384,7 +2462,12 @@ end
                     let pool = manager.vm_service.pool().clone();
                     let fs = manager.fs_service.clone();
                     let us = manager.user_service.clone();
-                    let _ = vm.reset_lua_state(|| crate::create_vm_lua_state(pool, fs, us));
+                    let es = manager.email_service.clone();
+                    let eas = manager.email_account_service.clone();
+                    let hub = manager.mailbox_hub.clone();
+                    let _ = vm.reset_lua_state(|| {
+                        crate::create_vm_lua_state(pool, fs, us, es, eas, hub)
+                    });
                 } else {
                     {
                         let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
@@ -2593,7 +2676,12 @@ end
             let pool = manager.vm_service.pool().clone();
             let fs = manager.fs_service.clone();
             let us = manager.user_service.clone();
-            let _ = vm.reset_lua_state(|| crate::create_vm_lua_state(pool, fs, us));
+            let es = manager.email_service.clone();
+            let eas = manager.email_account_service.clone();
+            let hub = manager.mailbox_hub.clone();
+            let _ = vm.reset_lua_state(|| {
+                crate::create_vm_lua_state(pool, fs, us, es, eas, hub)
+            });
         } else {
             {
                 let mut ctx = vm.lua.app_data_mut::<VmContext>().unwrap();
@@ -2781,12 +2869,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 95, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
 
@@ -2801,6 +2895,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
 
         let (record, nic) = manager.create_vm(config).await.unwrap();
@@ -2811,7 +2906,7 @@ end
             .await
             .unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -2839,12 +2934,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 94, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
 
@@ -2859,12 +2960,13 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
 
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -2892,12 +2994,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -2911,6 +3019,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -2922,7 +3031,7 @@ end
             .write_file(vm_id, "/tmp/grep_b.txt", b"nobar\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -2945,12 +3054,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -2964,12 +3079,13 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_dir/f.txt", b"x", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -2992,12 +3108,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3011,6 +3133,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -3018,7 +3141,7 @@ end
             .write_file(vm_id, "/tmp/sed_in.txt", b"hello world\nworld end\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3041,12 +3164,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 1), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3060,6 +3189,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -3067,7 +3197,7 @@ end
             .write_file(vm_id, "/tmp/nomatch.txt", b"foo\nbaz\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3093,12 +3223,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 2), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3112,6 +3248,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -3125,7 +3262,7 @@ end
             .write_file(vm_id, "/tmp/grep_rec/sub/two.txt", b"no\nneedle there\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3148,12 +3285,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 2), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3167,6 +3310,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -3177,7 +3321,7 @@ end
             .write_file(vm_id, "/tmp/nested/a/b/leaf.txt", b"x", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3202,12 +3346,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 3), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3221,11 +3371,12 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/empty_dir", "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3249,12 +3400,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 1), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3268,6 +3425,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -3275,7 +3433,7 @@ end
             .write_file(vm_id, "/tmp/sed_unchanged.txt", b"alpha\nbeta\ngamma\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3299,12 +3457,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 20), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3318,6 +3482,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -3325,7 +3490,7 @@ end
             .write_file(vm_id, "/tmp/start.txt", b"prefix\nstart_here\nsuffix\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3347,12 +3512,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 21), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3366,6 +3537,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -3373,7 +3545,7 @@ end
             .write_file(vm_id, "/tmp/end.txt", b"first\nat_end\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3395,12 +3567,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 22), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3414,6 +3592,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -3421,7 +3600,7 @@ end
             .write_file(vm_id, "/tmp/case.txt", b"bar\nBar\nBAR\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3444,12 +3623,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 23), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3463,6 +3648,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -3470,7 +3656,7 @@ end
             .write_file(vm_id, "/tmp/only.txt", b"one\ntwo\nthree\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3492,12 +3678,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 24), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3511,6 +3703,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -3518,7 +3711,7 @@ end
             .write_file(vm_id, "/tmp/real.txt", b"match\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3541,12 +3734,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 25), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3560,6 +3759,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -3567,7 +3767,7 @@ end
             .write_file(vm_id, "/tmp/special.txt", b"a.b.c\nx y z\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3589,12 +3789,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 20), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3608,11 +3814,12 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.write_file(vm_id, "/tmp/single_file.txt", b"x", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3636,12 +3843,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 21), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3655,12 +3868,13 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_dot_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_dot_dir/f.txt", b"x", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         // Run find with explicit path (same as would be cwd). Find resolves relative paths; without filters we list all.
@@ -3684,12 +3898,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 22), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3703,10 +3923,11 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3729,12 +3950,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3748,13 +3975,14 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_name_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_name_dir/morango", b"x", None, "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_name_dir/banana", b"y", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3778,12 +4006,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 1), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3797,13 +4031,14 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_glob_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_glob_dir/a.lua", b"x", None, "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_glob_dir/b.txt", b"y", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3827,12 +4062,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 2), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3846,13 +4087,14 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_type_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_type_dir/file.txt", b"x", None, "root").await.unwrap();
         fs_service.mkdir(vm_id, "/tmp/find_type_dir/subdir", "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3876,12 +4118,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 3), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3895,13 +4143,14 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_typed_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_typed_dir/f.txt", b"x", None, "root").await.unwrap();
         fs_service.mkdir(vm_id, "/tmp/find_typed_dir/sub", "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3926,12 +4175,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 4), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3945,6 +4200,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -3952,7 +4208,7 @@ end
         fs_service.write_file(vm_id, "/tmp/find_user_dir/root_file", b"a", None, "root").await.unwrap();
         fs_service.mkdir(vm_id, "/tmp/find_user_dir/alice_dir", "alice").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_user_dir/alice_dir/alice_file", b"b", None, "alice").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3977,12 +4233,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 5), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -3996,13 +4258,14 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_size_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_size_dir/empty", b"", None, "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_size_dir/has123", b"123", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4026,12 +4289,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 6), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4045,12 +4314,13 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_nomatch_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_nomatch_dir/something", b"x", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4073,12 +4343,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 7), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4092,12 +4368,13 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_iname_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_iname_dir/Morango", b"x", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4121,12 +4398,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 20), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4140,6 +4423,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4147,7 +4431,7 @@ end
             .write_file(vm_id, "/tmp/sed_empty_repl.txt", b"remove_me and rest\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4170,12 +4454,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 21), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4189,6 +4479,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4196,7 +4487,7 @@ end
             .write_file(vm_id, "/tmp/sed_multi.txt", b"line1\nreplace_this\nline3\nno_change\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4221,12 +4512,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 22), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4240,10 +4537,11 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4266,12 +4564,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 23), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4285,6 +4589,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4292,7 +4597,7 @@ end
             .write_file(vm_id, "/tmp/sed_boundary.txt", b"first\nlast\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4317,12 +4622,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 10), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4336,6 +4647,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4352,7 +4664,7 @@ end
                 .await
                 .unwrap();
         }
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4375,12 +4687,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 11), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4394,6 +4712,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4409,7 +4728,7 @@ end
             .write_file(vm_id, "/tmp/many_lines.txt", content.as_bytes(), None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4432,12 +4751,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 12), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4451,6 +4776,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4460,7 +4786,7 @@ end
             .write_file(vm_id, "/tmp/long_line.txt", content.as_bytes(), None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4482,12 +4808,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 10), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4501,6 +4833,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4514,7 +4847,7 @@ end
             .write_file(vm_id, &format!("{}/leaf", path), b"x", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4539,12 +4872,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 11), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4558,6 +4897,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4570,7 +4910,7 @@ end
                 .await
                 .unwrap();
         }
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4594,12 +4934,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 12), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4613,6 +4959,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4623,7 +4970,7 @@ end
                 .await
                 .unwrap();
         }
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4646,12 +4993,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 10), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4665,6 +5018,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4673,7 +5027,7 @@ end
             .write_file(vm_id, "/tmp/sed_many.txt", content.as_bytes(), None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4700,12 +5054,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 11), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4719,6 +5079,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4727,7 +5088,7 @@ end
             .write_file(vm_id, "/tmp/sed_long.txt", format!("{}\n", line).as_bytes(), None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4750,12 +5111,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 12), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4769,6 +5136,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4777,7 +5145,7 @@ end
             .write_file(vm_id, "/tmp/sed_repl.txt", content.as_bytes(), None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4804,12 +5172,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 13), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4823,6 +5197,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4838,7 +5213,7 @@ end
             .write_file(vm_id, "/tmp/none.txt", b"nope\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4867,12 +5242,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 13), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4886,6 +5267,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4899,7 +5281,7 @@ end
             .write_file(vm_id, &format!("{}/end", path), b"ok", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4925,12 +5307,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 13), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4944,6 +5332,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -4951,7 +5340,7 @@ end
             .write_file(vm_id, "/tmp/empty_sed.txt", b"", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4973,12 +5362,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 14), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -4992,6 +5387,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -5000,7 +5396,7 @@ end
             .write_file(vm_id, "/tmp/sed_heavy.txt", content.as_bytes(), None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -5023,12 +5419,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
 
@@ -5043,12 +5445,13 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
 
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -5080,12 +5483,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
 
@@ -5100,6 +5509,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
 
         let (record, nic) = manager.create_vm(config).await.unwrap();
@@ -5111,7 +5521,7 @@ end
             .await
             .unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -5135,12 +5545,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 96, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5154,10 +5570,11 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec!["-help".to_string()], 0, "root");
@@ -5174,12 +5591,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5193,10 +5616,11 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec!["--help".to_string()], 0, "root");
@@ -5212,12 +5636,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 89, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5231,10 +5661,11 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec![], 0, "root");
@@ -5250,12 +5681,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 88, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5269,10 +5706,11 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec!["-d".to_string()], 0, "root");
@@ -5288,12 +5726,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 87, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5307,6 +5751,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -5314,7 +5759,7 @@ end
             .write_file(vm_id, "/tmp/lua_test_script.lua", b"print(\"lua_script_ok\")", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec!["/tmp/lua_test_script.lua".to_string()], 0, "root");
@@ -5330,12 +5775,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 86, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5349,10 +5800,11 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec!["/nonexistent.lua".to_string()], 0, "root");
@@ -5368,12 +5820,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 85, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5387,6 +5845,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -5395,7 +5854,7 @@ end
             .write_file(vm_id, "/tmp/lua_daemon_script.lua", daemon_script, None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec!["/tmp/lua_daemon_script.lua".to_string(), "-d".to_string()], 0, "root");
@@ -5412,12 +5871,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
 
@@ -5432,6 +5897,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
 
         let (record, _nic) = manager.create_vm(config).await.unwrap();
@@ -5455,12 +5921,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 99, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
 
@@ -5475,6 +5947,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
 
         let (record, _nic) = manager.create_vm(config).await.unwrap();
@@ -5492,12 +5965,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 98, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
 
@@ -5518,6 +5997,7 @@ end
             gateway: None,
             mac: None,
             owner_id: Some(player.id),
+            create_email_account: true,
         };
 
         let (record, _nic) = manager.create_vm(config).await.unwrap();
@@ -5549,12 +6029,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 84, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5568,10 +6054,11 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -5604,12 +6091,18 @@ io.write("pid=" .. pid .. "\n")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 83, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5623,6 +6116,7 @@ io.write("pid=" .. pid .. "\n")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -5632,7 +6126,7 @@ io.write("pid=" .. pid .. "\n")
             .await
             .unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -5659,12 +6153,18 @@ os.spawn_path("/tmp/spawn_path_test.lua", {})
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 82, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5678,10 +6178,11 @@ os.spawn_path("/tmp/spawn_path_test.lua", {})
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -5702,12 +6203,18 @@ os.spawn_path("/tmp/spawn_path_test.lua", {})
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 81, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5721,10 +6228,11 @@ os.spawn_path("/tmp/spawn_path_test.lua", {})
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -5765,12 +6273,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 80, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5784,6 +6298,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -5802,7 +6317,7 @@ end
             .await
             .unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -5829,12 +6344,18 @@ os.write_stdin(pid, "hello")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 79, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5848,10 +6369,11 @@ os.write_stdin(pid, "hello")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -5906,12 +6428,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 78, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5925,10 +6453,11 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -5956,12 +6485,18 @@ io.write(t.program .. "|" .. table.concat(t.args, ","))
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 77, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -5975,10 +6510,11 @@ io.write(t.program .. "|" .. table.concat(t.args, ","))
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6008,12 +6544,18 @@ for i = 1, #t.args do io.write("_" .. t.args[i]) end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 76, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6027,10 +6569,11 @@ for i = 1, #t.args do io.write("_" .. t.args[i]) end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6055,12 +6598,18 @@ for i = 1, #t.args do io.write("_" .. t.args[i]) end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 94, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6074,10 +6623,11 @@ for i = 1, #t.args do io.write("_" .. t.args[i]) end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6113,12 +6663,18 @@ os.write_stdin(pid, "echo hello")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6132,10 +6688,11 @@ os.write_stdin(pid, "echo hello")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6174,12 +6731,18 @@ os.write_stdin(pid, "hello")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 95, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6193,10 +6756,11 @@ os.write_stdin(pid, "hello")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6247,12 +6811,18 @@ os.write_stdin(pid, "\x03")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 96, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6266,10 +6836,11 @@ os.write_stdin(pid, "\x03")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6308,12 +6879,18 @@ os.write_stdin(pid, "ec\x09")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 98, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6327,6 +6904,7 @@ os.write_stdin(pid, "ec\x09")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -6334,7 +6912,7 @@ os.write_stdin(pid, "ec\x09")
             .write_file(vm_id, "/tmp/casa", b"", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6374,12 +6952,18 @@ os.write_stdin(pid, "cat ca\x09\n")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 97, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6393,10 +6977,11 @@ os.write_stdin(pid, "cat ca\x09\n")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6431,12 +7016,18 @@ os.write_stdin(pid, "x\x09")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 88, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config_a = super::super::db::vm_service::VmConfig {
@@ -6450,6 +7041,7 @@ os.write_stdin(pid, "x\x09")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let config_b = super::super::db::vm_service::VmConfig {
             hostname: "tab-ssh-b".to_string(),
@@ -6462,13 +7054,14 @@ os.write_stdin(pid, "x\x09")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_a, nic_a) = manager.create_vm(config_a).await.unwrap();
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -6512,12 +7105,18 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6531,10 +7130,11 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6572,12 +7172,18 @@ os.write_stdin(pid, "ls /")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6591,10 +7197,11 @@ os.write_stdin(pid, "ls /")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6629,12 +7236,18 @@ os.write_stdin(pid, "echo a b c")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 90, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6648,10 +7261,11 @@ os.write_stdin(pid, "echo a b c")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6681,12 +7295,18 @@ os.write_stdin(pid, "touch /tmp/shell_touch_test")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 89, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6700,6 +7320,7 @@ os.write_stdin(pid, "touch /tmp/shell_touch_test")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
@@ -6715,7 +7336,7 @@ os.write_stdin(pid, "touch /tmp/shell_touch_test")
             .await
             .unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6750,12 +7371,18 @@ os.write_stdin(pid, "cat /tmp/shell_cat_test")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 88, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6769,10 +7396,11 @@ os.write_stdin(pid, "cat /tmp/shell_cat_test")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6806,12 +7434,18 @@ os.write_stdin(pid, "rm /tmp/shell_rm_test")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 86, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6825,10 +7459,11 @@ os.write_stdin(pid, "rm /tmp/shell_rm_test")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6865,12 +7500,18 @@ os.write_stdin(pid, "ls")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 83, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6884,10 +7525,11 @@ os.write_stdin(pid, "ls")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6932,12 +7574,18 @@ os.write_stdin(pid, "pwd")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 82, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -6951,10 +7599,11 @@ os.write_stdin(pid, "pwd")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6986,12 +7635,18 @@ os.write_stdin(pid, "touch x.txt")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 81, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -7005,10 +7660,11 @@ os.write_stdin(pid, "touch x.txt")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7037,12 +7693,18 @@ os.write_stdin(pid, "touch /tmp/absolute_test.txt")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 85, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -7056,10 +7718,11 @@ os.write_stdin(pid, "touch /tmp/absolute_test.txt")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7090,12 +7753,18 @@ os.write_stdin(pid, "touch cwd_file.txt")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 85, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -7109,10 +7778,11 @@ os.write_stdin(pid, "touch cwd_file.txt")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7153,12 +7823,18 @@ os.write_stdin(pid, "pwd")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 84, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -7172,10 +7848,11 @@ os.write_stdin(pid, "pwd")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7209,12 +7886,18 @@ os.write_stdin(pid, "nonexistentcommand")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 97, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -7228,6 +7911,7 @@ os.write_stdin(pid, "nonexistentcommand")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_a, nic_a) = manager.create_vm(config).await.unwrap();
         let ip_a = nic_a.ip.to_string();
@@ -7242,11 +7926,12 @@ os.write_stdin(pid, "nonexistentcommand")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -7302,12 +7987,18 @@ conn:send("hello")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 96, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -7321,6 +8012,7 @@ conn:send("hello")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_a, nic_a) = manager.create_vm(config).await.unwrap();
         let ip_a = nic_a.ip;
@@ -7335,12 +8027,13 @@ conn:send("hello")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip;
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -7388,12 +8081,18 @@ conn:send("hello")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 98, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -7407,6 +8106,7 @@ conn:send("hello")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_a, nic_a) = manager.create_vm(config).await.unwrap();
         let config_b = super::super::db::vm_service::VmConfig {
@@ -7420,11 +8120,12 @@ conn:send("hello")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -7469,12 +8170,18 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 99, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config_a = super::super::db::vm_service::VmConfig {
@@ -7488,6 +8195,7 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_a, nic_a) = manager.create_vm(config_a).await.unwrap();
         let config_b = super::super::db::vm_service::VmConfig {
@@ -7501,12 +8209,13 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -7572,12 +8281,18 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 98, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config_a = super::super::db::vm_service::VmConfig {
@@ -7591,6 +8306,7 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_a, nic_a) = manager.create_vm(config_a).await.unwrap();
         let config_b = super::super::db::vm_service::VmConfig {
@@ -7604,12 +8320,13 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -7688,12 +8405,18 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 97, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = super::super::db::vm_service::VmConfig {
@@ -7707,6 +8430,7 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec, nic) = manager.create_vm(config).await.unwrap();
 
@@ -7721,11 +8445,12 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_dummy, nic_dummy) = manager.create_vm(config_dummy).await.unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_dummy = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_dummy = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, _rec.id);
         vm.attach_nic(nic);
         let mut vm_dummy = VirtualMachine::with_id(lua_dummy, _rec_dummy.id);
@@ -7803,12 +8528,18 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 98, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config_server = super::super::db::vm_service::VmConfig {
@@ -7822,6 +8553,7 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let config_client = super::super::db::vm_service::VmConfig {
             hostname: "httpd-client".to_string(),
@@ -7834,6 +8566,7 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_s, nic_s) = manager.create_vm(config_server).await.unwrap();
         let (_rec_c, nic_c) = manager.create_vm(config_client).await.unwrap();
@@ -7860,8 +8593,8 @@ while true do end
             .await
             .unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -7937,12 +8670,18 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 97, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config_server = super::super::db::vm_service::VmConfig {
@@ -7956,6 +8695,7 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let config_client = super::super::db::vm_service::VmConfig {
             hostname: "curl-test-client".to_string(),
@@ -7968,6 +8708,7 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_s, nic_s) = manager.create_vm(config_server).await.unwrap();
         let (_rec_c, nic_c) = manager.create_vm(config_client).await.unwrap();
@@ -7979,8 +8720,8 @@ while true do end
             .await
             .unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -8035,12 +8776,18 @@ os.write_stdin(pid, "curl {}/hello")
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 99, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
@@ -8054,6 +8801,7 @@ os.write_stdin(pid, "curl {}/hello")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         }).await.unwrap();
         let (_rec_c, nic_c) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-about-cli".to_string(),
@@ -8066,6 +8814,7 @@ os.write_stdin(pid, "curl {}/hello")
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         }).await.unwrap();
         let ip_s = nic_s.ip.to_string();
 
@@ -8077,8 +8826,8 @@ os.write_stdin(pid, "curl {}/hello")
 "##;
         fs_service.write_file(_rec_s.id, "/var/www/about.ntml", about_ntml.as_bytes(), Some("application/x-ntml"), "root").await.unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -8116,23 +8865,28 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 100, 0), 24);
-        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), subnet);
+        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), Arc::new(EmailAccountService::new(pool.clone())), subnet);
         let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-ext-srv".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
             ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+            create_email_account: true,
         }).await.unwrap();
         let (_rec_c, nic_c) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-ext-cli".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
             ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+            create_email_account: true,
         }).await.unwrap();
         let ip_s = nic_s.ip.to_string();
 
         fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
         fs_service.write_file(_rec_s.id, "/var/www/robot.txt", b"Robot: operational\n", Some("text/plain"), "root").await.unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -8170,23 +8924,28 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 101, 0), 24);
-        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), subnet);
+        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), Arc::new(EmailAccountService::new(pool.clone())), subnet);
         let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-404-srv".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
             ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+            create_email_account: true,
         }).await.unwrap();
         let (_rec_c, nic_c) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-404-cli".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
             ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+            create_email_account: true,
         }).await.unwrap();
         let ip_s = nic_s.ip.to_string();
 
         fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
         fs_service.write_file(_rec_s.id, "/var/www/index.ntml", b"home", Some("application/x-ntml"), "root").await.unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -8224,23 +8983,28 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 102, 0), 24);
-        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), subnet);
+        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), Arc::new(EmailAccountService::new(pool.clone())), subnet);
         let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-404c-srv".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
             ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+            create_email_account: true,
         }).await.unwrap();
         let (_rec_c, nic_c) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-404c-cli".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
             ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+            create_email_account: true,
         }).await.unwrap();
         let ip_s = nic_s.ip.to_string();
 
         fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
         fs_service.write_file(_rec_s.id, "/var/www/404.ntml", b"Custom 404 page", Some("application/x-ntml"), "root").await.unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -8278,15 +9042,20 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 103, 0), 24);
-        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), subnet);
+        let mut manager = VmManager::new(vm_service.clone(), fs_service.clone(), user_service.clone(), player_service.clone(), Arc::new(EmailAccountService::new(pool.clone())), subnet);
         let (_rec_s, nic_s) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-amb-srv".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
             ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+            create_email_account: true,
         }).await.unwrap();
         let (_rec_c, nic_c) = manager.create_vm(super::super::db::vm_service::VmConfig {
             hostname: "httpd-amb-cli".to_string(), dns_name: None, cpu_cores: 1, memory_mb: 512, disk_mb: 10240,
             ip: None, subnet: None, gateway: None, mac: None, owner_id: None,
+            create_email_account: true,
         }).await.unwrap();
         let ip_s = nic_s.ip.to_string();
 
@@ -8294,8 +9063,8 @@ while true do end
         fs_service.write_file(_rec_s.id, "/var/www/robot.txt", b"plain", Some("text/plain"), "root").await.unwrap();
         fs_service.write_file(_rec_s.id, "/var/www/robot.ntml", b"ntml", Some("application/x-ntml"), "root").await.unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -8348,12 +9117,18 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 86, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config_a = super::super::db::vm_service::VmConfig {
@@ -8367,6 +9142,7 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let config_b = super::super::db::vm_service::VmConfig {
             hostname: "ssh-b".to_string(),
@@ -8379,13 +9155,14 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_a, nic_a) = manager.create_vm(config_a).await.unwrap();
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -8432,12 +9209,18 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 87, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config_a = super::super::db::vm_service::VmConfig {
@@ -8451,6 +9234,7 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let config_b = super::super::db::vm_service::VmConfig {
             hostname: "ssh-ctrl-b".to_string(),
@@ -8463,13 +9247,14 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_a, nic_a) = manager.create_vm(config_a).await.unwrap();
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -8531,12 +9316,18 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 85, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config_a = super::super::db::vm_service::VmConfig {
@@ -8550,6 +9341,7 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let config_b = super::super::db::vm_service::VmConfig {
             hostname: "ssh-multi-b".to_string(),
@@ -8562,13 +9354,14 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_rec_a, nic_a) = manager.create_vm(config_a).await.unwrap();
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -8636,12 +9429,18 @@ while true do end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 93, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config_a = super::super::db::vm_service::VmConfig {
@@ -8655,6 +9454,7 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let config_b = super::super::db::vm_service::VmConfig {
             hostname: "req-b".to_string(),
@@ -8667,13 +9467,14 @@ while true do end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_record_a, nic_a) = manager.create_vm(config_a).await.unwrap();
         let (_record_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _record_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _record_b.id);
@@ -8754,12 +9555,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 92, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config_a = super::super::db::vm_service::VmConfig {
@@ -8773,6 +9580,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let config_b = super::super::db::vm_service::VmConfig {
             hostname: "multi-b".to_string(),
@@ -8785,13 +9593,14 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_record_a, nic_a) = manager.create_vm(config_a).await.unwrap();
         let (_record_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _record_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _record_b.id);
@@ -8883,12 +9692,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 90, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config_a = super::super::db::vm_service::VmConfig {
@@ -8902,6 +9717,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let config_b = super::super::db::vm_service::VmConfig {
             hostname: "twoport-b".to_string(),
@@ -8914,13 +9730,14 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_record_a, nic_a) = manager.create_vm(config_a).await.unwrap();
         let (_record_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _record_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _record_b.id);
@@ -8988,12 +9805,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 91, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
         let config = |hostname: &str| super::super::db::vm_service::VmConfig {
@@ -9007,6 +9830,7 @@ end
             gateway: None,
             mac: None,
             owner_id: None,
+            create_email_account: true,
         };
         let (_record_a, nic_a) = manager.create_vm(config("three-a")).await.unwrap();
         let (_record_b, nic_b) = manager.create_vm(config("three-b")).await.unwrap();
@@ -9014,9 +9838,9 @@ end
         let ip_b = nic_b.ip.to_string();
         let ip_c = nic_c.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _record_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _record_b.id);
@@ -9107,12 +9931,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 87, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
 
@@ -9133,11 +9963,12 @@ end
             gateway: None,
             mac: None,
             owner_id: Some(player.id),
+            create_email_account: true,
         };
 
         let (record, nic) = manager.create_vm(config).await.unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, record.id);
         vm.attach_nic(nic);
         let mut vms = vec![vm];
@@ -9207,12 +10038,18 @@ end
         let fs_service = Arc::new(FsService::new(pool.clone()));
         let user_service = Arc::new(UserService::new(pool.clone()));
         let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+        let email_service = Arc::new(EmailService::new(pool.clone()));
+        let mailbox_hub = mailbox_hub::new_hub();
         let subnet = Subnet::new(Ipv4Addr::new(10, 0, 88, 0), 24);
         let mut manager = VmManager::new(
             vm_service.clone(),
             fs_service.clone(),
             user_service.clone(),
             player_service.clone(),
+            email_account_service.clone(),
+            email_service.clone(),
+            mailbox_hub.clone(),
             subnet,
         );
 
@@ -9233,12 +10070,13 @@ end
             gateway: None,
             mac: None,
             owner_id: Some(player.id),
+            create_email_account: true,
         };
 
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
         let mut vm = VirtualMachine::with_id(lua, record.id);
         vm.attach_nic(nic);
         let mut vms = vec![vm];

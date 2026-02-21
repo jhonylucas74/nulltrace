@@ -253,6 +253,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(grpc::new_terminal_sessions())
         .manage(grpc::new_process_spy_state())
+        .manage(grpc::new_mailbox_connections())
         .manage(ntml_runtime::new_tab_state_store())
         .manage(ntml_runtime::new_browser_storage_store())
         .invoke_handler(tauri::generate_handler![
@@ -306,6 +307,13 @@ pub fn run() {
             grpc::process_spy_spawn_lua_script,
             grpc::process_spy_kill_process,
             grpc::process_spy_disconnect,
+            grpc::grpc_get_emails,
+            grpc::grpc_send_email,
+            grpc::grpc_mark_email_read,
+            grpc::grpc_move_email,
+            grpc::grpc_delete_email,
+            grpc::mailbox_connect,
+            grpc::mailbox_disconnect,
         ])
         .setup(|app| {
             if std::env::var_os("TAURI_OPEN_DEVTOOLS").is_some() {

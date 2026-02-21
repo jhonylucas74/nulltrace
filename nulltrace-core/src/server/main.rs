@@ -15,6 +15,12 @@ use game::{
     GetInstalledStoreAppsRequest, GetInstalledStoreAppsResponse,
     InstallStoreAppRequest, InstallStoreAppResponse,
     UninstallStoreAppRequest, UninstallStoreAppResponse,
+    GetEmailsRequest, GetEmailsResponse,
+    SendEmailRequest, SendEmailResponse,
+    MarkEmailReadRequest, MarkEmailReadResponse,
+    MoveEmailRequest, MoveEmailResponse,
+    DeleteEmailRequest, DeleteEmailResponse,
+    MailboxStreamRequest, MailboxStreamMessage,
 };
 use tonic::{Request, Response, Status, transport::Server};
 use tokio_stream::wrappers::ReceiverStream;
@@ -32,12 +38,14 @@ pub struct MyGameService {}
 type TerminalStreamStream = ReceiverStream<Result<TerminalServerMessage, Status>>;
 type ProcessSpyStreamStream = ReceiverStream<Result<ProcessSpyServerMessage, Status>>;
 type RunProcessStream = ReceiverStream<Result<RunProcessResponse, Status>>;
+type MailboxStreamStream = ReceiverStream<Result<MailboxStreamMessage, Status>>;
 
 #[tonic::async_trait]
 impl GameService for MyGameService {
     type TerminalStreamStream = TerminalStreamStream;
     type ProcessSpyStreamStream = ProcessSpyStreamStream;
     type RunProcessStream = RunProcessStream;
+    type MailboxStreamStream = MailboxStreamStream;
 
     async fn run_process(
         &self,
@@ -363,6 +371,54 @@ impl GameService for MyGameService {
             success: false,
             error_message: "Use the unified cluster binary for factions".to_string(),
         }))
+    }
+
+    async fn get_emails(
+        &self,
+        _request: Request<GetEmailsRequest>,
+    ) -> Result<Response<GetEmailsResponse>, Status> {
+        Ok(Response::new(GetEmailsResponse {
+            emails: vec![],
+        }))
+    }
+
+    async fn send_email(
+        &self,
+        _request: Request<SendEmailRequest>,
+    ) -> Result<Response<SendEmailResponse>, Status> {
+        Ok(Response::new(SendEmailResponse {
+            success: false,
+            error_message: "Use the unified cluster binary".to_string(),
+        }))
+    }
+
+    async fn mark_email_read(
+        &self,
+        _request: Request<MarkEmailReadRequest>,
+    ) -> Result<Response<MarkEmailReadResponse>, Status> {
+        Ok(Response::new(MarkEmailReadResponse { success: false }))
+    }
+
+    async fn move_email(
+        &self,
+        _request: Request<MoveEmailRequest>,
+    ) -> Result<Response<MoveEmailResponse>, Status> {
+        Ok(Response::new(MoveEmailResponse { success: false }))
+    }
+
+    async fn delete_email(
+        &self,
+        _request: Request<DeleteEmailRequest>,
+    ) -> Result<Response<DeleteEmailResponse>, Status> {
+        Ok(Response::new(DeleteEmailResponse { success: false }))
+    }
+
+    async fn mailbox_stream(
+        &self,
+        _request: Request<MailboxStreamRequest>,
+    ) -> Result<Response<Self::MailboxStreamStream>, Status> {
+        let (_tx, rx) = tokio::sync::mpsc::channel(1);
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 }
 

@@ -213,6 +213,37 @@
   background: var(--bg-primary);
 }
 
+/* Centered loading state (email account or similar). Use with Loader2 + .loadingAccountSpinner for consistency. */
+.loadingAccount {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.loadingAccountText {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.loadingAccountSpinner {
+  color: var(--text-muted);
+  animation: loadingSpin 1s linear infinite;
+}
+
+@keyframes loadingSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .panelEmpty {
   color: var(--text-muted);
   font-size: 0.9rem;
@@ -341,7 +372,15 @@
 .composeForm {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.5rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.composeForm .composeHeaderFields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
   width: 100%;
   min-width: 0;
 }
@@ -354,10 +393,77 @@
 
 .composeField {
   flex: 1;
-  min-width: 10rem;
+  min-width: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.15rem;
+}
+
+.composeFieldFull {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  box-sizing: border-box;
+}
+
+.composeCcBccRow {
+  display: flex;
+  gap: 1rem;
+  margin: 0.15rem 0 0;
+  padding: 0;
+}
+
+.composeCcBccLink {
+  padding: 0;
+  font-size: 0.85rem;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.composeCcBccLink:hover {
+  text-decoration: underline;
+}
+
+.composeToWrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.composeToDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  max-height: 12rem;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+
+.composeToDropdownItem {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.composeToDropdownItem:hover {
+  background: var(--bg-tertiary);
 }
 
 .composeLabel {
@@ -372,6 +478,8 @@
 }
 
 .composeInput {
+  width: 100%;
+  min-width: 0;
   padding: 0.5rem 0.6rem;
   font-size: 0.9rem;
   color: var(--text-primary);
@@ -379,6 +487,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-sm);
   outline: none;
+  box-sizing: border-box;
 }
 
 .composeInput:focus {

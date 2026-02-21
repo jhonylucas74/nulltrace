@@ -1,0 +1,30 @@
+---
+description: Use the same loading spinner design across apps for consistency
+globs: 
+alwaysApply: true
+---
+
+# Loading spinner design (in-game apps)
+
+When adding or improving **loading states** in in-game apps (e.g. Email, Explorer, Disk Manager), use the same visual pattern so the UI stays consistent.
+
+## Pattern
+
+- **Icon:** `Loader2` from `lucide-react` (already used in e.g. Browser, EmailApp).
+- **Layout:** Center the loading content in the window: a short message (e.g. "Loading…" or "Loading email account…") with the spinner **below** the text.
+- **Spinner:** Apply a CSS class that rotates the icon 360° on a 1s linear infinite loop.
+
+## Implementation
+
+1. **React:** Import `Loader2` from `lucide-react`. Render a wrapper (e.g. a `div`) with `display: flex`, `flex-direction: column`, `align-items: center`, `justify-content: center`, and `gap` between text and icon. Put the text first, then `<Loader2 size={28} className={styles.loadingSpinner} aria-hidden />` (or similar).
+2. **CSS:** Define a class for the spinner with:
+   - `animation: loadingSpin 1s linear infinite;`
+   - `@keyframes loadingSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`
+   - Use `color: var(--text-muted)` (or equivalent) so it matches the theme.
+
+## Reference
+
+- **EmailApp:** `.loadingAccount`, `.loadingAccountText`, `.loadingAccountSpinner` in `EmailApp.module.css`; "Loading email account…" + Loader2 in `EmailApp.tsx`.
+- **Browser:** `Loader2` + `.spin` in `Browser.module.css` for the address bar loader.
+
+When asked to add a loading spinner or improve a loading state in another app, reuse this pattern (centered message + Loader2 below + same spin animation) so the design stays consistent across the game client.

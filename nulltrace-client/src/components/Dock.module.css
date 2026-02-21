@@ -95,3 +95,21 @@
 .dockItemWalletImpact {
   animation: dockItemWalletImpact 0.32s ease-out;
 }
+
+.emailBadge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}

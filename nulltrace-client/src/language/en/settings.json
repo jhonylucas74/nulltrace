@@ -1,0 +1,10 @@
+{
+  "title": "Settings",
+  "config_window": "Config Window",
+  "window_hint": "Options for the game window. Fullscreen applies immediately; start maximized applies on next launch.",
+  "fullscreen": "Fullscreen",
+  "fullscreen_hint": "Run the game in fullscreen. Applies immediately when toggled.",
+  "start_maximized": "Start maximized",
+  "maximized_unavailable": "Unavailable when fullscreen is enabled.",
+  "maximized_hint": "Maximize the window when the app launches."
+}

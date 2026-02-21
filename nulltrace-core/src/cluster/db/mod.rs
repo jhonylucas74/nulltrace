@@ -4,6 +4,8 @@ pub mod user_service;
 pub mod player_service;
 pub mod faction_service;
 pub mod shortcuts_service;
+pub mod email_service;
+pub mod email_account_service;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -54,6 +56,12 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
     sqlx::raw_sql(include_str!("../../../migrations/012_create_player_shortcuts.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/013_create_emails.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/014_create_email_accounts.sql"))
         .execute(pool)
         .await?;
     fs_service::FsService::cleanup_orphan_blobs(pool).await?;
