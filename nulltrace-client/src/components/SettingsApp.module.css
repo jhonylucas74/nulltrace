@@ -164,3 +164,46 @@
   color: var(--text-muted);
   line-height: 1.4;
 }
+
+.selectLabel {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+/* Matches presetSelect / addProgramSelect in StartupSettingsApp, formSelect in WalletApp */
+.localeSelect {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  padding: 0.5rem 1.75rem 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  color: var(--text-primary);
+  background-color: var(--bg-secondary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236c7086' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.localeSelect:hover {
+  border-color: var(--text-muted);
+}
+
+.localeSelect:focus {
+  border-color: var(--accent);
+}
+
+.localeSelect option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}

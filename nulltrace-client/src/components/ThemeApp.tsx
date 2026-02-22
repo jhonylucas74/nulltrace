@@ -1,17 +1,11 @@
+import { useTranslation } from "react-i18next";
 import { useTheme } from "../contexts/ThemeContext";
 import type { ThemeId } from "../contexts/ThemeContext";
 import styles from "./ThemeApp.module.css";
 
-const THEMES: { id: ThemeId; name: string; subtitle: string }[] = [
-  { id: "latte", name: "Latte", subtitle: "Catppuccin · Light" },
-  { id: "frappe", name: "Frappé", subtitle: "Catppuccin · Dark" },
-  { id: "macchiato", name: "Macchiato", subtitle: "Catppuccin · Dark" },
-  { id: "mocha", name: "Mocha", subtitle: "Catppuccin · Dark" },
-  { id: "onedark", name: "One Dark", subtitle: "Atom / VS Code" },
-  { id: "dracula", name: "Dracula", subtitle: "Popular dark" },
-  { id: "githubdark", name: "Nulltrace", subtitle: "Default" },
-  { id: "monokai", name: "Monokai", subtitle: "Classic editor" },
-  { id: "solardark", name: "Solarized Dark", subtitle: "Easy on the eyes" },
+const THEME_IDS: ThemeId[] = [
+  "latte", "frappe", "macchiato", "mocha", "onedark", "dracula",
+  "githubdark", "monokai", "solardark",
 ];
 
 /** Preview strip colors per theme */
@@ -28,31 +22,32 @@ const THEME_STRIP_COLORS: Record<ThemeId, string[]> = {
 };
 
 export default function ThemeApp() {
+  const { t } = useTranslation("theme");
   const { theme, setTheme } = useTheme();
 
   return (
     <div className={styles.app}>
       <p className={styles.intro}>
-        Choose a color theme for the desktop. Changes apply immediately and are saved for your next session.
+        {t("intro")}
       </p>
       <div className={styles.list}>
-        {THEMES.map((t) => {
-          const isSelected = theme === t.id;
+        {THEME_IDS.map((id) => {
+          const isSelected = theme === id;
           return (
             <button
-              key={t.id}
+              key={id}
               type="button"
               className={`${styles.row} ${isSelected ? styles.rowSelected : ""}`}
-              onClick={() => setTheme(t.id)}
+              onClick={() => setTheme(id)}
             >
               <span className={styles.strip}>
-                {THEME_STRIP_COLORS[t.id].map((c, i) => (
+                {THEME_STRIP_COLORS[id].map((c, i) => (
                   <span key={i} className={styles.stripSegment} style={{ backgroundColor: c }} />
                 ))}
               </span>
               <span className={styles.label}>
-                <span className={styles.name}>{t.name}</span>
-                <span className={styles.subtitle}>{t.subtitle}</span>
+                <span className={styles.name}>{t(`theme_${id}_name`)}</span>
+                <span className={styles.subtitle}>{t(`theme_${id}_subtitle`)}</span>
               </span>
               {isSelected && (
                 <span className={styles.check} aria-hidden>

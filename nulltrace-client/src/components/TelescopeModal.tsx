@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { highlightLua, isLuaFile, highlightSearchInHtml } from "../lib/luaHighlight";
 import styles from "./TelescopeModal.module.css";
@@ -46,6 +47,7 @@ export default function TelescopeModal({
   initialFindValue = "",
   onOpenInEditor,
 }: TelescopeModalProps) {
+  const { t } = useTranslation("code");
   const [searchQuery, setSearchQuery] = useState(initialFindValue);
   const [replaceValue, setReplaceValue] = useState("");
   /** Case-sensitive search: false = insensitive (default), true = sensitive. */
@@ -220,11 +222,11 @@ export default function TelescopeModal({
   if (!open) return null;
 
   const modeTitle =
-    mode === "search" ? "Search" : mode === "findReplace" ? "Find and Replace" : "Find File";
+    mode === "search" ? t("telescope_search") : mode === "findReplace" ? t("telescope_find_replace") : t("telescope_find_file");
 
   const renderPreview = () => {
     if (!previewContent && !loading) {
-      return <div className={styles.previewEmpty}>Select a file to preview</div>;
+      return <div className={styles.previewEmpty}>{t("telescope_preview_empty")}</div>;
     }
     if (!previewContent) return null;
     const searchTerm = isGrepMode ? searchQuery.trim() : "";
@@ -276,10 +278,10 @@ export default function TelescopeModal({
             ref={searchInputRef}
             type="text"
             className={styles.searchInput}
-            placeholder={mode === "findFile" ? "Filter files…" : "Search…"}
+            placeholder={mode === "findFile" ? t("telescope_placeholder_filter") : t("telescope_placeholder_search")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            aria-label="Search"
+            aria-label={t("telescope_placeholder_search")}
           />
           {isGrepMode && (
             <label className={styles.caseSensitiveLabel}>
@@ -288,37 +290,37 @@ export default function TelescopeModal({
                 className={styles.checkbox}
                 checked={caseSensitive}
                 onChange={(e) => setCaseSensitive(e.target.checked)}
-                aria-label="Case sensitive"
+                aria-label={t("telescope_case_sensitive")}
               />
-              Case sensitive
+              {t("telescope_case_sensitive")}
             </label>
           )}
           {mode === "findReplace" && (
             <div className={styles.replaceRow}>
-              <span className={styles.replaceLabel}>Replace:</span>
+              <span className={styles.replaceLabel}>{t("telescope_replace_label")}</span>
               <input
                 ref={replaceInputRef}
                 type="text"
                 className={styles.replaceInput}
-                placeholder="Replace"
+                placeholder={t("telescope_replace_placeholder")}
                 value={replaceValue}
                 onChange={(e) => setReplaceValue(e.target.value)}
-                aria-label="Replace"
+                aria-label={t("telescope_replace_placeholder")}
               />
             </div>
           )}
-          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="Close">
+          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label={t("telescope_close")}>
             ×
           </button>
         </div>
 
         {!canSearch && isGrepMode && (
-          <div className={styles.loading}>Open a folder and sign in to search in project.</div>
+          <div className={styles.loading}>{t("telescope_open_folder_signin")}</div>
         )}
 
         <div className={styles.body}>
           <div className={styles.listPane} ref={listRef}>
-            {loading && <div className={styles.loading}>Searching…</div>}
+            {loading && <div className={styles.loading}>{t("telescope_searching")}</div>}
             {!loading && isGrepMode && results.map((r, i) => {
               const item = r as GrepResult;
               return (
@@ -352,11 +354,11 @@ export default function TelescopeModal({
 
         <div className={styles.actions}>
           <button type="button" className={`${styles.actionBtn} ${styles.actionBtnPrimary}`} onClick={handleOpenInEditor}>
-            Open in editor
+            {t("telescope_open_in_editor")}
           </button>
           {mode === "findReplace" && previewPath && (
             <button type="button" className={styles.actionBtn} onClick={handleReplaceAllInFile}>
-              Replace all in file
+              {t("telescope_replace_all")}
             </button>
           )}
         </div>

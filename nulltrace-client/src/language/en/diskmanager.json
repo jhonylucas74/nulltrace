@@ -1,0 +1,19 @@
+{
+  "sidebar_title": "Disk Manager",
+  "nav_storage": "Storage",
+  "nav_restore": "Restore",
+  "section_storage": "Storage",
+  "hint_storage": "Disk space used by your VM. Files, programs, and system data count toward usage.",
+  "loading": "Loading…",
+  "label_used": "Used",
+  "section_restore": "Restore disk",
+  "hint_restore": "Wipe all files and recreate the default filesystem. All files will be deleted. This cannot be undone.",
+  "restore_btn": "Restore disk",
+  "restoring": "Restoring…",
+  "modal_title": "Restore disk",
+  "modal_text": "All files will be deleted. This cannot be undone. Continue?",
+  "modal_restore": "Restore",
+  "error_not_logged_in": "Not logged in",
+  "error_desktop_required": "Disk Manager requires the desktop app",
+  "error_restore_failed": "Restore failed"
+}

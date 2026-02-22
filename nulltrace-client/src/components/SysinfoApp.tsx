@@ -1,22 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { useTheme } from "../contexts/ThemeContext";
-import type { ThemeId } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
 import { NULLTRACE_ASCII_ART, NULLTRACE_ASCII_ART_INVERTED } from "../lib/nulltraceAsciiArt";
 import styles from "./SysinfoApp.module.css";
-
-const THEME_DISPLAY_NAMES: Record<ThemeId, string> = {
-  latte: "Latte",
-  frappe: "Frappé",
-  macchiato: "Macchiato",
-  mocha: "Mocha",
-  onedark: "One Dark",
-  dracula: "Dracula",
-  githubdark: "Nulltrace",
-  monokai: "Monokai",
-  solardark: "Solarized Dark",
-};
 
 const MOCK_VERSION = "0.1.0";
 
@@ -37,6 +25,7 @@ function formatDiskTotalMb(mb: number): string {
 }
 
 export default function SysinfoApp() {
+  const { t } = useTranslation("sysinfo");
   const { theme } = useTheme();
   const { username, playerId, token } = useAuth();
   const [sysinfo, setSysinfo] = useState<SysinfoData | null>(null);
@@ -95,11 +84,12 @@ export default function SysinfoApp() {
     fetchProfile();
   }, [fetchProfile]);
 
-  const cpuStr = sysinfo != null ? `${sysinfo.cpu_cores} cores` : "—";
+  const cpuStr = sysinfo != null ? `${sysinfo.cpu_cores} ${t("cores")}` : "—";
   const memoryStr = sysinfo != null ? formatRamTotalMb(sysinfo.memory_mb) : "—";
   const diskStr = sysinfo != null ? formatDiskTotalMb(sysinfo.disk_mb) : "—";
   const rankStr = profile != null && profile.rank > 0 ? `#${profile.rank}` : "—";
-  const factionStr = profile?.faction_name ?? "—";
+  const themeName = t(`theme_${theme}`);
+  const hasFaction = Boolean(profile?.faction_name?.trim());
 
   return (
     <div className={styles.app}>
@@ -110,15 +100,17 @@ export default function SysinfoApp() {
         </div>
       </div>
       <div className={styles.infoColumn}>
-        <div className={styles.infoLine}><span className={styles.label}>OS</span> nulltrace</div>
-        <div className={styles.infoLine}><span className={styles.label}>Version</span> {MOCK_VERSION}</div>
-        <div className={styles.infoLine}><span className={styles.label}>Theme</span> {THEME_DISPLAY_NAMES[theme]}</div>
-        <div className={styles.infoLine}><span className={styles.label}>CPU</span> {cpuStr}</div>
-        <div className={styles.infoLine}><span className={styles.label}>Memory</span> {memoryStr}</div>
-        <div className={styles.infoLine}><span className={styles.label}>Disk</span> {diskStr}</div>
-        {username && <div className={styles.infoLine}><span className={styles.label}>User</span> {username}</div>}
-        <div className={styles.infoLine}><span className={styles.label}>Rank</span> {rankStr}</div>
-        <div className={styles.infoLine}><span className={styles.label}>Faction</span> {factionStr}</div>
+        <div className={styles.infoLine}><span className={styles.label}>{t("label_os")}</span> nulltrace</div>
+        <div className={styles.infoLine}><span className={styles.label}>{t("label_version")}</span> {MOCK_VERSION}</div>
+        <div className={styles.infoLine}><span className={styles.label}>{t("label_theme")}</span> {themeName}</div>
+        <div className={styles.infoLine}><span className={styles.label}>{t("label_cpu")}</span> {cpuStr}</div>
+        <div className={styles.infoLine}><span className={styles.label}>{t("label_memory")}</span> {memoryStr}</div>
+        <div className={styles.infoLine}><span className={styles.label}>{t("label_disk")}</span> {diskStr}</div>
+        {username && <div className={styles.infoLine}><span className={styles.label}>{t("label_user")}</span> {username}</div>}
+        <div className={styles.infoLine}><span className={styles.label}>{t("label_rank")}</span> {rankStr}</div>
+        {hasFaction && (
+          <div className={styles.infoLine}><span className={styles.label}>{t("label_faction")}</span> {profile!.faction_name}</div>
+        )}
       </div>
     </div>
   );

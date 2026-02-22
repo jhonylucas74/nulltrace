@@ -1,0 +1,20 @@
+{
+  "sidebar_monitor": "Monitor",
+  "nav_resources": "Resources",
+  "nav_processes": "Processes",
+  "title_resources": "Resources",
+  "subtitle_resources": "CPU, memory, and disk usage. No GPU.",
+  "label_cpu": "CPU",
+  "label_memory": "Memory",
+  "label_disk": "Disk",
+  "label_vm_lua_memory": "VM Lua Memory",
+  "title_processes": "Processes",
+  "subtitle_loaded": "VM processes (refreshed every few seconds).",
+  "subtitle_loading": "Loading…",
+  "subtitle_login": "Log in to see your VM processes.",
+  "subtitle_error": "Error: {{error}}",
+  "header_name": "Name",
+  "header_pid": "PID",
+  "header_cpu": "CPU %",
+  "header_memory": "Memory"
+}

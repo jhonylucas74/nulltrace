@@ -1,0 +1,19 @@
+{
+  "sidebar_title": "Gerenciador de disco",
+  "nav_storage": "Armazenamento",
+  "nav_restore": "Restaurar",
+  "section_storage": "Armazenamento",
+  "hint_storage": "Espaço em disco usado pela sua VM. Arquivos, programas e dados do sistema contam no uso.",
+  "loading": "Carregando…",
+  "label_used": "Usado",
+  "section_restore": "Restaurar disco",
+  "hint_restore": "Apagar todos os arquivos e recriar o sistema de arquivos padrão. Todos os arquivos serão excluídos. Isso não pode ser desfeito.",
+  "restore_btn": "Restaurar disco",
+  "restoring": "Restaurando…",
+  "modal_title": "Restaurar disco",
+  "modal_text": "Todos os arquivos serão excluídos. Isso não pode ser desfeito. Continuar?",
+  "modal_restore": "Restaurar",
+  "error_not_logged_in": "Não conectado",
+  "error_desktop_required": "O Gerenciador de disco requer o app desktop",
+  "error_restore_failed": "Falha ao restaurar"
+}

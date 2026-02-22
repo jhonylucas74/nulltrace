@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { Activity, List } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -302,10 +303,12 @@ export default function SystemMonitorApp() {
     return rows;
   }, [windows, grpcData]);
 
+  const { t } = useTranslation("systemmonitor");
+
   return (
     <div className={styles.appWithSidebar}>
       <aside className={styles.sidebar}>
-        <div className={styles.sidebarSection}>Monitor</div>
+        <div className={styles.sidebarSection}>{t("sidebar_monitor")}</div>
         <button
           type="button"
           className={`${styles.navItem} ${section === "resources" ? styles.navItemActive : ""}`}
@@ -314,7 +317,7 @@ export default function SystemMonitorApp() {
           <span className={styles.navIcon}>
             <Activity size={18} />
           </span>
-          Resources
+          {t("nav_resources")}
         </button>
         <button
           type="button"
@@ -324,18 +327,18 @@ export default function SystemMonitorApp() {
           <span className={styles.navIcon}>
             <List size={18} />
           </span>
-          Processes
+          {t("nav_processes")}
         </button>
       </aside>
       <main className={styles.main}>
         {section === "resources" && (
           <>
-            <h2 className={styles.mainTitle}>Resources</h2>
-            <p className={styles.mainSubtitle}>CPU, memory, and disk usage. No GPU.</p>
+            <h2 className={styles.mainTitle}>{t("title_resources")}</h2>
+            <p className={styles.mainSubtitle}>{t("subtitle_resources")}</p>
             <div className={styles.resourceGrid}>
               <div className={styles.resourceBlock}>
                 <div className={styles.resourceRow}>
-                  <span className={styles.resourceLabel}>CPU</span>
+                  <span className={styles.resourceLabel}>{t("label_cpu")}</span>
                   <span className={styles.resourceValue}>{cpuPercent.toFixed(1)}%</span>
                 </div>
                 <div className={styles.resourceChart}>
@@ -344,7 +347,7 @@ export default function SystemMonitorApp() {
               </div>
               <div className={styles.resourceBlock}>
                 <div className={styles.resourceRow}>
-                  <span className={styles.resourceLabel}>Memory</span>
+                  <span className={styles.resourceLabel}>{t("label_memory")}</span>
                   <span className={styles.resourceValue}>
                     {memory.usedGib.toFixed(1)} / {memory.totalGib.toFixed(1)} GiB
                   </span>
@@ -355,7 +358,7 @@ export default function SystemMonitorApp() {
               </div>
               <div className={styles.resourceBlock}>
                 <div className={styles.resourceRow}>
-                  <span className={styles.resourceLabel}>Disk</span>
+                  <span className={styles.resourceLabel}>{t("label_disk")}</span>
                   <span className={styles.resourceValue}>
                     {disk.usedGib.toFixed(1)} GiB used, {disk.freeGib.toFixed(1)} GiB free
                   </span>
@@ -373,7 +376,7 @@ export default function SystemMonitorApp() {
               </div>
               <div className={styles.resourceBlock}>
                 <div className={styles.resourceRow}>
-                  <span className={styles.resourceLabel}>VM Lua Memory</span>
+                  <span className={styles.resourceLabel}>{t("label_vm_lua_memory")}</span>
                   <span className={styles.resourceValue}>
                     {grpcData?.vm_lua_memory_bytes != null
                       ? `${(grpcData.vm_lua_memory_bytes / (1024 * 1024)).toFixed(2)} MB / ${(LUA_MEMORY_LIMIT_BYTES / (1024 * 1024)).toFixed(2)} MB`
@@ -402,21 +405,21 @@ export default function SystemMonitorApp() {
         )}
         {section === "processes" && (
           <>
-            <h2 className={styles.mainTitle}>Processes</h2>
+            <h2 className={styles.mainTitle}>{t("title_processes")}</h2>
             <p className={styles.mainSubtitle}>
               {grpcData != null
-                ? "VM processes (refreshed every few seconds)."
+                ? t("subtitle_loaded")
                 : token
                   ? grpcError
-                    ? `Error: ${grpcError}`
-                    : "Loading…"
-                  : "Log in to see your VM processes."}
+                    ? t("subtitle_error", { error: grpcError })
+                    : t("subtitle_loading")
+                  : t("subtitle_login")}
             </p>
             <div className={styles.processHeader}>
-              <span className={styles.processHeaderName}>Name</span>
-              <span className={styles.processHeaderPid}>PID</span>
-              <span className={styles.processHeaderCpu}>CPU %</span>
-              <span className={styles.processHeaderMemory}>Memory</span>
+              <span className={styles.processHeaderName}>{t("header_name")}</span>
+              <span className={styles.processHeaderPid}>{t("header_pid")}</span>
+              <span className={styles.processHeaderCpu}>{t("header_cpu")}</span>
+              <span className={styles.processHeaderMemory}>{t("header_memory")}</span>
             </div>
             <ul className={styles.processList}>
               {processes.map((proc) => (

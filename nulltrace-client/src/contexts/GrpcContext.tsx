@@ -43,6 +43,61 @@ export interface EmailMessage {
   cc_address?: string;
 }
 
+// ── Wallet types ─────────────────────────────────────────────────────────────
+
+export interface GrpcWalletBalance {
+  currency: string;
+  amount: number; // DB-cents; divide by 100 for display
+}
+
+export interface GrpcWalletTransaction {
+  id: string;
+  tx_type: string; // credit | debit | transfer_in | transfer_out | convert
+  currency: string;
+  amount: number; // DB-cents
+  fee: number;
+  description: string;
+  counterpart_address: string;
+  created_at_ms: number;
+}
+
+export interface GrpcWalletKey {
+  currency: string;
+  key_address: string;
+}
+
+export interface GrpcWalletCard {
+  id: string;
+  label: string;
+  number_full: string;
+  last4: string;
+  expiry_month: number;
+  expiry_year: number;
+  cvv: string;
+  holder_name: string;
+  credit_limit: number; // DB-cents
+  current_debt: number; // DB-cents
+  is_virtual: boolean;
+}
+
+export interface GrpcCardTransaction {
+  id: string;
+  tx_type: string; // purchase | payment | refund
+  amount: number; // DB-cents
+  description: string;
+  created_at_ms: number;
+}
+
+export interface GrpcCardStatement {
+  id: string;
+  card_id: string;
+  period_start_ms: number;
+  period_end_ms: number;
+  total_amount: number; // DB-cents
+  status: string; // open | closed | paid
+  due_date_ms: number;
+}
+
 export interface GrpcContextValue {
   ping: () => Promise<PingResponseMessage>;
   login: (username: string, password: string) => Promise<LoginResponseMessage>;
@@ -68,6 +123,18 @@ export interface GrpcContextValue {
   markEmailRead: (emailAddress: string, mailToken: string, emailId: string, read: boolean) => Promise<void>;
   moveEmail: (emailAddress: string, mailToken: string, emailId: string, folder: string) => Promise<void>;
   deleteEmail: (emailAddress: string, mailToken: string, emailId: string) => Promise<void>;
+  // ── Wallet ──────────────────────────────────────────────────────────────────
+  getWalletBalances: (token: string) => Promise<{ balances: GrpcWalletBalance[]; error_message: string }>;
+  getWalletTransactions: (token: string, filter: string) => Promise<{ transactions: GrpcWalletTransaction[]; error_message: string }>;
+  getWalletKeys: (token: string) => Promise<{ keys: GrpcWalletKey[]; error_message: string }>;
+  transferFunds: (token: string, targetAddress: string, currency: string, amount: number) => Promise<{ success: boolean; error_message: string }>;
+  convertFunds: (token: string, fromCurrency: string, toCurrency: string, amount: number) => Promise<{ success: boolean; converted_amount: number; error_message: string }>;
+  getWalletCards: (token: string) => Promise<{ cards: GrpcWalletCard[]; error_message: string }>;
+  createWalletCard: (token: string, label: string, creditLimit: number) => Promise<{ card: GrpcWalletCard | null; error_message: string }>;
+  deleteWalletCard: (token: string, cardId: string) => Promise<{ success: boolean; error_message: string }>;
+  getCardTransactions: (token: string, cardId: string, filter: string) => Promise<{ transactions: GrpcCardTransaction[]; error_message: string }>;
+  getCardStatement: (token: string, cardId: string) => Promise<{ statement: GrpcCardStatement | null; error_message: string }>;
+  payCardBill: (token: string, cardId: string) => Promise<{ success: boolean; amount_paid: number; error_message: string }>;
 }
 
 const GrpcContext = createContext<GrpcContextValue | null>(null);
@@ -149,6 +216,29 @@ export function GrpcProvider({ children }: { children: React.ReactNode }) {
           mailToken,
           emailId,
         }),
+      // ── Wallet ────────────────────────────────────────────────────────────
+      getWalletBalances: (token: string) =>
+        invoke<{ balances: GrpcWalletBalance[]; error_message: string }>("grpc_get_wallet_balances", { token }),
+      getWalletTransactions: (token: string, filter: string) =>
+        invoke<{ transactions: GrpcWalletTransaction[]; error_message: string }>("grpc_get_wallet_transactions", { token, filter }),
+      getWalletKeys: (token: string) =>
+        invoke<{ keys: GrpcWalletKey[]; error_message: string }>("grpc_get_wallet_keys", { token }),
+      transferFunds: (token: string, targetAddress: string, currency: string, amount: number) =>
+        invoke<{ success: boolean; error_message: string }>("grpc_transfer_funds", { token, targetAddress, currency, amount }),
+      convertFunds: (token: string, fromCurrency: string, toCurrency: string, amount: number) =>
+        invoke<{ success: boolean; converted_amount: number; error_message: string }>("grpc_convert_funds", { token, fromCurrency, toCurrency, amount }),
+      getWalletCards: (token: string) =>
+        invoke<{ cards: GrpcWalletCard[]; error_message: string }>("grpc_get_wallet_cards", { token }),
+      createWalletCard: (token: string, label: string, creditLimit: number) =>
+        invoke<{ card: GrpcWalletCard | null; error_message: string }>("grpc_create_wallet_card", { token, label, creditLimit }),
+      deleteWalletCard: (token: string, cardId: string) =>
+        invoke<{ success: boolean; error_message: string }>("grpc_delete_wallet_card", { token, cardId }),
+      getCardTransactions: (token: string, cardId: string, filter: string) =>
+        invoke<{ transactions: GrpcCardTransaction[]; error_message: string }>("grpc_get_card_transactions", { token, cardId, filter }),
+      getCardStatement: (token: string, cardId: string) =>
+        invoke<{ statement: GrpcCardStatement | null; error_message: string }>("grpc_get_card_statement", { token, cardId }),
+      payCardBill: (token: string, cardId: string) =>
+        invoke<{ success: boolean; amount_paid: number; error_message: string }>("grpc_pay_card_bill", { token, cardId }),
     }),
     []
   );

@@ -37,6 +37,19 @@ service GameService {
   rpc MoveEmail (MoveEmailRequest) returns (MoveEmailResponse);
   rpc DeleteEmail (DeleteEmailRequest) returns (DeleteEmailResponse);
   rpc MailboxStream (MailboxStreamRequest) returns (stream MailboxStreamMessage);
+
+  // ── Wallet ────────────────────────────────────────────────────────────────
+  rpc GetWalletBalances (GetWalletBalancesRequest) returns (GetWalletBalancesResponse);
+  rpc GetWalletTransactions (GetWalletTransactionsRequest) returns (GetWalletTransactionsResponse);
+  rpc GetWalletKeys (GetWalletKeysRequest) returns (GetWalletKeysResponse);
+  rpc TransferFunds (TransferFundsRequest) returns (TransferFundsResponse);
+  rpc ConvertFunds (ConvertFundsRequest) returns (ConvertFundsResponse);
+  rpc GetWalletCards (GetWalletCardsRequest) returns (GetWalletCardsResponse);
+  rpc CreateWalletCard (CreateWalletCardRequest) returns (CreateWalletCardResponse);
+  rpc DeleteWalletCard (DeleteWalletCardRequest) returns (DeleteWalletCardResponse);
+  rpc GetCardTransactions (GetCardTransactionsRequest) returns (GetCardTransactionsResponse);
+  rpc GetCardStatement (GetCardStatementRequest) returns (GetCardStatementResponse);
+  rpc PayCardBill (PayCardBillRequest) returns (PayCardBillResponse);
 }
 
 message HelloRequest {
@@ -519,4 +532,160 @@ message MailboxStreamMessage {
     EmailMessage new_email = 1;
     int64 unread_count = 2;
   }
+}
+
+// ── Wallet ────────────────────────────────────────────────────────────────────
+
+message WalletBalance {
+  string currency = 1;
+  int64  amount   = 2;  // DB-cents; divide by 100 for display
+}
+
+message GetWalletBalancesRequest {}
+
+message GetWalletBalancesResponse {
+  repeated WalletBalance balances      = 1;
+  string                 error_message = 2;
+}
+
+message WalletTransaction {
+  string id                   = 1;
+  string tx_type              = 2;  // credit | debit | transfer_in | transfer_out | convert
+  string currency             = 3;
+  int64  amount               = 4;  // DB-cents
+  int64  fee                  = 5;
+  string description          = 6;
+  string counterpart_address  = 7;
+  int64  created_at_ms        = 8;
+}
+
+message GetWalletTransactionsRequest {
+  string filter = 1;  // "today" | "7d" | "30d" | "all"
+}
+
+message GetWalletTransactionsResponse {
+  repeated WalletTransaction transactions = 1;
+  string                     error_message = 2;
+}
+
+message WalletKey {
+  string currency    = 1;
+  string key_address = 2;
+}
+
+message GetWalletKeysRequest {}
+
+message GetWalletKeysResponse {
+  repeated WalletKey keys          = 1;
+  string             error_message = 2;
+}
+
+message TransferFundsRequest {
+  string target_address = 1;
+  string currency       = 2;
+  int64  amount         = 3;  // DB-cents
+}
+
+message TransferFundsResponse {
+  bool   success       = 1;
+  string error_message = 2;
+}
+
+message ConvertFundsRequest {
+  string from_currency = 1;
+  string to_currency   = 2;
+  int64  amount        = 3;  // DB-cents of from_currency
+}
+
+message ConvertFundsResponse {
+  bool   success          = 1;
+  int64  converted_amount = 2;  // DB-cents of to_currency
+  string error_message    = 3;
+}
+
+message WalletCard {
+  string id           = 1;
+  string label        = 2;
+  string number_full  = 3;
+  string last4        = 4;
+  int32  expiry_month = 5;
+  int32  expiry_year  = 6;
+  string cvv          = 7;
+  string holder_name  = 8;
+  int64  credit_limit = 9;   // DB-cents
+  int64  current_debt = 10;  // DB-cents
+  bool   is_virtual   = 11;
+}
+
+message GetWalletCardsRequest {}
+
+message GetWalletCardsResponse {
+  repeated WalletCard cards         = 1;
+  string              error_message = 2;
+}
+
+message CreateWalletCardRequest {
+  string label        = 1;
+  int64  credit_limit = 2;  // DB-cents (0 = use default 100000)
+}
+
+message CreateWalletCardResponse {
+  WalletCard card          = 1;
+  string     error_message = 2;
+}
+
+message DeleteWalletCardRequest {
+  string card_id = 1;
+}
+
+message DeleteWalletCardResponse {
+  bool   success       = 1;
+  string error_message = 2;
+}
+
+message CardTransaction {
+  string id            = 1;
+  string tx_type       = 2;  // purchase | payment | refund
+  int64  amount        = 3;  // DB-cents
+  string description   = 4;
+  int64  created_at_ms = 5;
+}
+
+message GetCardTransactionsRequest {
+  string card_id = 1;
+  string filter  = 2;  // "today" | "7d" | "30d" | "all"
+}
+
+message GetCardTransactionsResponse {
+  repeated CardTransaction transactions = 1;
+  string                   error_message = 2;
+}
+
+message CardStatement {
+  string id               = 1;
+  string card_id          = 2;
+  int64  period_start_ms  = 3;
+  int64  period_end_ms    = 4;
+  int64  total_amount     = 5;  // DB-cents
+  string status           = 6;  // open | closed | paid
+  int64  due_date_ms      = 7;
+}
+
+message GetCardStatementRequest {
+  string card_id = 1;
+}
+
+message GetCardStatementResponse {
+  CardStatement statement    = 1;
+  string        error_message = 2;
+}
+
+message PayCardBillRequest {
+  string card_id = 1;
+}
+
+message PayCardBillResponse {
+  bool   success       = 1;
+  int64  amount_paid   = 2;  // DB-cents actually debited
+  string error_message = 3;
 }

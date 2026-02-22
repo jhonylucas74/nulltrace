@@ -19,6 +19,9 @@ use game::{
     SetShortcutsRequest, SpawnLuaScript, StdinData, SubscribePid, TerminalClientMessage,
     TerminalOpened, UnsubscribePid, WriteFileRequest, ReadFileRequest, EmptyTrashRequest,
     GetInstalledStoreAppsRequest, InstallStoreAppRequest, UninstallStoreAppRequest,
+    GetWalletBalancesRequest, GetWalletTransactionsRequest, GetWalletKeysRequest,
+    TransferFundsRequest, ConvertFundsRequest, GetWalletCardsRequest, CreateWalletCardRequest,
+    DeleteWalletCardRequest, GetCardTransactionsRequest, GetCardStatementRequest, PayCardBillRequest,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1953,4 +1956,354 @@ pub fn mailbox_disconnect(
     if let Some(handle) = state.lock().unwrap().handles.remove(&conn_id) {
         handle.abort();
     }
+}
+
+// ─── Wallet Commands ─────────────────────────────────────────────────────────
+
+/// Helper: add Bearer authorization header to a tonic Request.
+fn bearer_auth<T>(req: &mut tonic::Request<T>, token: &str) -> Result<(), String> {
+    req.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+    Ok(())
+}
+
+/// Helper: map Unauthenticated gRPC status to a friendly string.
+fn map_grpc_err(e: tonic::Status) -> String {
+    if e.code() == tonic::Code::Unauthenticated {
+        "UNAUTHENTICATED".to_string()
+    } else {
+        e.to_string()
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct WalletBalanceEntry {
+    pub currency: String,
+    pub amount: i64,
+}
+
+#[derive(serde::Serialize)]
+pub struct GetWalletBalancesCommandResponse {
+    pub balances: Vec<WalletBalanceEntry>,
+    pub error_message: String,
+}
+
+/// Tauri command: Get all wallet balances for the authenticated player.
+#[tauri::command]
+pub async fn grpc_get_wallet_balances(token: String) -> Result<GetWalletBalancesCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(GetWalletBalancesRequest {});
+    bearer_auth(&mut req, &token)?;
+    let res = client.get_wallet_balances(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(GetWalletBalancesCommandResponse {
+        balances: res.balances.into_iter().map(|b| WalletBalanceEntry { currency: b.currency, amount: b.amount }).collect(),
+        error_message: res.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct WalletTransactionEntry {
+    pub id: String,
+    pub tx_type: String,
+    pub currency: String,
+    pub amount: i64,
+    pub fee: i64,
+    pub description: String,
+    pub counterpart_address: String,
+    pub created_at_ms: i64,
+}
+
+#[derive(serde::Serialize)]
+pub struct GetWalletTransactionsCommandResponse {
+    pub transactions: Vec<WalletTransactionEntry>,
+    pub error_message: String,
+}
+
+/// Tauri command: Get wallet transactions for the authenticated player.
+/// filter: "today" | "7d" | "30d" | "all"
+#[tauri::command]
+pub async fn grpc_get_wallet_transactions(token: String, filter: String) -> Result<GetWalletTransactionsCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(GetWalletTransactionsRequest { filter });
+    bearer_auth(&mut req, &token)?;
+    let res = client.get_wallet_transactions(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(GetWalletTransactionsCommandResponse {
+        transactions: res.transactions.into_iter().map(|t| WalletTransactionEntry {
+            id: t.id,
+            tx_type: t.tx_type,
+            currency: t.currency,
+            amount: t.amount,
+            fee: t.fee,
+            description: t.description,
+            counterpart_address: t.counterpart_address,
+            created_at_ms: t.created_at_ms,
+        }).collect(),
+        error_message: res.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct WalletKeyEntry {
+    pub currency: String,
+    pub key_address: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct GetWalletKeysCommandResponse {
+    pub keys: Vec<WalletKeyEntry>,
+    pub error_message: String,
+}
+
+/// Tauri command: Get wallet receive keys/addresses for the authenticated player.
+#[tauri::command]
+pub async fn grpc_get_wallet_keys(token: String) -> Result<GetWalletKeysCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(GetWalletKeysRequest {});
+    bearer_auth(&mut req, &token)?;
+    let res = client.get_wallet_keys(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(GetWalletKeysCommandResponse {
+        keys: res.keys.into_iter().map(|k| WalletKeyEntry { currency: k.currency, key_address: k.key_address }).collect(),
+        error_message: res.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct TransferFundsCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Transfer funds to an external address.
+#[tauri::command]
+pub async fn grpc_transfer_funds(
+    token: String,
+    target_address: String,
+    currency: String,
+    amount: i64,
+) -> Result<TransferFundsCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(TransferFundsRequest { target_address, currency, amount });
+    bearer_auth(&mut req, &token)?;
+    let res = client.transfer_funds(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(TransferFundsCommandResponse { success: res.success, error_message: res.error_message })
+}
+
+#[derive(serde::Serialize)]
+pub struct ConvertFundsCommandResponse {
+    pub success: bool,
+    pub converted_amount: i64,
+    pub error_message: String,
+}
+
+/// Tauri command: Convert funds between currencies.
+#[tauri::command]
+pub async fn grpc_convert_funds(
+    token: String,
+    from_currency: String,
+    to_currency: String,
+    amount: i64,
+) -> Result<ConvertFundsCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(ConvertFundsRequest { from_currency, to_currency, amount });
+    bearer_auth(&mut req, &token)?;
+    let res = client.convert_funds(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(ConvertFundsCommandResponse { success: res.success, converted_amount: res.converted_amount, error_message: res.error_message })
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct WalletCardEntry {
+    pub id: String,
+    pub label: String,
+    pub number_full: String,
+    pub last4: String,
+    pub expiry_month: i32,
+    pub expiry_year: i32,
+    pub cvv: String,
+    pub holder_name: String,
+    pub credit_limit: i64,
+    pub current_debt: i64,
+    pub is_virtual: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct GetWalletCardsCommandResponse {
+    pub cards: Vec<WalletCardEntry>,
+    pub error_message: String,
+}
+
+fn proto_card_to_entry(c: game::WalletCard) -> WalletCardEntry {
+    WalletCardEntry {
+        id: c.id,
+        label: c.label,
+        number_full: c.number_full,
+        last4: c.last4,
+        expiry_month: c.expiry_month,
+        expiry_year: c.expiry_year,
+        cvv: c.cvv,
+        holder_name: c.holder_name,
+        credit_limit: c.credit_limit,
+        current_debt: c.current_debt,
+        is_virtual: c.is_virtual,
+    }
+}
+
+/// Tauri command: Get all active credit cards for the authenticated player.
+#[tauri::command]
+pub async fn grpc_get_wallet_cards(token: String) -> Result<GetWalletCardsCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(GetWalletCardsRequest {});
+    bearer_auth(&mut req, &token)?;
+    let res = client.get_wallet_cards(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(GetWalletCardsCommandResponse {
+        cards: res.cards.into_iter().map(proto_card_to_entry).collect(),
+        error_message: res.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct CreateWalletCardCommandResponse {
+    pub card: Option<WalletCardEntry>,
+    pub error_message: String,
+}
+
+/// Tauri command: Create a new virtual credit card. credit_limit=0 uses default ($1,000).
+#[tauri::command]
+pub async fn grpc_create_wallet_card(
+    token: String,
+    label: String,
+    credit_limit: i64,
+) -> Result<CreateWalletCardCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(CreateWalletCardRequest { label, credit_limit });
+    bearer_auth(&mut req, &token)?;
+    let res = client.create_wallet_card(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(CreateWalletCardCommandResponse {
+        card: res.card.map(proto_card_to_entry),
+        error_message: res.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct DeleteWalletCardCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Soft-delete (deactivate) a credit card.
+#[tauri::command]
+pub async fn grpc_delete_wallet_card(token: String, card_id: String) -> Result<DeleteWalletCardCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(DeleteWalletCardRequest { card_id });
+    bearer_auth(&mut req, &token)?;
+    let res = client.delete_wallet_card(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(DeleteWalletCardCommandResponse { success: res.success, error_message: res.error_message })
+}
+
+#[derive(serde::Serialize)]
+pub struct CardTransactionEntry {
+    pub id: String,
+    pub tx_type: String,
+    pub amount: i64,
+    pub description: String,
+    pub created_at_ms: i64,
+}
+
+#[derive(serde::Serialize)]
+pub struct GetCardTransactionsCommandResponse {
+    pub transactions: Vec<CardTransactionEntry>,
+    pub error_message: String,
+}
+
+/// Tauri command: Get card transactions.
+/// filter: "today" | "7d" | "30d" | "all"
+#[tauri::command]
+pub async fn grpc_get_card_transactions(
+    token: String,
+    card_id: String,
+    filter: String,
+) -> Result<GetCardTransactionsCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(GetCardTransactionsRequest { card_id, filter });
+    bearer_auth(&mut req, &token)?;
+    let res = client.get_card_transactions(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(GetCardTransactionsCommandResponse {
+        transactions: res.transactions.into_iter().map(|t| CardTransactionEntry {
+            id: t.id,
+            tx_type: t.tx_type,
+            amount: t.amount,
+            description: t.description,
+            created_at_ms: t.created_at_ms,
+        }).collect(),
+        error_message: res.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct CardStatementEntry {
+    pub id: String,
+    pub card_id: String,
+    pub period_start_ms: i64,
+    pub period_end_ms: i64,
+    pub total_amount: i64,
+    pub status: String,
+    pub due_date_ms: i64,
+}
+
+#[derive(serde::Serialize)]
+pub struct GetCardStatementCommandResponse {
+    pub statement: Option<CardStatementEntry>,
+    pub error_message: String,
+}
+
+/// Tauri command: Get the current open billing statement for a card.
+#[tauri::command]
+pub async fn grpc_get_card_statement(token: String, card_id: String) -> Result<GetCardStatementCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(GetCardStatementRequest { card_id });
+    bearer_auth(&mut req, &token)?;
+    let res = client.get_card_statement(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(GetCardStatementCommandResponse {
+        statement: res.statement.map(|s| CardStatementEntry {
+            id: s.id,
+            card_id: s.card_id,
+            period_start_ms: s.period_start_ms,
+            period_end_ms: s.period_end_ms,
+            total_amount: s.total_amount,
+            status: s.status,
+            due_date_ms: s.due_date_ms,
+        }),
+        error_message: res.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct PayCardBillCommandResponse {
+    pub success: bool,
+    pub amount_paid: i64,
+    pub error_message: String,
+}
+
+/// Tauri command: Pay the full credit card bill (debits USD balance, clears card debt).
+#[tauri::command]
+pub async fn grpc_pay_card_bill(token: String, card_id: String) -> Result<PayCardBillCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(PayCardBillRequest { card_id });
+    bearer_auth(&mut req, &token)?;
+    let res = client.pay_card_bill(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(PayCardBillCommandResponse { success: res.success, amount_paid: res.amount_paid, error_message: res.error_message })
 }

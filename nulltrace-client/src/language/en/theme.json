@@ -1,0 +1,21 @@
+{
+  "intro": "Choose a color theme for the desktop. Changes apply immediately and are saved for your next session.",
+  "theme_latte_name": "Latte",
+  "theme_latte_subtitle": "Catppuccin · Light",
+  "theme_frappe_name": "Frappé",
+  "theme_frappe_subtitle": "Catppuccin · Dark",
+  "theme_macchiato_name": "Macchiato",
+  "theme_macchiato_subtitle": "Catppuccin · Dark",
+  "theme_mocha_name": "Mocha",
+  "theme_mocha_subtitle": "Catppuccin · Dark",
+  "theme_onedark_name": "One Dark",
+  "theme_onedark_subtitle": "Atom / VS Code",
+  "theme_dracula_name": "Dracula",
+  "theme_dracula_subtitle": "Popular dark",
+  "theme_githubdark_name": "Nulltrace",
+  "theme_githubdark_subtitle": "Default",
+  "theme_monokai_name": "Monokai",
+  "theme_monokai_subtitle": "Classic editor",
+  "theme_solardark_name": "Solarized Dark",
+  "theme_solardark_subtitle": "Easy on the eyes"
+}

@@ -1,29 +1,44 @@
 /**
- * Wallet state for balances and transactions. Used by WalletApp for
- * transfer, convert, and statement updates.
+ * Wallet state for balances, transactions, keys and cards.
+ * All amounts stored as DB-cents internally; use /100 for display.
  */
 
-import React, { createContext, useContext, useCallback, useMemo, useState } from "react";
-import {
-  MOCK_WALLET_BALANCES,
-  type WalletBalance,
-} from "../lib/walletBalances";
-import {
-  MOCK_WALLET_TRANSACTIONS,
-  nextTransactionId,
-  type WalletTransaction,
-} from "../lib/walletTransactions";
-import {
-  MOCK_CARD_DEBT,
-  MOCK_CARD_LIMIT,
-  MOCK_CARD_TRANSACTIONS,
-  type CardTransaction,
-} from "../lib/walletCards";
+import React, { createContext, useContext, useCallback, useMemo, useState, useEffect, useRef } from "react";
+import { useAuth } from "./AuthContext";
+import { useGrpc, type GrpcWalletCard, type GrpcCardStatement } from "./GrpcContext";
+
+// ── Re-exports for consumers ─────────────────────────────────────────────────
+export type { GrpcWalletCard as WalletCard, GrpcCardStatement as CardStatement };
+
+export interface WalletKey {
+  currency: string;
+  key_address: string;
+}
+
+export interface WalletTx {
+  id: string;
+  tx_type: string; // credit | debit | transfer_in | transfer_out | convert
+  currency: string;
+  amount: number;   // DB-cents
+  fee: number;
+  description: string;
+  counterpart_address: string;
+  created_at_ms: number;
+}
+
+export interface CardTx {
+  id: string;
+  tx_type: string; // purchase | payment | refund
+  amount: number;  // DB-cents
+  description: string;
+  created_at_ms: number;
+}
+
+// ── Amount helpers ────────────────────────────────────────────────────────────
 
 /**
  * Parse amount string to number. Accepts comma or dot as decimal separator.
  * Last occurrence of comma or dot is the decimal separator; others are thousand separators.
- * E.g. "1,50" -> 1.5, "1.240,50" -> 1240.5, "1,240.50" -> 1240.5.
  */
 export function parseAmount(s: string): number {
   const raw = s.trim().replace(/\s/g, "");
@@ -45,7 +60,6 @@ export function parseAmount(s: string): number {
 
 /**
  * Apply mask to amount input: only digits and one comma or dot for decimals.
- * Optionally limit decimal places (e.g. 2 for USD).
  */
 export function applyAmountMask(value: string, maxDecimals: number = 8): string {
   let hasDecimal = false;
@@ -54,10 +68,7 @@ export function applyAmountMask(value: string, maxDecimals: number = 8): string 
   for (const c of value) {
     if (c >= "0" && c <= "9") {
       if (hasDecimal) {
-        if (decimalCount < maxDecimals) {
-          out.push(c);
-          decimalCount++;
-        }
+        if (decimalCount < maxDecimals) { out.push(c); decimalCount++; }
       } else {
         out.push(c);
       }
@@ -72,155 +83,304 @@ export function applyAmountMask(value: string, maxDecimals: number = 8): string 
   return out.join("");
 }
 
-/** Format number for display (2–8 decimals depending on currency). */
-export function formatAmount(value: number, symbol: string): string {
+/** Format a DB-cents value for display. */
+export function formatAmount(cents: number, symbol: string): string {
+  const value = cents / 100;
   if (symbol === "USD") return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (symbol === "BTC") return value.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 6 });
   if (symbol === "ETH" || symbol === "SOL") return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
   return value.toFixed(2);
 }
 
+// ── Context interface ─────────────────────────────────────────────────────────
+
 interface WalletContextValue {
-  /** Balance by symbol (numeric). */
+  /** Balances in DB-cents, keyed by currency symbol. */
   balances: Record<string, number>;
-  /** All transactions (newest first). */
-  transactions: WalletTransaction[];
-  /** Currency metadata (symbol -> WalletBalance) for labels. */
-  balanceMeta: Map<string, WalletBalance>;
-  /** Get formatted amount for a symbol. */
-  getFormattedBalance: (symbol: string) => string;
-  /** Execute transfer: deduct from balance and add transaction. */
-  transfer: (currency: string, amount: number, recipientKey: string) => boolean;
-  /** Execute conversion: deduct from, add to, append two transactions. */
-  convert: (fromSymbol: string, toSymbol: string, fromAmount: number, rate: number) => boolean;
-  /** Pay (purchase): deduct balance and add a debit transaction. Returns true if successful. */
-  pay: (currency: string, amount: number, description: string) => boolean;
-  /** Card (Fkebank): current debt in USD. */
+  /** Keys/addresses for each currency. */
+  keys: WalletKey[];
+  /** Credit cards. */
+  cards: GrpcWalletCard[];
+  /** All wallet transactions (newest first). */
+  transactions: WalletTx[];
+  /** Card transactions for the currently selected card. */
+  cardTransactions: CardTx[];
+  /** Current open card statement (for the first/active card). */
+  cardStatement: GrpcCardStatement | null;
+  /** Total card debt across all cards (DB-cents). */
   cardDebt: number;
-  /** Card (Fkebank): credit limit in USD. */
+  /** Total card credit limit across all cards (DB-cents). */
   cardLimit: number;
-  /** Card-only statement (newest first). */
-  cardTransactions: CardTransaction[];
+  isLoading: boolean;
+  /** Get formatted display balance for a symbol. */
+  getFormattedBalance: (symbol: string) => string;
+  /** Transfer funds. Returns error string or null on success. */
+  transfer: (currency: string, amountCents: number, recipientKey: string) => Promise<string | null>;
+  /** Convert funds. Returns error string or null on success. */
+  convert: (fromSymbol: string, toSymbol: string, amountCents: number) => Promise<string | null>;
+  /** Pay credit card bill. Returns error string or null on success. */
+  payBill: (cardId: string) => Promise<string | null>;
+  /**
+   * Debit a display-unit amount from the wallet balance synchronously (optimistic).
+   * Fires the backend debit in the background. Returns false if local balance is insufficient.
+   * Used by NullCloudContext for in-game purchases (amount is display value, e.g. 5.99 USD).
+   */
+  pay: (currency: string, displayAmount: number, description: string) => boolean;
+  /** Refresh balances. */
+  refreshBalances: () => Promise<void>;
+  /** Fetch transactions for a given filter. */
+  fetchTransactions: (filter: string) => Promise<void>;
+  /** Fetch card transactions for a given card and filter. */
+  fetchCardTransactions: (cardId: string, filter: string) => Promise<void>;
+  /** Fetch (or refresh) the open card statement. */
+  fetchCardStatement: (cardId: string) => Promise<void>;
+  /** Create a new virtual card. Returns created card or null. */
+  createCard: (label: string, creditLimitCents: number) => Promise<GrpcWalletCard | null>;
+  /** Delete a card. Returns true if successful. */
+  deleteCard: (cardId: string) => Promise<boolean>;
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null);
 
-function initialBalances(): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const b of MOCK_WALLET_BALANCES) {
-    out[b.symbol] = parseAmount(b.amount);
-  }
-  return out;
-}
-
 export function WalletProvider({ children }: { children: React.ReactNode }) {
-  const [balances, setBalances] = useState<Record<string, number>>(initialBalances);
-  const [transactions, setTransactions] = useState<WalletTransaction[]>(MOCK_WALLET_TRANSACTIONS);
-  const [cardDebt] = useState<number>(MOCK_CARD_DEBT);
-  const [cardLimit] = useState<number>(MOCK_CARD_LIMIT);
-  const [cardTransactions] = useState<CardTransaction[]>(MOCK_CARD_TRANSACTIONS);
+  const { token } = useAuth();
+  const grpc = useGrpc();
 
-  const balanceMeta = useMemo(() => {
-    const m = new Map<string, WalletBalance>();
-    for (const b of MOCK_WALLET_BALANCES) m.set(b.symbol, b);
-    return m;
-  }, []);
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  const [keys, setKeys] = useState<WalletKey[]>([]);
+  const [cards, setCards] = useState<GrpcWalletCard[]>([]);
+  const [transactions, setTransactions] = useState<WalletTx[]>([]);
+  const [cardTransactions, setCardTransactions] = useState<CardTx[]>([]);
+  const [cardStatement, setCardStatement] = useState<GrpcCardStatement | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  const balancesRef = useRef(balances);
+  balancesRef.current = balances;
+
+  // ── Fetch helpers ───────────────────────────────────────────────────────────
+
+  const refreshBalances = useCallback(async () => {
+    const tok = tokenRef.current;
+    if (!tok) return;
+    try {
+      const res = await grpc.getWalletBalances(tok);
+      if (!res.error_message) {
+        const map: Record<string, number> = {};
+        for (const b of res.balances) map[b.currency] = b.amount;
+        setBalances(map);
+      }
+    } catch { /* network error – keep stale data */ }
+  }, [grpc]);
+
+  const fetchKeys = useCallback(async () => {
+    const tok = tokenRef.current;
+    if (!tok) return;
+    try {
+      const res = await grpc.getWalletKeys(tok);
+      if (!res.error_message) setKeys(res.keys);
+    } catch { /* ignore */ }
+  }, [grpc]);
+
+  const fetchCards = useCallback(async () => {
+    const tok = tokenRef.current;
+    if (!tok) return;
+    try {
+      const res = await grpc.getWalletCards(tok);
+      if (!res.error_message) setCards(res.cards);
+    } catch { /* ignore */ }
+  }, [grpc]);
+
+  const fetchTransactions = useCallback(async (filter: string) => {
+    const tok = tokenRef.current;
+    if (!tok) return;
+    try {
+      const res = await grpc.getWalletTransactions(tok, filter);
+      if (!res.error_message) setTransactions(res.transactions);
+    } catch { /* ignore */ }
+  }, [grpc]);
+
+  const fetchCardTransactions = useCallback(async (cardId: string, filter: string) => {
+    const tok = tokenRef.current;
+    if (!tok) return;
+    try {
+      const res = await grpc.getCardTransactions(tok, cardId, filter);
+      if (!res.error_message) setCardTransactions(res.transactions);
+    } catch { /* ignore */ }
+  }, [grpc]);
+
+  const fetchCardStatement = useCallback(async (cardId: string) => {
+    const tok = tokenRef.current;
+    if (!tok) return;
+    try {
+      const res = await grpc.getCardStatement(tok, cardId);
+      if (!res.error_message && res.statement) setCardStatement(res.statement);
+    } catch { /* ignore */ }
+  }, [grpc]);
+
+  // ── Initial load ────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!token) return;
+    setIsLoading(true);
+    Promise.all([
+      refreshBalances(),
+      fetchKeys(),
+      fetchCards(),
+      fetchTransactions("all"),
+    ]).finally(() => setIsLoading(false));
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Derived values ──────────────────────────────────────────────────────────
+
+  const cardDebt = useMemo(() => cards.reduce((sum, c) => sum + c.current_debt, 0), [cards]);
+  const cardLimit = useMemo(() => cards.reduce((sum, c) => sum + c.credit_limit, 0), [cards]);
 
   const getFormattedBalance = useCallback(
     (symbol: string) => formatAmount(balances[symbol] ?? 0, symbol),
     [balances]
   );
 
+  // ── Mutations ───────────────────────────────────────────────────────────────
+
   const transfer = useCallback(
-    (currency: string, amount: number, recipientKey: string): boolean => {
-      const current = balances[currency] ?? 0;
-      if (amount <= 0 || amount > current) return false;
-      setBalances((prev) => ({ ...prev, [currency]: (prev[currency] ?? 0) - amount }));
-      const tx: WalletTransaction = {
-        id: nextTransactionId(),
-        type: "transfer",
-        amount: formatAmount(amount, currency),
-        currency,
-        date: new Date().toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
-        timestamp: Date.now(),
-        description: `Transfer to ${recipientKey.slice(0, 8)}…`,
-      };
-      setTransactions((prev) => [tx, ...prev]);
-      return true;
+    async (currency: string, amountCents: number, recipientKey: string): Promise<string | null> => {
+      const tok = tokenRef.current;
+      if (!tok) return "Not authenticated";
+      try {
+        const res = await grpc.transferFunds(tok, recipientKey, currency, amountCents);
+        if (!res.success) return res.error_message || "Transfer failed";
+        await refreshBalances();
+        await fetchTransactions("all");
+        return null;
+      } catch (e) {
+        return String(e);
+      }
     },
-    [balances]
+    [grpc, refreshBalances, fetchTransactions]
   );
 
   const convert = useCallback(
-    (fromSymbol: string, toSymbol: string, fromAmount: number, rate: number): boolean => {
-      const fromBalance = balances[fromSymbol] ?? 0;
-      if (fromAmount <= 0 || fromAmount > fromBalance || fromSymbol === toSymbol) return false;
-      const toAmount = fromAmount * rate;
-      setBalances((prev) => ({
-        ...prev,
-        [fromSymbol]: (prev[fromSymbol] ?? 0) - fromAmount,
-        [toSymbol]: (prev[toSymbol] ?? 0) + toAmount,
-      }));
-      const dateStr = new Date().toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-      const now = Date.now();
-      const debitTx: WalletTransaction = {
-        id: nextTransactionId(),
-        type: "convert",
-        amount: `-${formatAmount(fromAmount, fromSymbol)}`,
-        currency: fromSymbol,
-        date: dateStr,
-        timestamp: now,
-        description: `Convert ${fromSymbol} → ${toSymbol}`,
-      };
-      const creditTx: WalletTransaction = {
-        id: nextTransactionId(),
-        type: "credit",
-        amount: formatAmount(toAmount, toSymbol),
-        currency: toSymbol,
-        date: dateStr,
-        timestamp: now,
-        description: `Convert ${fromSymbol} → ${toSymbol}`,
-      };
-      setTransactions((prev) => [debitTx, creditTx, ...prev]);
-      return true;
+    async (fromSymbol: string, toSymbol: string, amountCents: number): Promise<string | null> => {
+      const tok = tokenRef.current;
+      if (!tok) return "Not authenticated";
+      try {
+        const res = await grpc.convertFunds(tok, fromSymbol, toSymbol, amountCents);
+        if (!res.success) return res.error_message || "Conversion failed";
+        await refreshBalances();
+        await fetchTransactions("all");
+        return null;
+      } catch (e) {
+        return String(e);
+      }
     },
-    [balances]
+    [grpc, refreshBalances, fetchTransactions]
   );
 
+  const payBill = useCallback(
+    async (cardId: string): Promise<string | null> => {
+      const tok = tokenRef.current;
+      if (!tok) return "Not authenticated";
+      try {
+        const res = await grpc.payCardBill(tok, cardId);
+        if (!res.success) return res.error_message || "Payment failed";
+        await Promise.all([refreshBalances(), fetchCards(), fetchCardStatement(cardId)]);
+        return null;
+      } catch (e) {
+        return String(e);
+      }
+    },
+    [grpc, refreshBalances, fetchCards, fetchCardStatement]
+  );
+
+  const createCard = useCallback(
+    async (label: string, creditLimitCents: number): Promise<GrpcWalletCard | null> => {
+      const tok = tokenRef.current;
+      if (!tok) return null;
+      try {
+        const res = await grpc.createWalletCard(tok, label, creditLimitCents);
+        if (res.card) {
+          setCards((prev) => [...prev, res.card!]);
+          return res.card;
+        }
+        return null;
+      } catch { return null; }
+    },
+    [grpc]
+  );
+
+  const deleteCard = useCallback(
+    async (cardId: string): Promise<boolean> => {
+      const tok = tokenRef.current;
+      if (!tok) return false;
+      try {
+        const res = await grpc.deleteWalletCard(tok, cardId);
+        if (res.success) {
+          setCards((prev) => prev.filter((c) => c.id !== cardId));
+        }
+        return res.success;
+      } catch { return false; }
+    },
+    [grpc]
+  );
+
+  /**
+   * Synchronous optimistic debit for in-game purchases (NullCloud etc.).
+   * Checks local balance, deducts optimistically, fires backend debit in background.
+   */
   const pay = useCallback(
-    (currency: string, amount: number, description: string): boolean => {
-      const current = balances[currency] ?? 0;
-      if (amount <= 0 || amount > current) return false;
-      setBalances((prev) => ({ ...prev, [currency]: (prev[currency] ?? 0) - amount }));
-      const tx: WalletTransaction = {
-        id: nextTransactionId(),
-        type: "debit",
-        amount: `-${formatAmount(amount, currency)}`,
-        currency,
-        date: new Date().toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
-        timestamp: Date.now(),
-        description,
-      };
-      setTransactions((prev) => [tx, ...prev]);
+    (currency: string, displayAmount: number, _description: string): boolean => {
+      const amountCents = Math.round(displayAmount * 100);
+      const current = balancesRef.current[currency] ?? 0;
+      if (amountCents <= 0 || current < amountCents) return false;
+      // Optimistic local deduction
+      setBalances((prev) => ({ ...prev, [currency]: (prev[currency] ?? 0) - amountCents }));
+      // Fire-and-forget backend debit (best-effort; reconcile on next balance refresh)
+      const tok = tokenRef.current;
+      if (tok) {
+        grpc.transferFunds(tok, "", currency, amountCents).then(() => {
+          // Refresh to reconcile — ignore errors
+          refreshBalances().catch(() => {});
+        }).catch(() => {});
+      }
       return true;
     },
-    [balances]
+    [grpc, refreshBalances]
   );
+
+  // ── Context value ───────────────────────────────────────────────────────────
 
   const value: WalletContextValue = useMemo(
     () => ({
       balances,
+      keys,
+      cards,
       transactions,
-      balanceMeta,
+      cardTransactions,
+      cardStatement,
+      cardDebt,
+      cardLimit,
+      isLoading,
       getFormattedBalance,
       transfer,
       convert,
+      payBill,
       pay,
-      cardDebt,
-      cardLimit,
-      cardTransactions,
+      refreshBalances,
+      fetchTransactions,
+      fetchCardTransactions,
+      fetchCardStatement,
+      createCard,
+      deleteCard,
     }),
-    [balances, transactions, balanceMeta, getFormattedBalance, transfer, convert, pay, cardDebt, cardLimit, cardTransactions]
+    [
+      balances, keys, cards, transactions, cardTransactions, cardStatement,
+      cardDebt, cardLimit, isLoading,
+      getFormattedBalance, transfer, convert, payBill, pay,
+      refreshBalances, fetchTransactions, fetchCardTransactions, fetchCardStatement,
+      createCard, deleteCard,
+    ]
   );
 
   return (

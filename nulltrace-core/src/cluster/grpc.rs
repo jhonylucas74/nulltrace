@@ -10,6 +10,8 @@ use super::db::player_service::PlayerService;
 use super::db::shortcuts_service::ShortcutsService;
 use super::db::user_service::{UserService, VmUser};
 use super::db::vm_service::VmService;
+use super::db::wallet_service::{WalletError, WalletService};
+use super::db::wallet_card_service::WalletCardService;
 use super::mailbox_hub::{MailboxHub, MailboxEvent};
 use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
 use super::process_spy_hub::{ProcessSpyConnection, ProcessSpyDownstreamMsg, ProcessSpyHub};
@@ -57,6 +59,18 @@ use game::{
     MailboxStreamMessage, MailboxStreamRequest, MarkEmailReadRequest, MarkEmailReadResponse,
     MoveEmailRequest, MoveEmailResponse, SendEmailRequest, SendEmailResponse,
     EmailMessage as GrpcEmailMessage,
+    // Wallet RPCs
+    GetWalletBalancesRequest, GetWalletBalancesResponse, WalletBalance as GrpcWalletBalance,
+    GetWalletTransactionsRequest, GetWalletTransactionsResponse, WalletTransaction as GrpcWalletTx,
+    GetWalletKeysRequest, GetWalletKeysResponse, WalletKey as GrpcWalletKey,
+    TransferFundsRequest, TransferFundsResponse,
+    ConvertFundsRequest, ConvertFundsResponse,
+    GetWalletCardsRequest, GetWalletCardsResponse, WalletCard as GrpcWalletCard,
+    CreateWalletCardRequest, CreateWalletCardResponse,
+    DeleteWalletCardRequest, DeleteWalletCardResponse,
+    GetCardTransactionsRequest, GetCardTransactionsResponse, CardTransaction as GrpcCardTx,
+    GetCardStatementRequest, GetCardStatementResponse, CardStatement as GrpcCardStatement,
+    PayCardBillRequest, PayCardBillResponse,
 };
 
 pub struct ClusterGameService {
@@ -68,6 +82,8 @@ pub struct ClusterGameService {
     shortcuts_service: Arc<ShortcutsService>,
     email_service: Arc<EmailService>,
     email_account_service: Arc<EmailAccountService>,
+    wallet_service: Arc<WalletService>,
+    wallet_card_service: Arc<WalletCardService>,
     mailbox_hub: MailboxHub,
     terminal_hub: Arc<TerminalHub>,
     process_spy_hub: Arc<ProcessSpyHub>,
@@ -86,6 +102,8 @@ impl ClusterGameService {
         shortcuts_service: Arc<ShortcutsService>,
         email_service: Arc<EmailService>,
         email_account_service: Arc<EmailAccountService>,
+        wallet_service: Arc<WalletService>,
+        wallet_card_service: Arc<WalletCardService>,
         mailbox_hub: MailboxHub,
         terminal_hub: Arc<TerminalHub>,
         process_spy_hub: Arc<ProcessSpyHub>,
@@ -102,6 +120,8 @@ impl ClusterGameService {
             shortcuts_service,
             email_service,
             email_account_service,
+            wallet_service,
+            wallet_card_service,
             mailbox_hub,
             terminal_hub,
             process_spy_hub,
@@ -251,6 +271,8 @@ impl GameService for ClusterGameService {
                     .get_shortcuts(p.id)
                     .await
                     .unwrap_or_else(|_| "{}".to_string());
+                // Ensure wallet exists for this player (idempotent, ignore errors)
+                let _ = self.wallet_service.create_wallet_for_player(p.id).await;
                 Ok(Response::new(LoginResponse {
                     success: true,
                     player_id: p.id.to_string(),
@@ -1923,6 +1945,326 @@ impl GameService for ClusterGameService {
         });
         Ok(Response::new(ReceiverStream::new(rx)))
     }
+
+    // ── Wallet handlers ───────────────────────────────────────────────────────
+
+    async fn get_wallet_balances(
+        &self,
+        request: Request<GetWalletBalancesRequest>,
+    ) -> Result<Response<GetWalletBalancesResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let balances = self
+            .wallet_service
+            .get_balances(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(GetWalletBalancesResponse {
+            balances: balances
+                .into_iter()
+                .map(|b| GrpcWalletBalance {
+                    currency: b.currency,
+                    amount: b.balance,
+                })
+                .collect(),
+            error_message: String::new(),
+        }))
+    }
+
+    async fn get_wallet_transactions(
+        &self,
+        request: Request<GetWalletTransactionsRequest>,
+    ) -> Result<Response<GetWalletTransactionsResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let filter = request.into_inner().filter;
+        let filter = if filter.is_empty() { "all".to_string() } else { filter };
+
+        let txns = self
+            .wallet_service
+            .get_transactions(player_id, &filter)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(GetWalletTransactionsResponse {
+            transactions: txns
+                .into_iter()
+                .map(|t| GrpcWalletTx {
+                    id: t.id.to_string(),
+                    tx_type: t.tx_type,
+                    currency: t.currency,
+                    amount: t.amount,
+                    fee: t.fee,
+                    description: t.description.unwrap_or_default(),
+                    counterpart_address: t.counterpart_address.unwrap_or_default(),
+                    created_at_ms: t.created_at.timestamp_millis(),
+                })
+                .collect(),
+            error_message: String::new(),
+        }))
+    }
+
+    async fn get_wallet_keys(
+        &self,
+        request: Request<GetWalletKeysRequest>,
+    ) -> Result<Response<GetWalletKeysResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let keys = self
+            .wallet_service
+            .get_keys(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(GetWalletKeysResponse {
+            keys: keys
+                .into_iter()
+                .map(|k| GrpcWalletKey {
+                    currency: k.currency,
+                    key_address: k.key_address,
+                })
+                .collect(),
+            error_message: String::new(),
+        }))
+    }
+
+    async fn transfer_funds(
+        &self,
+        request: Request<TransferFundsRequest>,
+    ) -> Result<Response<TransferFundsResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let req = request.into_inner();
+
+        if req.target_address.is_empty() || req.currency.is_empty() || req.amount <= 0 {
+            return Err(Status::invalid_argument("target_address, currency and amount are required"));
+        }
+
+        self.wallet_service
+            .transfer_to_address(player_id, &req.target_address, &req.currency, req.amount)
+            .await
+            .map_err(wallet_error_to_status)?;
+
+        Ok(Response::new(TransferFundsResponse {
+            success: true,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn convert_funds(
+        &self,
+        request: Request<ConvertFundsRequest>,
+    ) -> Result<Response<ConvertFundsResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let req = request.into_inner();
+
+        if req.from_currency.is_empty() || req.to_currency.is_empty() || req.amount <= 0 {
+            return Err(Status::invalid_argument("from_currency, to_currency and amount are required"));
+        }
+
+        let converted = self
+            .wallet_service
+            .convert(player_id, &req.from_currency, &req.to_currency, req.amount)
+            .await
+            .map_err(wallet_error_to_status)?;
+
+        Ok(Response::new(ConvertFundsResponse {
+            success: true,
+            converted_amount: converted,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn get_wallet_cards(
+        &self,
+        request: Request<GetWalletCardsRequest>,
+    ) -> Result<Response<GetWalletCardsResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let cards = self
+            .wallet_card_service
+            .get_cards(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(GetWalletCardsResponse {
+            cards: cards.into_iter().map(card_to_grpc).collect(),
+            error_message: String::new(),
+        }))
+    }
+
+    async fn create_wallet_card(
+        &self,
+        request: Request<CreateWalletCardRequest>,
+    ) -> Result<Response<CreateWalletCardResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let req = request.into_inner();
+
+        let label = if req.label.is_empty() { None } else { Some(req.label.as_str()) };
+        let limit = if req.credit_limit > 0 { req.credit_limit } else { 100_000 };
+        let holder_name = claims.username;
+
+        let card = self
+            .wallet_card_service
+            .create_card(player_id, label, &holder_name, limit)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(CreateWalletCardResponse {
+            card: Some(card_to_grpc(card)),
+            error_message: String::new(),
+        }))
+    }
+
+    async fn delete_wallet_card(
+        &self,
+        request: Request<DeleteWalletCardRequest>,
+    ) -> Result<Response<DeleteWalletCardResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let card_id = Uuid::parse_str(&request.into_inner().card_id)
+            .map_err(|_| Status::invalid_argument("Invalid card_id"))?;
+
+        let found = self
+            .wallet_card_service
+            .delete_card(card_id, player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        if !found {
+            return Err(Status::not_found("Card not found"));
+        }
+
+        Ok(Response::new(DeleteWalletCardResponse {
+            success: true,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn get_card_transactions(
+        &self,
+        request: Request<GetCardTransactionsRequest>,
+    ) -> Result<Response<GetCardTransactionsResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let _player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let req = request.into_inner();
+        let card_id = Uuid::parse_str(&req.card_id)
+            .map_err(|_| Status::invalid_argument("Invalid card_id"))?;
+        let filter = if req.filter.is_empty() { "all".to_string() } else { req.filter };
+
+        let txns = self
+            .wallet_card_service
+            .get_card_transactions(card_id, &filter)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(GetCardTransactionsResponse {
+            transactions: txns
+                .into_iter()
+                .map(|t| GrpcCardTx {
+                    id: t.id.to_string(),
+                    tx_type: t.tx_type,
+                    amount: t.amount,
+                    description: t.description.unwrap_or_default(),
+                    created_at_ms: t.created_at.timestamp_millis(),
+                })
+                .collect(),
+            error_message: String::new(),
+        }))
+    }
+
+    async fn get_card_statement(
+        &self,
+        request: Request<GetCardStatementRequest>,
+    ) -> Result<Response<GetCardStatementResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let _player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let card_id = Uuid::parse_str(&request.into_inner().card_id)
+            .map_err(|_| Status::invalid_argument("Invalid card_id"))?;
+
+        let stmt = self
+            .wallet_card_service
+            .get_or_create_open_statement(card_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(GetCardStatementResponse {
+            statement: Some(GrpcCardStatement {
+                id: stmt.id.to_string(),
+                card_id: stmt.card_id.to_string(),
+                period_start_ms: stmt.period_start.timestamp_millis(),
+                period_end_ms: stmt.period_end.timestamp_millis(),
+                total_amount: stmt.total_amount,
+                status: stmt.status,
+                due_date_ms: stmt.due_date.timestamp_millis(),
+            }),
+            error_message: String::new(),
+        }))
+    }
+
+    async fn pay_card_bill(
+        &self,
+        request: Request<PayCardBillRequest>,
+    ) -> Result<Response<PayCardBillResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let card_id = Uuid::parse_str(&request.into_inner().card_id)
+            .map_err(|_| Status::invalid_argument("Invalid card_id"))?;
+
+        let paid = self
+            .wallet_card_service
+            .pay_card_bill(card_id, player_id)
+            .await
+            .map_err(wallet_error_to_status)?;
+
+        Ok(Response::new(PayCardBillResponse {
+            success: true,
+            amount_paid: paid,
+            error_message: String::new(),
+        }))
+    }
+}
+
+fn wallet_error_to_status(e: WalletError) -> Status {
+    match e {
+        WalletError::InsufficientBalance => Status::failed_precondition("Insufficient balance"),
+        WalletError::CardLimitExceeded => Status::failed_precondition("Card credit limit exceeded"),
+        WalletError::InvalidCurrency => Status::invalid_argument("Invalid currency"),
+        WalletError::Db(db_err) => Status::internal(db_err.to_string()),
+    }
+}
+
+fn card_to_grpc(c: super::db::wallet_card_service::WalletCard) -> GrpcWalletCard {
+    GrpcWalletCard {
+        id: c.id.to_string(),
+        label: c.label.unwrap_or_default(),
+        number_full: c.number_full,
+        last4: c.last4,
+        expiry_month: c.expiry_month,
+        expiry_year: c.expiry_year,
+        cvv: c.cvv,
+        holder_name: c.holder_name,
+        credit_limit: c.credit_limit,
+        current_debt: c.current_debt,
+        is_virtual: c.is_virtual,
+    }
 }
 
 /// Returns true if path is under home (normalized, no traversal).
@@ -1987,6 +2329,7 @@ mod tests {
         faction_service::FactionService, fs_service::FsService,
         player_service::PlayerService, shortcuts_service::ShortcutsService, user_service::UserService,
         vm_service::{VmConfig, VmService},
+        wallet_service::WalletService, wallet_card_service::WalletCardService,
     };
     use super::super::mailbox_hub;
     use super::super::process_run_hub::new_hub as new_process_run_hub;
@@ -2009,6 +2352,8 @@ mod tests {
             Arc::new(ShortcutsService::new(pool.clone())),
             Arc::new(EmailService::new(pool.clone())),
             Arc::new(EmailAccountService::new(pool.clone())),
+            Arc::new(WalletService::new(pool.clone())),
+            Arc::new(WalletCardService::new(pool.clone())),
             mailbox_hub::new_hub(),
             new_hub(),
             new_process_spy_hub(),
@@ -2031,6 +2376,8 @@ mod tests {
             Arc::new(ShortcutsService::new(pool.clone())),
             Arc::new(EmailService::new(pool.clone())),
             Arc::new(EmailAccountService::new(pool.clone())),
+            Arc::new(WalletService::new(pool.clone())),
+            Arc::new(WalletCardService::new(pool.clone())),
             mailbox_hub::new_hub(),
             new_hub(),
             new_process_spy_hub(),

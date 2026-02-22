@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { List, Send, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -24,6 +25,7 @@ interface TabState {
 }
 
 export default function ProcessSpyApp() {
+  const { t } = useTranslation("procspy");
   const { token } = useAuth();
   const [connectionId, setConnectionId] = useState<string | null>(null);
   const [processes, setProcesses] = useState<ProcessEntry[]>([]);
@@ -45,7 +47,7 @@ export default function ProcessSpyApp() {
   // Register listeners first, then connect, so we never miss the first process list from the server
   useEffect(() => {
     if (!token) {
-      setError("Log in to use Proc Spy.");
+      setError(t("error_login"));
       return;
     }
     setError(null);
@@ -103,7 +105,7 @@ export default function ProcessSpyApp() {
       unlistens.push(u4);
 
       const u5 = await listen<{ message: string }>("process-spy-error", (event) => {
-        if (!cancelled) setError(event.payload?.message ?? "Process Spy error.");
+        if (!cancelled) setError(event.payload?.message ?? t("error_generic"));
       });
       unlistens.push(u5);
 
@@ -112,7 +114,7 @@ export default function ProcessSpyApp() {
         if (!cancelled && closedId !== undefined) {
           setConnectionId((current) => {
             if (current === closedId) {
-              setError("Disconnected.");
+              setError(t("error_disconnected"));
               return null;
             }
             return current;
@@ -136,7 +138,7 @@ export default function ProcessSpyApp() {
       cancelled = true;
       unlistens.forEach((u) => u());
     };
-  }, [token]);
+  }, [token, t]);
 
   /** Display label for a process: full command line (args) when available, else name. */
   const processLabel = (proc: ProcessEntry) =>
@@ -215,27 +217,25 @@ export default function ProcessSpyApp() {
       </aside>
       <main className={styles.main}>
         {error && <div className={styles.errorBanner}>{error}</div>}
-        <h2 className={styles.mainTitle}>Proc Spy</h2>
+        <h2 className={styles.mainTitle}>{t("title")}</h2>
         <p className={styles.mainSubtitle}>
-          {connectionId
-            ? "Click a process to open a tab and view/inject stdin and stdout."
-            : "Connecting…"}
+          {connectionId ? t("subtitle_connected") : t("subtitle_connecting")}
         </p>
         {tabs.length > 0 && (
           <div className={styles.tabBar}>
-            {tabs.map((t) => (
+            {tabs.map((tab) => (
               <button
-                key={t.pid}
+                key={tab.pid}
                 type="button"
                 className={`${styles.tab} ${
-                  activePid === t.pid ? styles.tabActive : ""
+                  activePid === tab.pid ? styles.tabActive : ""
                 }`}
-                onClick={() => setActivePid(t.pid)}
+                onClick={() => setActivePid(tab.pid)}
               >
                 <span>
-                  {t.name}
-                  {t.gone && (
-                    <span className={styles.processGoneBadge}>(ended)</span>
+                  {tab.name}
+                  {tab.gone && (
+                    <span className={styles.processGoneBadge}>{t("tab_ended")}</span>
                   )}
                 </span>
                 <button
@@ -243,9 +243,9 @@ export default function ProcessSpyApp() {
                   className={styles.tabClose}
                   onClick={(e) => {
                     e.stopPropagation();
-                    closeTab(t.pid);
+                    closeTab(tab.pid);
                   }}
-                  aria-label="Close tab"
+                  aria-label={t("close_tab")}
                 >
                   <X size={14} />
                 </button>
@@ -256,7 +256,7 @@ export default function ProcessSpyApp() {
         {activeTab ? (
           <div className={styles.splitContainer}>
             <div className={styles.panel} style={{ flex: "0 0 45%" }}>
-              <div className={styles.panelHeader}>Stdin</div>
+              <div className={styles.panelHeader}>{t("stdin")}</div>
               <div className={styles.panelContent}>
                 {activeTab.stdinBuffer || "\u00a0"}
               </div>
@@ -272,7 +272,7 @@ export default function ProcessSpyApp() {
                       sendStdin(activeTab.pid);
                     }
                   }}
-                  placeholder="Type and press Enter or Send"
+                  placeholder={t("stdin_placeholder")}
                   disabled={activeTab.gone}
                 />
                 <button
@@ -282,12 +282,12 @@ export default function ProcessSpyApp() {
                   disabled={activeTab.gone || !stdinInput.trim()}
                 >
                   <Send size={14} />
-                  Send
+                  {t("send")}
                 </button>
               </div>
             </div>
             <div className={styles.panel} style={{ flex: "1 1 auto" }}>
-              <div className={styles.panelHeader}>Stdout</div>
+              <div className={styles.panelHeader}>{t("stdout")}</div>
               <div className={styles.panelContent}>
                 {activeTab.stdoutBuffer || "\u00a0"}
               </div>
@@ -295,9 +295,7 @@ export default function ProcessSpyApp() {
           </div>
         ) : (
           <div className={styles.emptyState}>
-            {connectionId
-              ? "Select a process from the list to open a tab."
-              : "Connecting to stream…"}
+            {connectionId ? t("empty_connected") : t("empty_connecting")}
           </div>
         )}
       </main>

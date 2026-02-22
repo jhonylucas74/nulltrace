@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Search } from "lucide-react";
 import { useWallpaper } from "../contexts/WallpaperContext";
 import styles from "./BackgroundApp.module.css";
@@ -55,6 +56,7 @@ async function searchPexels(
 }
 
 export default function BackgroundApp() {
+  const { t } = useTranslation("background");
   const { wallpaperUrl, setWallpaper, gridEnabled, setGridEnabled } = useWallpaper();
   const [searchQuery, setSearchQuery] = useState("");
   const [inputValue, setInputValue] = useState("");
@@ -69,7 +71,7 @@ export default function BackgroundApp() {
   const doSearch = useCallback(
     async (query: string, pageNum: number = 1) => {
       if (!apiKey) {
-        setError("Set VITE_PEXEL_API in .env to search wallpapers.");
+        setError(t("api_error"));
         return;
       }
       setError(null);
@@ -84,13 +86,13 @@ export default function BackgroundApp() {
         setPage(data.page);
         setHasNext(!!data.next_page);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Search failed.");
+        setError(e instanceof Error ? e.message : t("error_search_failed"));
         if (pageNum === 1) setPhotos([]);
       } finally {
         setLoading(false);
       }
     },
-    [apiKey]
+    [apiKey, t]
   );
 
   useEffect(() => {
@@ -118,7 +120,7 @@ export default function BackgroundApp() {
       <div className={styles.main}>
         <div className={styles.content}>
           <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>Background</h2>
+            <h2 className={styles.sectionTitle}>{t("section_title")}</h2>
           </div>
 
           <button
@@ -127,8 +129,8 @@ export default function BackgroundApp() {
             onClick={() => setWallpaper(null)}
           >
             <span>
-              <span className={styles.noneLabel}>None</span>
-              <div className={styles.noneHint}>Use the default gradient background.</div>
+              <span className={styles.noneLabel}>{t("none_label")}</span>
+              <div className={styles.noneHint}>{t("none_hint")}</div>
             </span>
           </button>
 
@@ -137,14 +139,14 @@ export default function BackgroundApp() {
               type="checkbox"
               checked={gridEnabled}
               onChange={(e) => setGridEnabled(e.target.checked)}
-              aria-label="Show grid on wallpaper"
+              aria-label={t("grid_label")}
             />
-            <span className={styles.gridOptionLabel}>Show grid on wallpaper</span>
+            <span className={styles.gridOptionLabel}>{t("grid_label")}</span>
           </label>
 
           {!apiKey && (
             <div className={styles.apiError}>
-              Set VITE_PEXEL_API in .env to search wallpapers.
+              {t("api_error")}
             </div>
           )}
 
@@ -156,24 +158,24 @@ export default function BackgroundApp() {
                   <input
                     type="text"
                     className={styles.searchInput}
-                    placeholder="Search themes…"
+                    placeholder={t("search_placeholder")}
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
-                    aria-label="Search wallpapers"
+                    aria-label={t("search_aria")}
                   />
                 </div>
                 <button type="submit" className={styles.searchBtn} disabled={loading}>
-                  Search
+                  {t("search_btn")}
                 </button>
               </form>
 
               {error && <div className={styles.apiError}>{error}</div>}
               {loading && photos.length === 0 && (
-                <div className={styles.loading}>Loading…</div>
+                <div className={styles.loading}>{t("loading")}</div>
               )}
 
               {!loading && photos.length === 0 && searchQuery && !error && (
-                <div className={styles.emptyState}>No results. Try another search.</div>
+                <div className={styles.emptyState}>{t("empty_state")}</div>
               )}
 
               {photos.length > 0 && (
@@ -193,7 +195,7 @@ export default function BackgroundApp() {
                         >
                           <img
                             src={photo.src.medium}
-                            alt={photo.alt ?? "Wallpaper option"}
+                            alt={photo.alt ?? t("wallpaper_alt")}
                             className={styles.photoImg}
                             loading="lazy"
                           />
@@ -208,7 +210,7 @@ export default function BackgroundApp() {
                       onClick={handleLoadMore}
                       disabled={loading}
                     >
-                      Load more
+                      {t("load_more")}
                     </button>
                   )}
                 </>

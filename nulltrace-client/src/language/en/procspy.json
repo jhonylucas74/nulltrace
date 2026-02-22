@@ -1,0 +1,16 @@
+{
+  "error_login": "Log in to use Proc Spy.",
+  "error_generic": "Process Spy error.",
+  "error_disconnected": "Disconnected.",
+  "title": "Proc Spy",
+  "subtitle_connected": "Click a process to open a tab and view/inject stdin and stdout.",
+  "subtitle_connecting": "Connecting…",
+  "tab_ended": "(ended)",
+  "close_tab": "Close tab",
+  "stdin": "Stdin",
+  "stdout": "Stdout",
+  "stdin_placeholder": "Type and press Enter or Send",
+  "send": "Send",
+  "empty_connected": "Select a process from the list to open a tab.",
+  "empty_connecting": "Connecting to stream…"
+}

@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronUp, ChevronDown, Trash2, Rocket, LayoutTemplate } from "lucide-react";
 import { useStartupConfig } from "../contexts/StartupConfigContext";
 import { getAppTitle } from "../lib/appList";
@@ -11,6 +12,8 @@ const LAYOUT_PRESETS: LayoutPreset[] = ["3x2", "2x2", "2x1", "2+1", "1+2", "1x1"
 type Section = "programs" | "grid";
 
 export default function StartupSettingsApp() {
+  const { t } = useTranslation("startup");
+  const { t: tApps } = useTranslation("apps");
   const [section, setSection] = useState<Section>("programs");
   const {
     startupAppTypes,
@@ -71,7 +74,7 @@ export default function StartupSettingsApp() {
   return (
     <div className={styles.app}>
       <aside className={styles.sidebar}>
-        <div className={styles.sidebarTitle}>Startup</div>
+        <div className={styles.sidebarTitle}>{t("sidebar_title")}</div>
         <button
           type="button"
           className={`${styles.navItem} ${section === "programs" ? styles.navItemActive : ""}`}
@@ -80,7 +83,7 @@ export default function StartupSettingsApp() {
           <span className={styles.navIcon}>
             <Rocket size={18} />
           </span>
-          Programs
+          {t("nav_programs")}
         </button>
         <button
           type="button"
@@ -90,7 +93,7 @@ export default function StartupSettingsApp() {
           <span className={styles.navIcon}>
             <LayoutTemplate size={18} />
           </span>
-          Grid layout
+          {t("nav_grid")}
         </button>
       </aside>
       <div className={styles.main}>
@@ -98,26 +101,26 @@ export default function StartupSettingsApp() {
           {section === "programs" && (
             <>
               <div className={styles.sectionHeader}>
-                <h2 className={styles.sectionTitle}>Programs at login</h2>
+                <h2 className={styles.sectionTitle}>{t("section_programs")}</h2>
               </div>
               <p className={styles.hint}>
-                Apps opened automatically after you log in, in order. Reorder with the arrows.
+                {t("hint_programs")}
               </p>
               <div className={styles.card}>
                 <div className={styles.list}>
                   {startupAppTypes.length === 0 ? (
-                    <p className={styles.emptyState}>No programs. Add one below.</p>
+                    <p className={styles.emptyState}>{t("empty_programs")}</p>
                   ) : (
                     startupAppTypes.map((type, index) => (
                       <div key={`${type}-${index}`} className={styles.row}>
-                        <span className={styles.rowLabel}>{getAppTitle(type)}</span>
+                        <span className={styles.rowLabel}>{getAppTitle(type, undefined, tApps)}</span>
                         <div className={styles.rowActions}>
                           <button
                             type="button"
                             className={styles.iconBtn}
                             onClick={() => moveUp(index)}
                             disabled={index === 0}
-                            aria-label="Move up"
+                            aria-label={t("move_up")}
                           >
                             <ChevronUp size={18} />
                           </button>
@@ -126,7 +129,7 @@ export default function StartupSettingsApp() {
                             className={styles.iconBtn}
                             onClick={() => moveDown(index)}
                             disabled={index === startupAppTypes.length - 1}
-                            aria-label="Move down"
+                            aria-label={t("move_down")}
                           >
                             <ChevronDown size={18} />
                           </button>
@@ -134,7 +137,7 @@ export default function StartupSettingsApp() {
                             type="button"
                             className={styles.iconBtn}
                             onClick={() => removeApp(index)}
-                            aria-label={`Remove ${getAppTitle(type)}`}
+                            aria-label={t("remove_program", { name: getAppTitle(type, undefined, tApps) })}
                           >
                             <Trash2 size={18} />
                           </button>
@@ -152,12 +155,12 @@ export default function StartupSettingsApp() {
                       if (v) addApp(v);
                       e.target.value = "";
                     }}
-                    aria-label="Add program at login"
+                    aria-label={t("add_program_label")}
                   >
-                    <option value="">Add program…</option>
+                    <option value="">{t("add_program_placeholder")}</option>
                     {availableToAdd.map((type) => (
                       <option key={type} value={type}>
-                        {getAppTitle(type)}
+                        {getAppTitle(type, undefined, tApps)}
                       </option>
                     ))}
                   </select>
@@ -170,7 +173,7 @@ export default function StartupSettingsApp() {
                       if (first) addApp(first);
                     }}
                   >
-                    Add
+                    {t("add_btn")}
                   </button>
                 </div>
               </div>
@@ -183,12 +186,10 @@ export default function StartupSettingsApp() {
                     onChange={(e) => setCenterFirstWindow(e.target.checked)}
                     disabled={gridEnabledByDefault}
                   />
-                  Center first window
+                  {t("center_first_window")}
                 </label>
                 <p className={styles.cardHint}>
-                  {gridEnabledByDefault
-                    ? "Unavailable when grid layout is enabled by default (windows open in grid slots)."
-                    : "Place the first startup window in the center of the screen."}
+                  {gridEnabledByDefault ? t("hint_center_unavailable") : t("hint_center")}
                 </p>
               </div>
             </>
@@ -196,10 +197,10 @@ export default function StartupSettingsApp() {
           {section === "grid" && (
             <>
               <div className={styles.sectionHeader}>
-                <h2 className={styles.sectionTitle}>Grid layout</h2>
+                <h2 className={styles.sectionTitle}>{t("section_grid")}</h2>
               </div>
               <p className={styles.hint}>
-                Default grid behavior when you log in and when you add new workspaces.
+                {t("hint_grid")}
               </p>
               <div className={styles.card}>
                 <label className={styles.checkLabel}>
@@ -209,14 +210,14 @@ export default function StartupSettingsApp() {
                     checked={gridEnabledByDefault}
                     onChange={(e) => handleGridDefaultChange(e.target.checked)}
                   />
-                  Enable grid layout by default
+                  {t("grid_by_default")}
                 </label>
                 <p className={styles.cardHint}>
-                  When on, grid mode is on at login and new windows snap to slots.
+                  {t("hint_grid_by_default")}
                 </p>
                 <div className={styles.presetWrap}>
                   <label className={styles.presetLabel} htmlFor="startup-default-layout">
-                    Default layout
+                    {t("default_layout")}
                   </label>
                   <select
                     id="startup-default-layout"
@@ -227,7 +228,7 @@ export default function StartupSettingsApp() {
                   >
                     {LAYOUT_PRESETS.map((p) => (
                       <option key={p} value={p}>
-                        {p}
+                        {t(`preset_${p}` as "preset_3x2")}
                       </option>
                     ))}
                   </select>

@@ -1,0 +1,21 @@
+{
+  "label_os": "OS",
+  "label_version": "Version",
+  "label_theme": "Theme",
+  "label_cpu": "CPU",
+  "label_memory": "Memory",
+  "label_disk": "Disk",
+  "label_user": "User",
+  "label_rank": "Rank",
+  "label_faction": "Faction",
+  "cores": "cores",
+  "theme_latte": "Latte",
+  "theme_frappe": "Frappé",
+  "theme_macchiato": "Macchiato",
+  "theme_mocha": "Mocha",
+  "theme_onedark": "One Dark",
+  "theme_dracula": "Dracula",
+  "theme_githubdark": "Nulltrace",
+  "theme_monokai": "Monokai",
+  "theme_solardark": "Solarized Dark"
+}

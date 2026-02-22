@@ -1,0 +1,15 @@
+{
+  "section_title": "Background",
+  "none_label": "None",
+  "none_hint": "Use the default gradient background.",
+  "grid_label": "Show grid on wallpaper",
+  "api_error": "Set VITE_PEXEL_API in .env to search wallpapers.",
+  "search_placeholder": "Search themes…",
+  "search_aria": "Search wallpapers",
+  "search_btn": "Search",
+  "loading": "Loading…",
+  "empty_state": "No results. Try another search.",
+  "wallpaper_alt": "Wallpaper option",
+  "load_more": "Load more",
+  "error_search_failed": "Search failed."
+}

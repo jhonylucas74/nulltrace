@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { HardDrive, RotateCcw } from "lucide-react";
@@ -15,6 +16,8 @@ function formatBytes(bytes: number): string {
 }
 
 export default function DiskManagerApp() {
+  const { t } = useTranslation("diskmanager");
+  const { t: tCommon } = useTranslation("common");
   const { playerId, token, logout } = useAuth();
   const navigate = useNavigate();
   const [usedBytes, setUsedBytes] = useState<number | null>(null);
@@ -26,13 +29,13 @@ export default function DiskManagerApp() {
 
   const fetchDiskUsage = useCallback(async () => {
     if (!playerId || !token) {
-      setError("Not logged in");
+      setError(t("error_not_logged_in"));
       setLoading(false);
       return;
     }
     const tauri = (window as unknown as { __TAURI__?: unknown }).__TAURI__;
     if (!tauri) {
-      setError("Disk Manager requires the desktop app");
+      setError(t("error_desktop_required"));
       setLoading(false);
       return;
     }
@@ -83,14 +86,14 @@ export default function DiskManagerApp() {
           navigate("/login");
           return;
         }
-        setError(res.error_message || "Restore failed");
+        setError(res.error_message || t("error_restore_failed"));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRestoring(false);
+} finally {
+        setRestoring(false);
     }
-  }, [playerId, fetchDiskUsage]);
+  }, [playerId, fetchDiskUsage, t]);
 
   const progressPercent =
     totalBytes != null && totalBytes > 0 && usedBytes != null
@@ -100,37 +103,37 @@ export default function DiskManagerApp() {
   return (
     <div className={styles.app}>
       <aside className={styles.sidebar}>
-        <div className={styles.sidebarTitle}>Disk Manager</div>
+        <div className={styles.sidebarTitle}>{t("sidebar_title")}</div>
         <button type="button" className={`${styles.navItem} ${styles.navItemActive}`}>
           <span className={styles.navIcon}>
             <HardDrive size={18} />
           </span>
-          Storage
+          {t("nav_storage")}
         </button>
         <button type="button" className={styles.navItem}>
           <span className={styles.navIcon}>
             <RotateCcw size={18} />
           </span>
-          Restore
+          {t("nav_restore")}
         </button>
       </aside>
       <div className={styles.main}>
         <div className={styles.content}>
           <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>Storage</h2>
+            <h2 className={styles.sectionTitle}>{t("section_storage")}</h2>
           </div>
           <p className={styles.hint}>
-            Disk space used by your VM. Files, programs, and system data count toward usage.
+            {t("hint_storage")}
           </p>
           <div className={styles.card}>
             {loading ? (
-              <p className={styles.loading}>Loading…</p>
+              <p className={styles.loading}>{t("loading")}</p>
             ) : error ? (
               <p className={styles.error}>{error}</p>
             ) : usedBytes != null && totalBytes != null ? (
               <>
                 <div className={styles.storageRow}>
-                  <span className={styles.storageLabel}>Used</span>
+                  <span className={styles.storageLabel}>{t("label_used")}</span>
                   <span className={styles.storageValue}>
                     {formatBytes(usedBytes)} / {formatBytes(totalBytes)}
                   </span>
@@ -150,10 +153,10 @@ export default function DiskManagerApp() {
           </div>
 
           <div className={styles.sectionHeader} style={{ marginTop: "1.5rem" }}>
-            <h2 className={styles.sectionTitle}>Restore disk</h2>
+            <h2 className={styles.sectionTitle}>{t("section_restore")}</h2>
           </div>
           <p className={styles.hint}>
-            Wipe all files and recreate the default filesystem. All files will be deleted. This cannot be undone.
+            {t("hint_restore")}
           </p>
           <div className={styles.card}>
             <button
@@ -162,7 +165,7 @@ export default function DiskManagerApp() {
               disabled={loading || restoring || !playerId}
               onClick={() => setConfirmOpen(true)}
             >
-              {restoring ? "Restoring…" : "Restore disk"}
+              {restoring ? t("restoring") : t("restore_btn")}
             </button>
           </div>
         </div>
@@ -171,9 +174,9 @@ export default function DiskManagerApp() {
       {confirmOpen && (
         <div className={styles.modalOverlay} onClick={() => setConfirmOpen(false)}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3 className={styles.modalTitle}>Restore disk</h3>
+            <h3 className={styles.modalTitle}>{t("modal_title")}</h3>
             <p className={styles.modalText}>
-              All files will be deleted. This cannot be undone. Continue?
+              {t("modal_text")}
             </p>
             <div className={styles.modalActions}>
               <button
@@ -181,7 +184,7 @@ export default function DiskManagerApp() {
                 className={styles.modalCancel}
                 onClick={() => setConfirmOpen(false)}
               >
-                Cancel
+                {tCommon("cancel")}
               </button>
               <button
                 type="button"
@@ -189,7 +192,7 @@ export default function DiskManagerApp() {
                 onClick={handleRestore}
                 disabled={restoring}
               >
-                {restoring ? "Restoring…" : "Restore"}
+                {restoring ? t("restoring") : t("modal_restore")}
               </button>
             </div>
           </div>

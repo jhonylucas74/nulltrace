@@ -13,6 +13,7 @@ import {
   getFileContent,
   setFileContent,
 } from "../lib/fileSystem";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../contexts/AuthContext";
 import { useFilePicker } from "../contexts/FilePickerContext";
 import { useClipboard } from "../contexts/ClipboardContext";
@@ -72,6 +73,8 @@ export default function CodeEditor() {
   const [consoleInputValue, setConsoleInputValue] = useState("");
   const consoleEndRef = useRef<HTMLDivElement | null>(null);
   const pendingTabSelectionRef = useRef<number | null>(null);
+  const { t } = useTranslation("code");
+  const { t: tCommon } = useTranslation("common");
   const { token, playerId } = useAuth();
   /** Recent folders for the current user (localStorage), shown on welcome screen. */
   const [recentFolders, setRecentFolders] = useState<string[]>(() => getRecentFolders(playerId));
@@ -204,7 +207,7 @@ export default function CodeEditor() {
       })
         .then((res) => {
           if (res.success) setEditorContent(res.content);
-          else setLoadFileError(res.error_message || "Failed to read file");
+          else setLoadFileError(res.error_message || t("error_read_file"));
         })
         .catch((e) => setLoadFileError(e instanceof Error ? e.message : String(e)));
       return;
@@ -240,7 +243,7 @@ export default function CodeEditor() {
           setSaveFeedback(true);
           setTimeout(() => setSaveFeedback(false), 1200);
         } else {
-          setSaveError(res.error_message || "Failed to save");
+          setSaveError(res.error_message || t("error_save"));
         }
       } catch (e) {
         setSaveError(e instanceof Error ? e.message : String(e));
@@ -249,9 +252,9 @@ export default function CodeEditor() {
     }
     setFileContent(activeFilePath, editorContent);
     setSaveFeedback(true);
-    const t = setTimeout(() => setSaveFeedback(false), 1200);
-    return () => clearTimeout(t);
-  }, [activeFilePath, editorContent, useGrpc, token, tauri]);
+    const timeoutId = setTimeout(() => setSaveFeedback(false), 1200);
+    return () => clearTimeout(timeoutId);
+  }, [activeFilePath, editorContent, useGrpc, token, tauri, t]);
 
   function handleOpenFolder(path: string) {
     setRootPath(path);
@@ -296,7 +299,7 @@ export default function CodeEditor() {
   async function handleNewFolderCreate() {
     const name = newFolderName.trim();
     if (!name) {
-      setNewFolderError("Enter a folder name.");
+      setNewFolderError(t("error_enter_folder_name"));
       return;
     }
     const parent = newFolderParentOverride ?? rootPath ?? getHomePath();
@@ -314,7 +317,7 @@ export default function CodeEditor() {
           token,
         });
         if (!res.success) {
-          setNewFolderError(res.error_message || "Failed to create folder");
+          setNewFolderError(res.error_message || t("error_create_folder"));
           return;
         }
         setTreeCache((prev) => {
@@ -336,7 +339,7 @@ export default function CodeEditor() {
 
     const created = createFolder(parent, name);
     if (!created) {
-      setNewFolderError("A file or folder with that name already exists.");
+      setNewFolderError(t("error_folder_exists"));
       return;
     }
     setExpandedFolders((prev) => (prev.includes(parent) ? prev : [...prev, parent]));
@@ -424,7 +427,7 @@ export default function CodeEditor() {
     if (!renameTargetPath) return;
     const newName = renameValue.trim();
     if (!newName) {
-      setRenameError("Enter a name.");
+      setRenameError(t("error_enter_name"));
       return;
     }
     const parent = getParentPath(renameTargetPath);
@@ -440,7 +443,7 @@ export default function CodeEditor() {
           token,
         });
         if (!res.success) {
-          setRenameError(res.error_message || "Failed to rename");
+          setRenameError(res.error_message || t("error_rename"));
           return;
         }
         setTreeCache((prev) => {
@@ -464,7 +467,7 @@ export default function CodeEditor() {
 
     const ok = fsRenamePath(renameTargetPath, newPath);
     if (!ok) {
-      setRenameError("Rename failed or name already exists.");
+      setRenameError(t("error_rename_exists"));
       return;
     }
     if (activeFilePath === renameTargetPath) setActiveFilePath(newPath);
@@ -521,7 +524,7 @@ export default function CodeEditor() {
   async function handleNewFileCreate() {
     const name = newFileName.trim();
     if (!name) {
-      setNewFileError("Enter a file name.");
+      setNewFileError(t("error_enter_file_name"));
       return;
     }
     const parent = newFileParentOverride ?? rootPath ?? getHomePath();
@@ -540,7 +543,7 @@ export default function CodeEditor() {
           token,
         });
         if (!res.success) {
-          setNewFileError(res.error_message || "Failed to create file");
+          setNewFileError(res.error_message || t("error_create_file"));
           return;
         }
         setTreeCache((prev) => {
@@ -702,7 +705,7 @@ export default function CodeEditor() {
           } else if (type_ === "closed") {
             runStdoutBufferRef.current = "";
             setRunSessionId(null);
-            setConsoleLogs((prev) => [...prev, { type: "system", text: "Done." }]);
+            setConsoleLogs((prev) => [...prev, { type: "system", text: t("system_done") }]);
           } else if (type_ === "error") {
             runStdoutBufferRef.current = "";
             setRunSessionId(null);
@@ -719,7 +722,7 @@ export default function CodeEditor() {
       terminalOutputUnlistenRef.current?.();
       terminalOutputUnlistenRef.current = null;
     };
-  }, [tauri]);
+  }, [tauri, t]);
 
   useEffect(() => {
     if (pendingTabSelectionRef.current === null) return;
@@ -772,8 +775,8 @@ export default function CodeEditor() {
     );
     const hasRead = /\bio\s*\.\s*read\s*\(/.test(content) || /\bio\.read\s*\(/.test(content);
     if (hasRead) setConsoleInputPending(true);
-    else setConsoleLogs((prev) => [...prev, { type: "system", text: "Done." }]);
-  }, [activeFilePath, editorContent, useGrpc, token, tauri, handleSave]);
+    else setConsoleLogs((prev) => [...prev, { type: "system", text: t("system_done") }]);
+  }, [activeFilePath, editorContent, useGrpc, token, tauri, handleSave, t]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -854,8 +857,8 @@ export default function CodeEditor() {
     setConsoleLogs((prev) => [...prev, { type: "stdout", text: value || "(empty input)" }]);
     setConsoleInputValue("");
     setConsoleInputPending(false);
-    setConsoleLogs((prev) => [...prev, { type: "system", text: "Done." }]);
-  }, [consoleInputValue, runSessionId, tauri]);
+    setConsoleLogs((prev) => [...prev, { type: "system", text: t("system_done") }]);
+  }, [consoleInputValue, runSessionId, tauri, t]);
 
   function renderTree(path: string, depth: number): React.ReactNode {
     const children = getChildrenForPath(path);
@@ -966,12 +969,12 @@ export default function CodeEditor() {
               setViewMenuOpen(false);
             }}
           >
-            File
+            {t("menu_file")}
           </button>
           {fileMenuOpen && (
             <div className={styles.menuDropdown}>
               <button type="button" className={styles.menuDropdownItem} onClick={openNewFileModal}>
-                <span className={styles.menuItemLabel}>New File</span>
+                <span className={styles.menuItemLabel}>{t("file_new_file")}</span>
                 <span className={styles.menuItemShortcut}>Ctrl+N</span>
               </button>
               <button
@@ -982,10 +985,10 @@ export default function CodeEditor() {
                   openNewFolderModalInFolder(rootPath ?? getHomePath());
                 }}
               >
-                <span className={styles.menuItemLabel}>New Folder</span>
+                <span className={styles.menuItemLabel}>{t("file_new_folder")}</span>
               </button>
               <button type="button" className={styles.menuDropdownItem} onClick={openFolderPicker}>
-                <span className={styles.menuItemLabel}>Open Folder…</span>
+                <span className={styles.menuItemLabel}>{t("file_open_folder")}</span>
               </button>
               <div className={styles.menuDropdownSep} />
               <button
@@ -994,7 +997,7 @@ export default function CodeEditor() {
                 onClick={() => { handleSave(); setFileMenuOpen(false); }}
                 disabled={!activeFilePath}
               >
-                <span className={styles.menuItemLabel}>Save</span>
+                <span className={styles.menuItemLabel}>{t("file_save")}</span>
                 <span className={styles.menuItemShortcut}>Ctrl+S</span>
               </button>
             </div>
@@ -1011,42 +1014,42 @@ export default function CodeEditor() {
               setViewMenuOpen(false);
             }}
           >
-            Edit
+            {t("menu_edit")}
           </button>
           {editMenuOpen && (
             <div className={styles.menuDropdown}>
               <button type="button" className={styles.menuDropdownItem} onClick={() => { handleUndo(); setEditMenuOpen(false); }} disabled={undoPast.length === 0}>
-                <span className={styles.menuItemLabel}>Undo</span>
+                <span className={styles.menuItemLabel}>{t("edit_undo")}</span>
                 <span className={styles.menuItemShortcut}>Ctrl+Z</span>
               </button>
               <button type="button" className={styles.menuDropdownItem} onClick={() => { handleRedo(); setEditMenuOpen(false); }} disabled={undoFuture.length === 0}>
-                <span className={styles.menuItemLabel}>Redo</span>
+                <span className={styles.menuItemLabel}>{t("edit_redo")}</span>
                 <span className={styles.menuItemShortcut}>Ctrl+Shift+Z</span>
               </button>
               <div className={styles.menuDropdownSep} />
               <button type="button" className={styles.menuDropdownItem} onClick={() => { handleCut(); setEditMenuOpen(false); }}>
-                <span className={styles.menuItemLabel}>Cut</span>
+                <span className={styles.menuItemLabel}>{t("edit_cut")}</span>
                 <span className={styles.menuItemShortcut}>Ctrl+X</span>
               </button>
               <button type="button" className={styles.menuDropdownItem} onClick={() => { handleCopy(); setEditMenuOpen(false); }}>
-                <span className={styles.menuItemLabel}>Copy</span>
+                <span className={styles.menuItemLabel}>{t("edit_copy")}</span>
                 <span className={styles.menuItemShortcut}>Ctrl+C</span>
               </button>
               <button type="button" className={styles.menuDropdownItem} onClick={() => { handlePaste(); setEditMenuOpen(false); }}>
-                <span className={styles.menuItemLabel}>Paste</span>
+                <span className={styles.menuItemLabel}>{t("edit_paste")}</span>
                 <span className={styles.menuItemShortcut}>Ctrl+V</span>
               </button>
               <div className={styles.menuDropdownSep} />
               <button type="button" className={styles.menuDropdownItem} onClick={() => { setTelescopeInitialFind(editorRef.current ? editorContent.slice(editorRef.current.selectionStart, editorRef.current.selectionEnd) : ""); setTelescopeMode("search"); setTelescopeOpen(true); setEditMenuOpen(false); }}>
-                <span className={styles.menuItemLabel}>Find</span>
+                <span className={styles.menuItemLabel}>{t("edit_find")}</span>
                 <span className={styles.menuItemShortcut}>Ctrl+F</span>
               </button>
               <button type="button" className={styles.menuDropdownItem} onClick={() => { setTelescopeInitialFind(editorRef.current ? editorContent.slice(editorRef.current.selectionStart, editorRef.current.selectionEnd) : ""); setTelescopeMode("findReplace"); setTelescopeOpen(true); setEditMenuOpen(false); }}>
-                <span className={styles.menuItemLabel}>Find and Replace</span>
+                <span className={styles.menuItemLabel}>{t("edit_find_replace")}</span>
                 <span className={styles.menuItemShortcut}>Ctrl+H</span>
               </button>
               <button type="button" className={styles.menuDropdownItem} onClick={() => { setTelescopeInitialFind(""); setTelescopeMode("findFile"); setTelescopeOpen(true); setEditMenuOpen(false); }}>
-                <span className={styles.menuItemLabel}>Find File</span>
+                <span className={styles.menuItemLabel}>{t("edit_find_file")}</span>
                 <span className={styles.menuItemShortcut}>Ctrl+P</span>
               </button>
             </div>
@@ -1063,12 +1066,12 @@ export default function CodeEditor() {
               setViewMenuOpen(false);
             }}
           >
-            Selection
+            {t("menu_selection")}
           </button>
           {selectionMenuOpen && (
             <div className={styles.menuDropdown}>
               <button type="button" className={styles.menuDropdownItem} onClick={() => { handleSelectAll(); setSelectionMenuOpen(false); }}>
-                <span className={styles.menuItemLabel}>Select All</span>
+                <span className={styles.menuItemLabel}>{t("selection_select_all")}</span>
                 <span className={styles.menuItemShortcut}>Ctrl+A</span>
               </button>
             </div>
@@ -1085,7 +1088,7 @@ export default function CodeEditor() {
               setViewMenuOpen((o) => !o);
             }}
           >
-            View
+            {t("menu_view")}
           </button>
           {viewMenuOpen && (
             <div className={styles.menuDropdown}>
@@ -1094,14 +1097,14 @@ export default function CodeEditor() {
                 className={styles.menuDropdownItem}
                 onClick={() => { setConsoleVisible((v) => !v); setViewMenuOpen(false); }}
               >
-                <span className={styles.menuItemLabel}>Toggle Console</span>
+                <span className={styles.menuItemLabel}>{t("view_toggle_console")}</span>
               </button>
               <button
                 type="button"
                 className={styles.menuDropdownItem}
                 onClick={() => { setSidebarVisible((v) => !v); setViewMenuOpen(false); }}
               >
-                <span className={styles.menuItemLabel}>Toggle Sidebar</span>
+                <span className={styles.menuItemLabel}>{t("view_toggle_sidebar")}</span>
               </button>
             </div>
           )}
@@ -1127,7 +1130,7 @@ export default function CodeEditor() {
         <aside className={styles.sidebar} onClick={() => setContextMenu(null)}>
           {rootPath !== null && (
             <div className={styles.sidebarProjectHeader} title={rootPath}>
-              <span className={styles.sidebarProjectLabel}>Project</span>
+              <span className={styles.sidebarProjectLabel}>{t("sidebar_project")}</span>
               <span className={styles.sidebarProjectPath}>{rootPath}</span>
             </div>
           )}
@@ -1164,7 +1167,7 @@ export default function CodeEditor() {
             {rootPath !== null ? (
               renderTree(rootPath, 0)
             ) : (
-              <div className={styles.sidebarHint}>Open a folder from File menu</div>
+              <div className={styles.sidebarHint}>{t("sidebar_hint")}</div>
             )}
           </div>
         </aside>
@@ -1177,29 +1180,29 @@ export default function CodeEditor() {
               const items: { label: string; onClick: () => void; disabled?: boolean }[] = [];
               if (contextMenu.type === "background") {
                 items.push(
-                  { label: "New File", onClick: () => openNewFileModalInFolder(contextMenu.folderPath) },
-                  { label: "New Folder", onClick: () => openNewFolderModalInFolder(contextMenu.folderPath) }
+                  { label: t("ctx_new_file"), onClick: () => openNewFileModalInFolder(contextMenu.folderPath) },
+                  { label: t("ctx_new_folder"), onClick: () => openNewFolderModalInFolder(contextMenu.folderPath) }
                 );
                 if (clipboardHasItems && useGrpc) {
-                  items.push({ label: "Paste", onClick: () => performPaste(contextMenu.folderPath) });
+                  items.push({ label: t("ctx_paste"), onClick: () => performPaste(contextMenu.folderPath) });
                 }
               } else {
                 if (contextMenu.nodeType === "folder") {
                   items.push(
-                    { label: "New File", onClick: () => openNewFileModalInFolder(contextMenu.fullPath) },
-                    { label: "New Folder", onClick: () => openNewFolderModalInFolder(contextMenu.fullPath) }
+                    { label: t("ctx_new_file"), onClick: () => openNewFileModalInFolder(contextMenu.fullPath) },
+                    { label: t("ctx_new_folder"), onClick: () => openNewFolderModalInFolder(contextMenu.fullPath) }
                   );
                 }
                 items.push(
-                  { label: "Copy", onClick: () => setClipboard([{ path: contextMenu.fullPath, type: contextMenu.nodeType }], "copy") },
-                  { label: "Cut", onClick: () => setClipboard([{ path: contextMenu.fullPath, type: contextMenu.nodeType }], "cut") }
+                  { label: t("ctx_copy"), onClick: () => setClipboard([{ path: contextMenu.fullPath, type: contextMenu.nodeType }], "copy") },
+                  { label: t("ctx_cut"), onClick: () => setClipboard([{ path: contextMenu.fullPath, type: contextMenu.nodeType }], "cut") }
                 );
                 if (clipboardHasItems && useGrpc) {
-                  items.push({ label: "Paste", onClick: () => performPaste(contextMenu.folderPath) });
+                  items.push({ label: t("ctx_paste"), onClick: () => performPaste(contextMenu.folderPath) });
                 }
-                items.push({ label: "Rename", onClick: () => handleRenameClick(contextMenu.fullPath, contextMenu.name) });
+                items.push({ label: t("ctx_rename"), onClick: () => handleRenameClick(contextMenu.fullPath, contextMenu.name) });
                 if (trashPath && contextMenu.fullPath !== trashPath && useGrpc) {
-                  items.push({ label: "Delete", onClick: () => handleDeleteClick(contextMenu.fullPath, contextMenu.name) });
+                  items.push({ label: t("ctx_delete"), onClick: () => handleDeleteClick(contextMenu.fullPath, contextMenu.name) });
                 }
               }
               return items;
@@ -1214,14 +1217,11 @@ export default function CodeEditor() {
               <div className={styles.welcomeIcon}>
                 <CodeLogoIcon />
               </div>
-              <h1 className={styles.welcomeTitle}>Luau Editor</h1>
-              <p className={styles.welcomeDesc}>
-                Welcome. This editor supports only the <strong>Lua / Luau</strong> programming language.
-                Open a folder to browse files and start coding.
-              </p>
+              <h1 className={styles.welcomeTitle}>{t("welcome_title")}</h1>
+              <p className={styles.welcomeDesc} dangerouslySetInnerHTML={{ __html: t("welcome_desc") }} />
               {recentFolders.length > 0 && (
                 <div className={styles.welcomeRecent}>
-                  <span className={styles.welcomeRecentLabel}>Reopen folder:</span>
+                  <span className={styles.welcomeRecentLabel}>{t("welcome_reopen")}</span>
                   <div className={styles.welcomeRecentList}>
                     {recentFolders.map((path) => (
                       <button
@@ -1242,7 +1242,7 @@ export default function CodeEditor() {
                 className={styles.welcomeBtn}
                 onClick={openFolderPicker}
               >
-                Open Folder
+                {t("welcome_btn_open_folder")}
               </button>
             </div>
           ) : activeFilePath ? (
@@ -1252,35 +1252,35 @@ export default function CodeEditor() {
                   type="button"
                   className={styles.runBtn}
                   onClick={() => runScript()}
-                  title="Run script"
-                  aria-label="Run script"
+                  title={t("run_script_title")}
+                  aria-label={t("run_script_title")}
                   disabled={!!runSessionId}
                 >
                   <Play size={14} />
-                  Run
+                  {t("editor_run")}
                 </button>
                 {runSessionId !== null && (
                   <button
                     type="button"
                     className={styles.stopBtn}
                     onClick={stopRun}
-                    title="Stop script"
-                    aria-label="Stop script"
+                    title={t("stop_script_title")}
+                    aria-label={t("stop_script_title")}
                   >
                     <Square size={14} />
-                    Stop
+                    {t("editor_stop")}
                   </button>
                 )}
                 <span className={styles.editorBarPath}>{activeFilePath}</span>
-                {saveFeedback && <span className={styles.savedBadge}>Saved</span>}
+                {saveFeedback && <span className={styles.savedBadge}>{t("editor_saved")}</span>}
                 {loadFileError && (
                   <span className={styles.editorBarError} title={loadFileError}>
-                    Load error
+                    {t("editor_load_error")}
                   </span>
                 )}
                 {saveError && (
                   <span className={styles.editorBarError} title={saveError}>
-                    Save error
+                    {t("editor_save_error")}
                   </span>
                 )}
               </div>
@@ -1321,10 +1321,10 @@ export default function CodeEditor() {
                 </div>
                 {consoleVisible && (
                 <div className={styles.consolePanel}>
-                  <div className={styles.consoleHeader}>Console</div>
+                  <div className={styles.consoleHeader}>{t("console_title")}</div>
                   <div className={styles.consoleOutput}>
                     {consoleLogs.length === 0 ? (
-                      <div className={styles.consoleEmpty}>Output and input requests will appear here.</div>
+                      <div className={styles.consoleEmpty}>{t("console_empty")}</div>
                     ) : (
                       consoleLogs.map((entry, i) => (
                         <div
@@ -1355,11 +1355,11 @@ export default function CodeEditor() {
                         onKeyDown={(e) => {
                           if (e.key === "Enter") submitConsoleInput();
                         }}
-                        placeholder="Enter value for io.read()..."
-                        aria-label="Script input"
+                        placeholder={t("console_input_placeholder")}
+                        aria-label={t("console_input_label")}
                       />
                       <button type="button" className={styles.consoleSubmitBtn} onClick={submitConsoleInput}>
-                        Submit
+                        {t("console_submit")}
                       </button>
                     </div>
                   )}
@@ -1368,7 +1368,7 @@ export default function CodeEditor() {
               </div>
             </>
           ) : (
-            <div className={styles.placeholder}>Select a file from the sidebar or create a new one (File → New File)</div>
+            <div className={styles.placeholder}>{t("placeholder_select_file")}</div>
           )}
         </div>
       </div>
@@ -1376,13 +1376,13 @@ export default function CodeEditor() {
       <Modal
         open={newFileModalOpen}
         onClose={() => setNewFileModalOpen(false)}
-        title="New File"
-        primaryButton={{ label: "Create", onClick: handleNewFileCreate }}
-        secondaryButton={{ label: "Cancel", onClick: () => setNewFileModalOpen(false) }}
+        title={t("modal_new_file")}
+        primaryButton={{ label: t("modal_create"), onClick: handleNewFileCreate }}
+        secondaryButton={{ label: tCommon("cancel"), onClick: () => setNewFileModalOpen(false) }}
       >
         <div className={styles.modalContent}>
           <label className={styles.modalLabel} htmlFor="new-file-name">
-            File name
+            {t("modal_file_name")}
           </label>
           <input
             id="new-file-name"
@@ -1399,7 +1399,7 @@ export default function CodeEditor() {
                 handleNewFileCreate();
               }
             }}
-            placeholder="e.g. script.luau"
+            placeholder={t("placeholder_file_name")}
             autoFocus
           />
           {newFileError && <p className={styles.modalError}>{newFileError}</p>}
@@ -1409,13 +1409,13 @@ export default function CodeEditor() {
       <Modal
         open={newFolderModalOpen}
         onClose={() => setNewFolderModalOpen(false)}
-        title="New Folder"
-        primaryButton={{ label: "Create", onClick: handleNewFolderCreate }}
-        secondaryButton={{ label: "Cancel", onClick: () => setNewFolderModalOpen(false) }}
+        title={t("modal_new_folder")}
+        primaryButton={{ label: t("modal_create"), onClick: handleNewFolderCreate }}
+        secondaryButton={{ label: tCommon("cancel"), onClick: () => setNewFolderModalOpen(false) }}
       >
         <div className={styles.modalContent}>
           <label className={styles.modalLabel} htmlFor="new-folder-name">
-            Folder name
+            {t("modal_folder_name")}
           </label>
           <input
             id="new-folder-name"
@@ -1432,7 +1432,7 @@ export default function CodeEditor() {
                 handleNewFolderCreate();
               }
             }}
-            placeholder="e.g. src"
+            placeholder={t("placeholder_folder_name")}
             autoFocus
           />
           {newFolderError && <p className={styles.modalError}>{newFolderError}</p>}
@@ -1442,13 +1442,13 @@ export default function CodeEditor() {
       <Modal
         open={renameModalOpen}
         onClose={() => setRenameModalOpen(false)}
-        title="Rename"
-        primaryButton={{ label: "Rename", onClick: handleRenameSubmit }}
-        secondaryButton={{ label: "Cancel", onClick: () => setRenameModalOpen(false) }}
+        title={t("modal_rename")}
+        primaryButton={{ label: t("modal_rename"), onClick: handleRenameSubmit }}
+        secondaryButton={{ label: tCommon("cancel"), onClick: () => setRenameModalOpen(false) }}
       >
         <div className={styles.modalContent}>
           <label className={styles.modalLabel} htmlFor="rename-input">
-            Name
+            {t("modal_name")}
           </label>
           <input
             id="rename-input"
@@ -1474,13 +1474,13 @@ export default function CodeEditor() {
       <Modal
         open={deleteConfirmOpen}
         onClose={() => setDeleteConfirmOpen(false)}
-        title="Delete"
-        primaryButton={{ label: "Delete", onClick: handleDeleteConfirm }}
-        secondaryButton={{ label: "Cancel", onClick: () => setDeleteConfirmOpen(false) }}
+        title={t("modal_delete")}
+        primaryButton={{ label: t("modal_delete"), onClick: handleDeleteConfirm }}
+        secondaryButton={{ label: tCommon("cancel"), onClick: () => setDeleteConfirmOpen(false) }}
       >
         <div className={styles.modalContent}>
           <p className={styles.modalLabel}>
-            Delete {deleteTargetName}? It will be moved to Trash.
+            {t("modal_delete_confirm", { name: deleteTargetName })}
           </p>
         </div>
       </Modal>

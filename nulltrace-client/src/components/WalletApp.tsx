@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   ArrowLeft,
   Check,
@@ -7,7 +7,6 @@ import {
   Send,
   Key,
   ArrowLeftRight,
-  Image as ImageIcon,
   Copy,
   Settings2,
   Search,
@@ -18,55 +17,25 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { MOCK_WALLET_BALANCES } from "../lib/walletBalances";
-import { MOCK_WALLET_KEYS } from "../lib/walletKeys";
 import { getRate } from "../lib/walletConversion";
-import { MOCK_WALLET_NFTS, groupNftsByCollection } from "../lib/walletNfts";
-import type { WalletTransaction } from "../lib/walletTransactions";
-import {
-  MOCK_VIRTUAL_CARDS,
-  getNextChargeDate,
-  nextVirtualCardId,
-  formatCardNumber,
-  type VirtualCard,
-} from "../lib/walletCards";
-import { useWallet, parseAmount, applyAmountMask } from "../contexts/WalletContext";
+import { useWallet, parseAmount, applyAmountMask, formatAmount, type WalletTx } from "../contexts/WalletContext";
 import styles from "./WalletApp.module.css";
+
+/** Static currency metadata. Amounts come from the real backend. */
+const CURRENCIES = [
+  { symbol: "USD", currency: "US Dollar" },
+  { symbol: "BTC", currency: "Bitcoin" },
+  { symbol: "ETH", currency: "Ethereum" },
+  { symbol: "SOL", currency: "Solana" },
+];
 
 type StatementPeriod = "today" | "7d" | "30d" | "all";
 
-function getTransactionTime(tx: WalletTransaction): number {
-  if (tx.timestamp != null) return tx.timestamp;
-  const parsed = parseStatementDate(tx.date);
-  return parsed.getTime();
-}
-
-function parseStatementDate(dateStr: string): Date {
-  const year = new Date().getFullYear();
-  const months: Record<string, number> = {
-    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
-    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
-  };
-  const parts = dateStr.split(", ");
-  const monthDay = (parts[0] ?? "").trim();
-  const timePart = (parts[1] ?? "0:00").trim();
-  const [monthName, dayStr] = monthDay.split(" ");
-  const month = months[monthName ?? ""] ?? 0;
-  const day = parseInt(dayStr ?? "1", 10) || 1;
-  const [hStr, mStr] = timePart.split(":");
-  let hours = parseInt(hStr ?? "0", 10) || 0;
-  let minutes = parseInt(mStr ?? "0", 10) || 0;
-  const ampm = timePart.toUpperCase();
-  if (ampm.includes("PM") && hours < 12) hours += 12;
-  if (ampm.includes("AM") && hours === 12) hours = 0;
-  return new Date(year, month, day, hours, minutes);
-}
-
 function filterStatement(
-  transactions: WalletTransaction[],
+  transactions: WalletTx[],
   period: StatementPeriod,
   searchQuery: string
-): WalletTransaction[] {
+): WalletTx[] {
   const now = Date.now();
   const oneDay = 24 * 60 * 60 * 1000;
   let start = 0;
@@ -82,15 +51,18 @@ function filterStatement(
 
   const q = searchQuery.trim().toLowerCase();
   return transactions.filter((tx) => {
-    const time = getTransactionTime(tx);
-    if (period !== "all" && time < start) return false;
+    if (period !== "all" && tx.created_at_ms < start) return false;
     if (!q) return true;
     return (
       tx.description.toLowerCase().includes(q) ||
       tx.currency.toLowerCase().includes(q) ||
-      tx.amount.toLowerCase().includes(q)
+      tx.tx_type.toLowerCase().includes(q)
     );
   });
+}
+
+function formatCardNumber(number: string): string {
+  return number.replace(/(.{4})/g, "$1 ").trim();
 }
 
 const STORAGE_KEY = "wallet-visible-currencies";
@@ -102,17 +74,15 @@ function loadVisibleSymbols(): Set<string> {
       const arr = JSON.parse(raw) as string[];
       if (Array.isArray(arr)) return new Set(arr);
     }
-  } catch {
-    /* ignore */
-  }
-  return new Set(MOCK_WALLET_BALANCES.map((b) => b.symbol));
+  } catch { /* ignore */ }
+  return new Set(CURRENCIES.map((c) => c.symbol));
 }
 
 function saveVisibleSymbols(symbols: Set<string>) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify([...symbols]));
 }
 
-type Section = "overview" | "statement" | "transfer" | "keys" | "card" | "convert" | "nfts";
+type Section = "overview" | "statement" | "transfer" | "keys" | "card" | "convert";
 type View = "main" | "select";
 
 function WalletContent() {
@@ -127,6 +97,11 @@ function WalletContent() {
   useEffect(() => {
     saveVisibleSymbols(visibleSymbols);
   }, [visibleSymbols]);
+
+  // Refresh transactions when filter changes
+  useEffect(() => {
+    wallet.fetchTransactions(statementPeriod);
+  }, [statementPeriod]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openSelectPage = () => {
     setDraftSelection(new Set(visibleSymbols));
@@ -149,8 +124,8 @@ function WalletContent() {
     setView("main");
   };
 
-  const visibleBalances = useMemo(
-    () => MOCK_WALLET_BALANCES.filter((b) => visibleSymbols.has(b.symbol)),
+  const visibleCurrencies = useMemo(
+    () => CURRENCIES.filter((c) => visibleSymbols.has(c.symbol)),
     [visibleSymbols]
   );
 
@@ -174,23 +149,23 @@ function WalletContent() {
             Choose which currencies to show on your wallet. At least one must be selected.
           </p>
           <ul className={styles.selectList}>
-            {MOCK_WALLET_BALANCES.map((b) => {
-              const isChecked = draftSelection.has(b.symbol);
+            {CURRENCIES.map((c) => {
+              const isChecked = draftSelection.has(c.symbol);
               const isOnlyOne = isChecked && draftSelection.size === 1;
               return (
-                <li key={b.symbol}>
+                <li key={c.symbol}>
                   <button
                     type="button"
                     className={styles.selectItem}
-                    onClick={() => !isOnlyOne && toggleDraft(b.symbol)}
+                    onClick={() => !isOnlyOne && toggleDraft(c.symbol)}
                     aria-pressed={isChecked}
                     disabled={isOnlyOne}
                   >
                     <span className={styles.selectItemCheck}>
                       {isChecked ? <Check size={16} /> : null}
                     </span>
-                    <span className={styles.selectItemSymbol}>{b.symbol}</span>
-                    <span className={styles.selectItemCurrency}>{b.currency}</span>
+                    <span className={styles.selectItemSymbol}>{c.symbol}</span>
+                    <span className={styles.selectItemCurrency}>{c.currency}</span>
                   </button>
                 </li>
               );
@@ -258,14 +233,6 @@ function WalletContent() {
           <span className={styles.navIcon}><ArrowLeftRight size={18} /></span>
           Convert
         </button>
-        <button
-          type="button"
-          className={`${styles.navItem} ${section === "nfts" ? styles.navItemActive : ""}`}
-          onClick={() => setSection("nfts")}
-        >
-          <span className={styles.navIcon}><ImageIcon size={18} /></span>
-          NFTs
-        </button>
       </aside>
       <main className={styles.main}>
         {section === "overview" && (
@@ -286,7 +253,7 @@ function WalletContent() {
               </button>
             </div>
             <div className={styles.cards}>
-              {visibleBalances.map((item) => (
+              {visibleCurrencies.map((item) => (
                 <div key={item.symbol} className={styles.card}>
                   <div className={styles.cardHeader}>
                     <span className={styles.symbol}>{item.symbol}</span>
@@ -307,7 +274,7 @@ function WalletContent() {
                     <p className={styles.cardUsdEquivalent}>
                       ≈{" "}
                       {(
-                        (wallet.balances[item.symbol] ?? 0) * getRate(item.symbol, "USD")
+                        ((wallet.balances[item.symbol] ?? 0) / 100) * getRate(item.symbol, "USD")
                       ).toLocaleString("en-US", {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
@@ -322,7 +289,7 @@ function WalletContent() {
               <div className={styles.overviewCardDebtRow}>
                 <span className={styles.overviewCardDebtLabel}>Card debt (Fkebank)</span>
                 <span className={styles.overviewCardDebtValue}>
-                  {wallet.cardDebt.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                  {(wallet.cardDebt / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                 </span>
               </div>
               {wallet.cardLimit > 0 && (
@@ -341,8 +308,8 @@ function WalletContent() {
                     />
                   </div>
                   <div className={styles.cardLimitProgressLabel}>
-                    {wallet.cardDebt.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of{" "}
-                    {wallet.cardLimit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                    {(wallet.cardDebt / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of{" "}
+                    {(wallet.cardLimit / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                   </div>
                 </div>
               )}
@@ -351,57 +318,13 @@ function WalletContent() {
         )}
 
         {section === "statement" && (
-          <>
-            <h2 className={styles.mainTitle}>Statement</h2>
-            <p className={styles.mainSubtitle}>Recent transactions. Filter by period or search.</p>
-            <div className={styles.statementToolbar}>
-              <div className={styles.statementPeriodRow}>
-                <span className={styles.statementPeriodLabel} aria-hidden="true">
-                  <Calendar size={14} />
-                </span>
-                {(["today", "7d", "30d", "all"] as const).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    className={`${styles.statementPeriodBtn} ${statementPeriod === p ? styles.statementPeriodBtnActive : ""}`}
-                    onClick={() => setStatementPeriod(p)}
-                  >
-                    {p === "today" ? "Today" : p === "7d" ? "7 days" : p === "30d" ? "30 days" : "All"}
-                  </button>
-                ))}
-              </div>
-              <div className={styles.statementSearchWrap}>
-                <Search size={16} className={styles.statementSearchIcon} aria-hidden="true" />
-                <input
-                  type="search"
-                  className={styles.statementSearchInput}
-                  placeholder="Search description, amount, currency…"
-                  value={statementSearch}
-                  onChange={(e) => setStatementSearch(e.target.value)}
-                  aria-label="Search transactions"
-                />
-              </div>
-            </div>
-            <ul className={styles.statementList}>
-              {filterStatement(wallet.transactions, statementPeriod, statementSearch).map((tx) => {
-                const isCredit = tx.type === "credit" || (tx.type === "convert" && !tx.amount.startsWith("-"));
-                const amountClass = isCredit ? styles.statementAmountCredit : styles.statementAmountDebit;
-                const displayAmount = tx.amount.startsWith("-") ? tx.amount : `+${tx.amount}`;
-                return (
-                  <li key={tx.id} className={styles.statementRow}>
-                    <span className={styles.statementDate}>{tx.date}</span>
-                    <span className={styles.statementDesc}>{tx.description}</span>
-                    <span className={`${styles.statementAmount} ${amountClass}`}>
-                      {displayAmount} {tx.currency}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-            {filterStatement(wallet.transactions, statementPeriod, statementSearch).length === 0 && (
-              <p className={styles.statementEmpty}>No transactions match the filter.</p>
-            )}
-          </>
+          <StatementSection
+            wallet={wallet}
+            statementPeriod={statementPeriod}
+            setStatementPeriod={setStatementPeriod}
+            statementSearch={statementSearch}
+            setStatementSearch={setStatementSearch}
+          />
         )}
 
         {section === "transfer" && (
@@ -409,22 +332,92 @@ function WalletContent() {
         )}
 
         {section === "keys" && (
-          <KeysSection />
+          <KeysSection wallet={wallet} />
         )}
 
         {section === "card" && (
-          <CardSection />
+          <CardSection wallet={wallet} />
         )}
 
         {section === "convert" && (
           <ConvertSection wallet={wallet} />
         )}
-
-        {section === "nfts" && (
-          <NftsSection />
-        )}
       </main>
     </div>
+  );
+}
+
+function StatementSection({
+  wallet,
+  statementPeriod,
+  setStatementPeriod,
+  statementSearch,
+  setStatementSearch,
+}: {
+  wallet: ReturnType<typeof useWallet>;
+  statementPeriod: StatementPeriod;
+  setStatementPeriod: (p: StatementPeriod) => void;
+  statementSearch: string;
+  setStatementSearch: (s: string) => void;
+}) {
+  const filtered = filterStatement(wallet.transactions, statementPeriod, statementSearch);
+
+  return (
+    <>
+      <h2 className={styles.mainTitle}>Statement</h2>
+      <p className={styles.mainSubtitle}>Recent transactions. Filter by period or search.</p>
+      <div className={styles.statementToolbar}>
+        <div className={styles.statementPeriodRow}>
+          <span className={styles.statementPeriodLabel} aria-hidden="true">
+            <Calendar size={14} />
+          </span>
+          {(["today", "7d", "30d", "all"] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              className={`${styles.statementPeriodBtn} ${statementPeriod === p ? styles.statementPeriodBtnActive : ""}`}
+              onClick={() => setStatementPeriod(p)}
+            >
+              {p === "today" ? "Today" : p === "7d" ? "7 days" : p === "30d" ? "30 days" : "All"}
+            </button>
+          ))}
+        </div>
+        <div className={styles.statementSearchWrap}>
+          <Search size={16} className={styles.statementSearchIcon} aria-hidden="true" />
+          <input
+            type="search"
+            className={styles.statementSearchInput}
+            placeholder="Search description, currency…"
+            value={statementSearch}
+            onChange={(e) => setStatementSearch(e.target.value)}
+            aria-label="Search transactions"
+          />
+        </div>
+      </div>
+      <ul className={styles.statementList}>
+        {filtered.map((tx) => {
+          const isCredit = tx.tx_type === "credit" || tx.tx_type === "transfer_in";
+          const amountClass = isCredit ? styles.statementAmountCredit : styles.statementAmountDebit;
+          const sign = isCredit ? "+" : "-";
+          const displayAmount = `${sign}${formatAmount(Math.abs(tx.amount), tx.currency)}`;
+          const dateStr = new Date(tx.created_at_ms).toLocaleString("en-US", {
+            month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+          });
+          return (
+            <li key={tx.id} className={styles.statementRow}>
+              <span className={styles.statementDate}>{dateStr}</span>
+              <span className={styles.statementDesc}>{tx.description || tx.tx_type}</span>
+              <span className={`${styles.statementAmount} ${amountClass}`}>
+                {displayAmount} {tx.currency}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      {filtered.length === 0 && (
+        <p className={styles.statementEmpty}>No transactions match the filter.</p>
+      )}
+    </>
   );
 }
 
@@ -432,9 +425,10 @@ function TransferSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
   const [recipientKey, setRecipientKey] = useState("");
   const [amountStr, setAmountStr] = useState("");
   const [currency, setCurrency] = useState("USD");
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
     const key = recipientKey.trim();
@@ -442,28 +436,32 @@ function TransferSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
       setMessage({ type: "error", text: "Enter recipient key." });
       return;
     }
-    const amount = parseAmount(amountStr);
-    if (amount <= 0) {
+    const displayAmount = parseAmount(amountStr);
+    if (displayAmount <= 0) {
       setMessage({ type: "error", text: "Enter a valid amount." });
       return;
     }
-    const ok = wallet.transfer(currency, amount, key);
-    if (ok) {
+    const amountCents = Math.round(displayAmount * 100);
+    setBusy(true);
+    const err = await wallet.transfer(currency, amountCents, key);
+    setBusy(false);
+    if (err === null) {
       setMessage({ type: "success", text: "Transfer completed." });
       setRecipientKey("");
       setAmountStr("");
     } else {
-      setMessage({ type: "error", text: "Insufficient balance or invalid amount." });
+      const userMsg = err.includes("InsufficientBalance") ? "Insufficient balance." : err.includes("UNAUTHENTICATED") ? "Session expired." : "Transfer failed.";
+      setMessage({ type: "error", text: userMsg });
     }
   };
 
   return (
     <>
       <h2 className={styles.mainTitle}>Transfer</h2>
-      <p className={styles.mainSubtitle}>Send to another account using their key.</p>
+      <p className={styles.mainSubtitle}>Send to another account using their key or address.</p>
       <form className={styles.form} onSubmit={handleSubmit}>
         <div className={styles.formGroup}>
-          <label className={styles.formLabel} htmlFor="transfer-key">Recipient key</label>
+          <label className={styles.formLabel} htmlFor="transfer-key">Recipient key / address</label>
           <input
             id="transfer-key"
             type="text"
@@ -471,6 +469,7 @@ function TransferSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             value={recipientKey}
             onChange={(e) => setRecipientKey(e.target.value)}
             placeholder="Paste address or key"
+            disabled={busy}
           />
         </div>
         <div className={styles.formGroup}>
@@ -483,7 +482,8 @@ function TransferSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             className={styles.formInput}
             value={amountStr}
             onChange={(e) => setAmountStr(applyAmountMask(e.target.value, currency === "USD" ? 2 : 8))}
-            placeholder="0,00 or 0.00"
+            placeholder="0.00"
+            disabled={busy}
           />
         </div>
         <div className={styles.formGroup}>
@@ -493,9 +493,10 @@ function TransferSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             className={styles.formSelect}
             value={currency}
             onChange={(e) => setCurrency(e.target.value)}
+            disabled={busy}
           >
-            {MOCK_WALLET_BALANCES.map((b) => (
-              <option key={b.symbol} value={b.symbol}>{b.symbol}</option>
+            {CURRENCIES.map((c) => (
+              <option key={c.symbol} value={c.symbol}>{c.symbol}</option>
             ))}
           </select>
         </div>
@@ -504,93 +505,102 @@ function TransferSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             {message.text}
           </p>
         )}
-        <button type="submit" className={styles.submitBtn}>Send</button>
+        <button type="submit" className={styles.submitBtn} disabled={busy}>
+          {busy ? "Sending…" : "Send"}
+        </button>
       </form>
     </>
   );
 }
 
-function KeysSection() {
-  const [copied, setCopied] = useState<"usd" | "crypto" | null>(null);
+function KeysSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
+  const [copied, setCopied] = useState<string | null>(null);
 
-  const copyToClipboard = async (text: string, which: "usd" | "crypto") => {
+  const copyToClipboard = async (text: string, id: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(which);
+      setCopied(id);
       setTimeout(() => setCopied(null), 2000);
-    } catch {
-      /* ignore */
-    }
+    } catch { /* ignore */ }
   };
+
+  if (wallet.keys.length === 0) {
+    return (
+      <>
+        <h2 className={styles.mainTitle}>Keys</h2>
+        <p className={styles.mainSubtitle}>Your receive keys and addresses.</p>
+        <p className={styles.statementEmpty}>Loading keys…</p>
+      </>
+    );
+  }
 
   return (
     <>
       <h2 className={styles.mainTitle}>Keys</h2>
-      <p className={styles.mainSubtitle}>Your receive keys and addresses.</p>
+      <p className={styles.mainSubtitle}>Your receive keys and addresses per currency.</p>
 
-      <div className={styles.keyBlock}>
-        <div className={styles.keyBlockTitle}>USD receive key (Fkebank)</div>
-        <div className={styles.keyValue}>{MOCK_WALLET_KEYS.usdReceiveKey}</div>
-        <p className={styles.keyExplanation}>
-          Your USD balance is managed by Fkebank. Use this key to receive USD. Transfers are trackable and can be used for instant payments.
-        </p>
-        <div className={styles.keyCopyWrap}>
-          <button
-            type="button"
-            className={styles.keyCopyBtn}
-            onClick={() => copyToClipboard(MOCK_WALLET_KEYS.usdReceiveKey, "usd")}
-            aria-label="Copy USD key"
-          >
-            <Copy size={14} />
-            {copied === "usd" ? "Copied" : "Copy"}
-          </button>
+      {wallet.keys.map((k) => (
+        <div key={k.currency} className={styles.keyBlock}>
+          <div className={styles.keyBlockTitle}>
+            {k.currency} receive {k.currency === "USD" ? "key (Fkebank)" : "address"}
+          </div>
+          <div className={styles.keyValue}>{k.key_address}</div>
+          {k.currency === "USD" && (
+            <p className={styles.keyExplanation}>
+              Your USD balance is managed by Fkebank. Use this key to receive USD transfers.
+            </p>
+          )}
+          <div className={styles.keyCopyWrap}>
+            <button
+              type="button"
+              className={styles.keyCopyBtn}
+              onClick={() => copyToClipboard(k.key_address, k.currency)}
+              aria-label={`Copy ${k.currency} key`}
+            >
+              <Copy size={14} />
+              {copied === k.currency ? "Copied" : "Copy"}
+            </button>
+          </div>
         </div>
-      </div>
-
-      <div className={styles.keyBlock}>
-        <div className={styles.keyBlockTitle}>Crypto wallet address</div>
-        <div className={styles.keyValue}>{MOCK_WALLET_KEYS.cryptoAddress}</div>
-        <p className={styles.keyExplanation}>
-          This is your public wallet address for crypto assets. Anyone can send tokens to this address; only you can spend them. Do not share private keys.
-        </p>
-        <div className={styles.keyCopyWrap}>
-          <button
-            type="button"
-            className={styles.keyCopyBtn}
-            onClick={() => copyToClipboard(MOCK_WALLET_KEYS.cryptoAddress, "crypto")}
-            aria-label="Copy crypto address"
-          >
-            <Copy size={14} />
-            {copied === "crypto" ? "Copied" : "Copy"}
-          </button>
-        </div>
-      </div>
+      ))}
     </>
   );
 }
 
 type CardTab = "cards" | "statement";
 
-function CardSection() {
-  const wallet = useWallet();
+function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
   const [cardTab, setCardTab] = useState<CardTab>("statement");
-  const [cards, setCards] = useState<VirtualCard[]>(MOCK_VIRTUAL_CARDS);
   const [cvvRevealed, setCvvRevealed] = useState<string | null>(null);
   const [copiedCardId, setCopiedCardId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
-  const nextCharge = getNextChargeDate();
-  const usageRatio = wallet.cardLimit > 0 ? Math.min(1, wallet.cardDebt / wallet.cardLimit) : 0;
+  const firstCard = wallet.cards[0] ?? null;
+
+  // Fetch statement for the first card when tab mounts
+  useEffect(() => {
+    if (firstCard) {
+      wallet.fetchCardStatement(firstCard.id);
+      wallet.fetchCardTransactions(firstCard.id, "all");
+    }
+  }, [firstCard?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const cardDebtDisplay = firstCard ? firstCard.current_debt / 100 : 0;
+  const cardLimitDisplay = firstCard ? firstCard.credit_limit / 100 : 0;
+  const usageRatio = cardLimitDisplay > 0 ? Math.min(1, cardDebtDisplay / cardLimitDisplay) : 0;
   const usagePercent = Math.round(usageRatio * 100);
-  const nextChargeStr = nextCharge.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
 
-  const copyCardNumber = async (card: VirtualCard) => {
+  const dueDate = wallet.cardStatement ? new Date(wallet.cardStatement.due_date_ms) : null;
+  const dueDateStr = dueDate
+    ? dueDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+    : "—";
+
+  const copyCardNumber = async (card: (typeof wallet.cards)[0]) => {
     try {
-      await navigator.clipboard.writeText(card.number.replace(/\s/g, ""));
+      await navigator.clipboard.writeText(card.number_full.replace(/\s/g, ""));
       setCopiedCardId(card.id);
       setTimeout(() => setCopiedCardId(null), 2000);
-    } catch {
-      /* ignore */
-    }
+    } catch { /* ignore */ }
   };
 
   const toggleCvv = (cardId: string) => {
@@ -601,24 +611,19 @@ function CardSection() {
     }
   };
 
-  const handleCreateCard = () => {
-    setCards((prev) => [
-      ...prev,
-      {
-        id: nextVirtualCardId(),
-        last4: String(Math.floor(1000 + Math.random() * 9000)),
-        number: "411111111111" + String(Math.floor(1000 + Math.random() * 9000)),
-        expiryMonth: 3,
-        expiryYear: 2029,
-        holderName: "Nulltrace User",
-        cvv: String(Math.floor(100 + Math.random() * 900)),
-        label: "Virtual " + (prev.length + 1),
-      },
-    ]);
+  const handleCreateCard = async () => {
+    setCreating(true);
+    await wallet.createCard("Virtual " + (wallet.cards.length + 1), 0);
+    setCreating(false);
   };
 
-  const handleDeleteCard = (cardId: string) => {
-    setCards((prev) => prev.filter((c) => c.id !== cardId));
+  const handleDeleteCard = async (cardId: string) => {
+    await wallet.deleteCard(cardId);
+  };
+
+  const handlePayBill = async () => {
+    if (!firstCard) return;
+    await wallet.payBill(firstCard.id);
   };
 
   return (
@@ -643,14 +648,15 @@ function CardSection() {
           Cards
         </button>
       </div>
+
       {cardTab === "cards" && (
         <>
           <div className={styles.virtualCardList}>
-            {cards.map((card) => (
+            {wallet.cards.map((card) => (
               <div key={card.id} className={styles.virtualCard}>
                 <div className={styles.virtualCardHeader}>
                   <CreditCard size={18} className={styles.virtualCardIcon} aria-hidden="true" />
-                  <span className={styles.virtualCardLabel}>{card.label ?? "Card"}</span>
+                  <span className={styles.virtualCardLabel}>{card.label || "Card"}</span>
                   <button
                     type="button"
                     className={styles.virtualCardDeleteBtn}
@@ -662,7 +668,7 @@ function CardSection() {
                   </button>
                 </div>
                 <div className={styles.virtualCardNumberRow}>
-                  <span className={styles.virtualCardNumber}>{formatCardNumber(card.number)}</span>
+                  <span className={styles.virtualCardNumber}>{formatCardNumber(card.number_full)}</span>
                   <button
                     type="button"
                     className={styles.virtualCardCopyBtn}
@@ -675,9 +681,9 @@ function CardSection() {
                   </button>
                 </div>
                 <div className={styles.virtualCardMeta}>
-                  <span>{card.holderName}</span>
+                  <span>{card.holder_name}</span>
                   <span className={styles.virtualCardValidity}>
-                    Valid thru {String(card.expiryMonth).padStart(2, "0")}/{card.expiryYear}
+                    Valid thru {String(card.expiry_month).padStart(2, "0")}/{card.expiry_year}
                   </span>
                 </div>
                 <div className={styles.virtualCardCvvRow}>
@@ -690,7 +696,6 @@ function CardSection() {
                     className={styles.virtualCardCvvBtn}
                     onClick={() => toggleCvv(card.id)}
                     aria-label={cvvRevealed === card.id ? "Hide security code" : "Show security code"}
-                    title={cvvRevealed === card.id ? "Hide" : "Show"}
                   >
                     {cvvRevealed === card.id ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
@@ -698,25 +703,26 @@ function CardSection() {
               </div>
             ))}
           </div>
-          <button type="button" className={styles.addCardBtn} onClick={handleCreateCard}>
+          <button type="button" className={styles.addCardBtn} onClick={handleCreateCard} disabled={creating}>
             <Plus size={18} />
-            Create virtual card
+            {creating ? "Creating…" : "Create virtual card"}
           </button>
         </>
       )}
+
       {cardTab === "statement" && (
         <div className={styles.cardStatementSection}>
           <div className={styles.cardSummaryBlock}>
             <div className={styles.cardSummaryRow}>
               <span className={styles.cardSummaryLabel}>Current debt</span>
               <span className={styles.cardSummaryValue}>
-                {wallet.cardDebt.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                {cardDebtDisplay.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
               </span>
             </div>
             <div className={styles.cardSummaryRow}>
               <span className={styles.cardSummaryLabel}>Credit limit</span>
               <span className={styles.cardSummaryValue}>
-                {wallet.cardLimit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                {cardLimitDisplay.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
               </span>
             </div>
             <div className={styles.cardLimitProgressWrap}>
@@ -732,16 +738,21 @@ function CardSection() {
                 />
               </div>
               <div className={styles.cardLimitProgressLabel}>
-                {wallet.cardDebt.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of{" "}
-                {wallet.cardLimit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                {wallet.cardLimit > 0 && ` (${usagePercent}%)`}
+                {cardDebtDisplay.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of{" "}
+                {cardLimitDisplay.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                {cardLimitDisplay > 0 && ` (${usagePercent}%)`}
               </div>
             </div>
           </div>
           <div className={styles.cardBillingNote}>
-            <span className={styles.cardBillingLabel}>Next invoice charge (Fkebank):</span>{" "}
-            <span className={styles.cardBillingDate}>{nextChargeStr}</span>
+            <span className={styles.cardBillingLabel}>Next invoice due (Fkebank):</span>{" "}
+            <span className={styles.cardBillingDate}>{dueDateStr}</span>
           </div>
+          {firstCard && cardDebtDisplay > 0 && (
+            <button type="button" className={styles.submitBtn} onClick={handlePayBill}>
+              Pay bill ({cardDebtDisplay.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD)
+            </button>
+          )}
           <h3 className={styles.cardStatementTitle}>Card statement</h3>
           {wallet.cardTransactions.length === 0 ? (
             <p className={styles.cardStatementEmpty}>No card transactions yet.</p>
@@ -749,17 +760,15 @@ function CardSection() {
             <ul className={styles.cardStatementList}>
               {wallet.cardTransactions.map((tx) => (
                 <li key={tx.id} className={styles.cardStatementRow}>
-                  <span className={styles.cardStatementDate}>{tx.date}</span>
-                  <span className={styles.cardStatementDesc}>{tx.description}</span>
+                  <span className={styles.cardStatementDate}>
+                    {new Date(tx.created_at_ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  <span className={styles.cardStatementDesc}>{tx.description || tx.tx_type}</span>
                   <span
-                    className={
-                      tx.type === "payment"
-                        ? styles.cardStatementAmountCredit
-                        : styles.cardStatementAmountDebit
-                    }
+                    className={tx.tx_type === "payment" ? styles.cardStatementAmountCredit : styles.cardStatementAmountDebit}
                   >
-                    {tx.type === "payment" ? "+" : "-"}
-                    {tx.amount} USD
+                    {tx.tx_type === "payment" ? "+" : "-"}
+                    {(tx.amount / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                   </span>
                 </li>
               ))}
@@ -775,38 +784,47 @@ function ConvertSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
   const [fromSymbol, setFromSymbol] = useState("USD");
   const [toSymbol, setToSymbol] = useState("BTC");
   const [fromAmountStr, setFromAmountStr] = useState("");
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [, setTick] = useState(0);
 
-  // Refresh rate display periodically (variable fake rate)
+  // Refresh rate display periodically
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 3000);
     return () => clearInterval(id);
   }, []);
 
   const rate = getRate(fromSymbol, toSymbol);
-  const fromAmount = parseAmount(fromAmountStr);
-  const toAmount = fromAmount * rate;
+  const fromDisplay = parseAmount(fromAmountStr);
+  const toDisplay = fromDisplay * rate;
 
-  const handleConfirm = () => {
+  const handleConfirm = useCallback(async () => {
     setMessage(null);
-    if (fromAmount <= 0) {
+    if (fromDisplay <= 0) {
       setMessage({ type: "error", text: "Enter a valid amount." });
       return;
     }
-    const ok = wallet.convert(fromSymbol, toSymbol, fromAmount, rate);
-    if (ok) {
+    if (fromSymbol === toSymbol) {
+      setMessage({ type: "error", text: "Same currency selected." });
+      return;
+    }
+    const amountCents = Math.round(fromDisplay * 100);
+    setBusy(true);
+    const err = await wallet.convert(fromSymbol, toSymbol, amountCents);
+    setBusy(false);
+    if (err === null) {
       setMessage({ type: "success", text: "Conversion completed." });
       setFromAmountStr("");
     } else {
-      setMessage({ type: "error", text: "Insufficient balance or invalid amount." });
+      const userMsg = err.includes("InsufficientBalance") ? "Insufficient balance." : "Conversion failed.";
+      setMessage({ type: "error", text: userMsg });
     }
-  };
+  }, [fromDisplay, fromSymbol, toSymbol, wallet]);
 
   return (
     <>
       <h2 className={styles.mainTitle}>Convert</h2>
-      <p className={styles.mainSubtitle}>Exchange between your currencies at the current rate.</p>
+      <p className={styles.mainSubtitle}>Exchange between your currencies at the current simulator rate.</p>
       <div className={styles.convertPanel}>
         <div className={styles.convertRow}>
           <input
@@ -816,15 +834,17 @@ function ConvertSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             autoComplete="off"
             value={fromAmountStr}
             onChange={(e) => setFromAmountStr(applyAmountMask(e.target.value, fromSymbol === "USD" ? 2 : 8))}
-            placeholder="Amount (e.g. 10,50)"
+            placeholder="Amount"
+            disabled={busy}
           />
           <select
             className={styles.convertSelect}
             value={fromSymbol}
             onChange={(e) => setFromSymbol(e.target.value)}
+            disabled={busy}
           >
-            {MOCK_WALLET_BALANCES.map((b) => (
-              <option key={b.symbol} value={b.symbol}>{b.symbol}</option>
+            {CURRENCIES.map((c) => (
+              <option key={c.symbol} value={c.symbol}>{c.symbol}</option>
             ))}
           </select>
         </div>
@@ -835,7 +855,7 @@ function ConvertSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
           <input
             type="text"
             className={styles.convertInput}
-            value={fromAmount > 0 ? toAmount.toFixed(6) : ""}
+            value={fromDisplay > 0 ? toDisplay.toFixed(6) : ""}
             readOnly
             placeholder="You receive"
           />
@@ -843,9 +863,10 @@ function ConvertSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             className={styles.convertSelect}
             value={toSymbol}
             onChange={(e) => setToSymbol(e.target.value)}
+            disabled={busy}
           >
-            {MOCK_WALLET_BALANCES.map((b) => (
-              <option key={b.symbol} value={b.symbol}>{b.symbol}</option>
+            {CURRENCIES.map((c) => (
+              <option key={c.symbol} value={c.symbol}>{c.symbol}</option>
             ))}
           </select>
         </div>
@@ -854,64 +875,21 @@ function ConvertSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             {message.text}
           </p>
         )}
-        <button type="button" className={styles.submitBtn} onClick={handleConfirm}>
-          Confirm conversion
+        <button type="button" className={styles.submitBtn} onClick={handleConfirm} disabled={busy}>
+          {busy ? "Converting…" : "Confirm conversion"}
         </button>
         <div className={styles.convertBalanceSummary}>
           <div className={styles.convertBalanceSummaryTitle}>Your balances</div>
           <div className={styles.convertBalanceSummaryRow}>
-            {MOCK_WALLET_BALANCES.map((b) => (
-              <span key={b.symbol} className={styles.convertBalanceSummaryItem}>
-                <span className={styles.convertBalanceSummarySymbol}>{b.symbol}</span>
-                <span className={styles.convertBalanceSummaryAmount}>{wallet.getFormattedBalance(b.symbol)}</span>
+            {CURRENCIES.map((c) => (
+              <span key={c.symbol} className={styles.convertBalanceSummaryItem}>
+                <span className={styles.convertBalanceSummarySymbol}>{c.symbol}</span>
+                <span className={styles.convertBalanceSummaryAmount}>{wallet.getFormattedBalance(c.symbol)}</span>
               </span>
             ))}
           </div>
         </div>
       </div>
-    </>
-  );
-}
-
-function NftsSection() {
-  const byCollection = useMemo(() => groupNftsByCollection(MOCK_WALLET_NFTS), []);
-
-  if (MOCK_WALLET_NFTS.length === 0) {
-    return (
-      <>
-        <h2 className={styles.mainTitle}>NFTs</h2>
-        <p className={styles.mainSubtitle}>Your digital collectibles.</p>
-        <div className={styles.nftEmpty}>No NFTs yet.</div>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <h2 className={styles.mainTitle}>NFTs</h2>
-      <p className={styles.mainSubtitle}>Your digital collectibles by collection.</p>
-      {Array.from(byCollection.entries()).map(([collectionName, nfts]) => (
-        <div key={collectionName} className={styles.nftSection}>
-          <div className={styles.nftSectionTitle}>{collectionName}</div>
-          <div className={styles.nftGrid}>
-            {nfts.map((nft) => (
-              <div key={nft.id} className={styles.nftCard}>
-                <div className={styles.nftImageWrap}>
-                  <img
-                    src={nft.imageUrl}
-                    alt=""
-                    className={styles.nftImage}
-                  />
-                </div>
-                <div className={styles.nftInfo}>
-                  <div className={styles.nftName}>{nft.name}</div>
-                  <div className={styles.nftCollection}>{nft.collection}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
     </>
   );
 }

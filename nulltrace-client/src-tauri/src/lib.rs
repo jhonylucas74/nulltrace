@@ -314,6 +314,17 @@ pub fn run() {
             grpc::grpc_delete_email,
             grpc::mailbox_connect,
             grpc::mailbox_disconnect,
+            grpc::grpc_get_wallet_balances,
+            grpc::grpc_get_wallet_transactions,
+            grpc::grpc_get_wallet_keys,
+            grpc::grpc_transfer_funds,
+            grpc::grpc_convert_funds,
+            grpc::grpc_get_wallet_cards,
+            grpc::grpc_create_wallet_card,
+            grpc::grpc_delete_wallet_card,
+            grpc::grpc_get_card_transactions,
+            grpc::grpc_get_card_statement,
+            grpc::grpc_pay_card_bill,
         ])
         .setup(|app| {
             if std::env::var_os("TAURI_OPEN_DEVTOOLS").is_some() {

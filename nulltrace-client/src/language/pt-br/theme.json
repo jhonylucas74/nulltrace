@@ -1,0 +1,21 @@
+{
+  "intro": "Escolha um tema de cores para a área de trabalho. As alterações são aplicadas na hora e salvas para sua próxima sessão.",
+  "theme_latte_name": "Latte",
+  "theme_latte_subtitle": "Catppuccin · Claro",
+  "theme_frappe_name": "Frappé",
+  "theme_frappe_subtitle": "Catppuccin · Escuro",
+  "theme_macchiato_name": "Macchiato",
+  "theme_macchiato_subtitle": "Catppuccin · Escuro",
+  "theme_mocha_name": "Mocha",
+  "theme_mocha_subtitle": "Catppuccin · Escuro",
+  "theme_onedark_name": "One Dark",
+  "theme_onedark_subtitle": "Atom / VS Code",
+  "theme_dracula_name": "Dracula",
+  "theme_dracula_subtitle": "Escuro popular",
+  "theme_githubdark_name": "Nulltrace",
+  "theme_githubdark_subtitle": "Padrão",
+  "theme_monokai_name": "Monokai",
+  "theme_monokai_subtitle": "Editor clássico",
+  "theme_solardark_name": "Solarized Dark",
+  "theme_solardark_subtitle": "Suave para os olhos"
+}

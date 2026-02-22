@@ -28,6 +28,8 @@ use db::player_service::PlayerService;
 use db::shortcuts_service::ShortcutsService;
 use db::user_service::UserService;
 use db::vm_service::VmService;
+use db::wallet_service::WalletService;
+use db::wallet_card_service::WalletCardService;
 use grpc::game::game_service_server::GameServiceServer;
 use grpc::ClusterGameService;
 use process_run_hub::new_hub as new_process_run_hub;
@@ -93,6 +95,8 @@ async fn main() {
     let shortcuts_service = Arc::new(ShortcutsService::new(pool.clone()));
     let email_service = Arc::new(EmailService::new(pool.clone()));
     let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
+    let wallet_service = Arc::new(WalletService::new(pool.clone()));
+    let wallet_card_service = Arc::new(WalletCardService::new(pool.clone()));
     let mailbox_hub = mailbox_hub::new_hub();
 
     // ── Seed default player (Haru) if not present ──
@@ -101,6 +105,11 @@ async fn main() {
         .await
         .expect("Failed to seed default player");
     println!("[cluster] Default player ready (Haru)");
+
+    // Seed Haru's wallet (idempotent)
+    if let Some(haru) = player_service.get_by_username("Haru").await.ok().flatten() {
+        let _ = wallet_service.create_wallet_for_player(haru.id).await;
+    }
 
     // ── Seed webserver player (Nexus VM owner) if not present ──
     player_service
@@ -173,6 +182,8 @@ async fn main() {
         shortcuts_service.clone(),
         email_service.clone(),
         email_account_service.clone(),
+        wallet_service.clone(),
+        wallet_card_service.clone(),
         mailbox_hub.clone(),
         terminal_hub.clone(),
         process_spy_hub.clone(),
