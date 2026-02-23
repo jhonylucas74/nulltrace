@@ -991,7 +991,7 @@ impl VmManager {
                         let eas = self.email_account_service.clone();
                         let hub = self.mailbox_hub.clone();
                         if let Err(e) = vm.reset_lua_state(|| {
-                            crate::create_vm_lua_state(pool, fs, us, es, eas, hub)
+                            crate::create_vm_lua_state(pool, fs, us, es, eas, hub, None, None)
                         }) {
                             println!("[cluster] WARNING: VM {} memory reset failed: {}", vm_id, e);
                         } else {
@@ -1762,7 +1762,7 @@ impl VmManager {
                     let eas = self.email_account_service.clone();
                     let hub = self.mailbox_hub.clone();
                     if let Err(e) = vm.reset_lua_state(|| {
-                        crate::create_vm_lua_state(pool, fs, us, es, eas, hub)
+                        crate::create_vm_lua_state(pool, fs, us, es, eas, hub, None, None)
                     }) {
                         println!("[cluster] WARNING: VM {} memory reset failed: {}", vm.id, e);
                     } else {
@@ -2017,7 +2017,7 @@ mod tests {
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -2107,7 +2107,7 @@ mod tests {
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -2487,7 +2487,7 @@ end
                     let eas = manager.email_account_service.clone();
                     let hub = manager.mailbox_hub.clone();
                     let _ = vm.reset_lua_state(|| {
-                        crate::create_vm_lua_state(pool, fs, us, es, eas, hub)
+                        crate::create_vm_lua_state(pool, fs, us, es, eas, hub, None, None)
                     });
                 } else {
                     {
@@ -2701,7 +2701,7 @@ end
             let eas = manager.email_account_service.clone();
             let hub = manager.mailbox_hub.clone();
             let _ = vm.reset_lua_state(|| {
-                crate::create_vm_lua_state(pool, fs, us, es, eas, hub)
+                crate::create_vm_lua_state(pool, fs, us, es, eas, hub, None, None)
             });
         } else {
             {
@@ -2927,7 +2927,7 @@ end
             .await
             .unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -2987,7 +2987,7 @@ end
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -3052,7 +3052,7 @@ end
             .write_file(vm_id, "/tmp/grep_b.txt", b"nobar\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3106,7 +3106,7 @@ end
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_dir/f.txt", b"x", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3162,7 +3162,7 @@ end
             .write_file(vm_id, "/tmp/sed_in.txt", b"hello world\nworld end\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3218,7 +3218,7 @@ end
             .write_file(vm_id, "/tmp/nomatch.txt", b"foo\nbaz\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3283,7 +3283,7 @@ end
             .write_file(vm_id, "/tmp/grep_rec/sub/two.txt", b"no\nneedle there\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3342,7 +3342,7 @@ end
             .write_file(vm_id, "/tmp/nested/a/b/leaf.txt", b"x", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3397,7 +3397,7 @@ end
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/empty_dir", "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3454,7 +3454,7 @@ end
             .write_file(vm_id, "/tmp/sed_unchanged.txt", b"alpha\nbeta\ngamma\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3511,7 +3511,7 @@ end
             .write_file(vm_id, "/tmp/start.txt", b"prefix\nstart_here\nsuffix\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3566,7 +3566,7 @@ end
             .write_file(vm_id, "/tmp/end.txt", b"first\nat_end\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3621,7 +3621,7 @@ end
             .write_file(vm_id, "/tmp/case.txt", b"bar\nBar\nBAR\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3677,7 +3677,7 @@ end
             .write_file(vm_id, "/tmp/only.txt", b"one\ntwo\nthree\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3732,7 +3732,7 @@ end
             .write_file(vm_id, "/tmp/real.txt", b"match\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3788,7 +3788,7 @@ end
             .write_file(vm_id, "/tmp/special.txt", b"a.b.c\nx y z\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3840,7 +3840,7 @@ end
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
         fs_service.write_file(vm_id, "/tmp/single_file.txt", b"x", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -3895,7 +3895,7 @@ end
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_dot_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_dot_dir/f.txt", b"x", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         // Run find with explicit path (same as would be cwd). Find resolves relative paths; without filters we list all.
@@ -3948,7 +3948,7 @@ end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4003,7 +4003,7 @@ end
         fs_service.mkdir(vm_id, "/tmp/find_name_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_name_dir/morango", b"x", None, "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_name_dir/banana", b"y", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4059,7 +4059,7 @@ end
         fs_service.mkdir(vm_id, "/tmp/find_glob_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_glob_dir/a.lua", b"x", None, "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_glob_dir/b.txt", b"y", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4115,7 +4115,7 @@ end
         fs_service.mkdir(vm_id, "/tmp/find_type_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_type_dir/file.txt", b"x", None, "root").await.unwrap();
         fs_service.mkdir(vm_id, "/tmp/find_type_dir/subdir", "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4171,7 +4171,7 @@ end
         fs_service.mkdir(vm_id, "/tmp/find_typed_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_typed_dir/f.txt", b"x", None, "root").await.unwrap();
         fs_service.mkdir(vm_id, "/tmp/find_typed_dir/sub", "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4229,7 +4229,7 @@ end
         fs_service.write_file(vm_id, "/tmp/find_user_dir/root_file", b"a", None, "root").await.unwrap();
         fs_service.mkdir(vm_id, "/tmp/find_user_dir/alice_dir", "alice").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_user_dir/alice_dir/alice_file", b"b", None, "alice").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4286,7 +4286,7 @@ end
         fs_service.mkdir(vm_id, "/tmp/find_size_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_size_dir/empty", b"", None, "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_size_dir/has123", b"123", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4341,7 +4341,7 @@ end
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_nomatch_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_nomatch_dir/something", b"x", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4395,7 +4395,7 @@ end
         let vm_id = record.id;
         fs_service.mkdir(vm_id, "/tmp/find_iname_dir", "root").await.unwrap();
         fs_service.write_file(vm_id, "/tmp/find_iname_dir/Morango", b"x", None, "root").await.unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4452,7 +4452,7 @@ end
             .write_file(vm_id, "/tmp/sed_empty_repl.txt", b"remove_me and rest\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4508,7 +4508,7 @@ end
             .write_file(vm_id, "/tmp/sed_multi.txt", b"line1\nreplace_this\nline3\nno_change\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4562,7 +4562,7 @@ end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4618,7 +4618,7 @@ end
             .write_file(vm_id, "/tmp/sed_boundary.txt", b"first\nlast\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4685,7 +4685,7 @@ end
                 .await
                 .unwrap();
         }
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4749,7 +4749,7 @@ end
             .write_file(vm_id, "/tmp/many_lines.txt", content.as_bytes(), None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4807,7 +4807,7 @@ end
             .write_file(vm_id, "/tmp/long_line.txt", content.as_bytes(), None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4868,7 +4868,7 @@ end
             .write_file(vm_id, &format!("{}/leaf", path), b"x", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4931,7 +4931,7 @@ end
                 .await
                 .unwrap();
         }
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -4991,7 +4991,7 @@ end
                 .await
                 .unwrap();
         }
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -5048,7 +5048,7 @@ end
             .write_file(vm_id, "/tmp/sed_many.txt", content.as_bytes(), None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -5109,7 +5109,7 @@ end
             .write_file(vm_id, "/tmp/sed_long.txt", format!("{}\n", line).as_bytes(), None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -5166,7 +5166,7 @@ end
             .write_file(vm_id, "/tmp/sed_repl.txt", content.as_bytes(), None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -5234,7 +5234,7 @@ end
             .write_file(vm_id, "/tmp/none.txt", b"nope\n", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -5302,7 +5302,7 @@ end
             .write_file(vm_id, &format!("{}/end", path), b"ok", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -5361,7 +5361,7 @@ end
             .write_file(vm_id, "/tmp/empty_sed.txt", b"", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -5417,7 +5417,7 @@ end
             .write_file(vm_id, "/tmp/sed_heavy.txt", content.as_bytes(), None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(
@@ -5472,7 +5472,7 @@ end
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -5542,7 +5542,7 @@ end
             .await
             .unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -5595,7 +5595,7 @@ end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec!["-help".to_string()], 0, "root");
@@ -5641,7 +5641,7 @@ end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec!["--help".to_string()], 0, "root");
@@ -5686,7 +5686,7 @@ end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec![], 0, "root");
@@ -5731,7 +5731,7 @@ end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec!["-d".to_string()], 0, "root");
@@ -5780,7 +5780,7 @@ end
             .write_file(vm_id, "/tmp/lua_test_script.lua", b"print(\"lua_script_ok\")", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec!["/tmp/lua_test_script.lua".to_string()], 0, "root");
@@ -5825,7 +5825,7 @@ end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec!["/nonexistent.lua".to_string()], 0, "root");
@@ -5875,7 +5875,7 @@ end
             .write_file(vm_id, "/tmp/lua_daemon_script.lua", daemon_script, None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
         vm.os.spawn_process(&vm.lua, bin_programs::LUA, vec!["/tmp/lua_daemon_script.lua".to_string(), "-d".to_string()], 0, "root");
@@ -6079,7 +6079,7 @@ end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6147,7 +6147,7 @@ io.write("pid=" .. pid .. "\n")
             .await
             .unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6203,7 +6203,7 @@ os.spawn_path("/tmp/spawn_path_test.lua", {})
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6253,7 +6253,7 @@ os.spawn_path("/tmp/spawn_path_test.lua", {})
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6338,7 +6338,7 @@ end
             .await
             .unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6394,7 +6394,7 @@ os.write_stdin(pid, "hello")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6478,7 +6478,7 @@ end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6535,7 +6535,7 @@ io.write(t.program .. "|" .. table.concat(t.args, ","))
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6594,7 +6594,7 @@ for i = 1, #t.args do io.write("_" .. t.args[i]) end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6648,7 +6648,7 @@ for i = 1, #t.args do io.write("_" .. t.args[i]) end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6713,7 +6713,7 @@ os.write_stdin(pid, "echo hello")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6781,7 +6781,7 @@ os.write_stdin(pid, "hello")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6861,7 +6861,7 @@ os.write_stdin(pid, "\x03")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -6933,7 +6933,7 @@ os.write_stdin(pid, "ec\x09")
             .write_file(vm_id, "/tmp/casa", b"", None, "root")
             .await
             .unwrap();
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7002,7 +7002,7 @@ os.write_stdin(pid, "cat ca\x09\n")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7081,8 +7081,8 @@ os.write_stdin(pid, "x\x09")
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -7155,7 +7155,7 @@ while true do end
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7222,7 +7222,7 @@ os.write_stdin(pid, "ls /")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7286,7 +7286,7 @@ os.write_stdin(pid, "echo a b c")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7357,7 +7357,7 @@ os.write_stdin(pid, "touch /tmp/shell_touch_test")
             .await
             .unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7421,7 +7421,7 @@ os.write_stdin(pid, "cat /tmp/shell_cat_test")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7484,7 +7484,7 @@ os.write_stdin(pid, "rm /tmp/shell_rm_test")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7550,7 +7550,7 @@ os.write_stdin(pid, "ls")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7624,7 +7624,7 @@ os.write_stdin(pid, "pwd")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7685,7 +7685,7 @@ os.write_stdin(pid, "touch x.txt")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7743,7 +7743,7 @@ os.write_stdin(pid, "touch /tmp/absolute_test.txt")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7803,7 +7803,7 @@ os.write_stdin(pid, "touch cwd_file.txt")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7873,7 +7873,7 @@ os.write_stdin(pid, "pwd")
         };
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, vm_id);
         vm.attach_nic(nic);
 
@@ -7951,8 +7951,8 @@ os.write_stdin(pid, "nonexistentcommand")
         };
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -8053,8 +8053,8 @@ conn:send("hello")
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip;
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -8145,29 +8145,53 @@ conn:send("hello")
         };
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
         vm_b.attach_nic(nic_b);
 
-        // VM A: process 1 listens on 8080 and exits
-        vm_a.os.spawn_process(&vm_a.lua,"net.listen(8080)", vec![], 0, "root");
-        // VM A: process 2 tries to listen on 8080 (must fail), writes "ok" or "fail", then loops so we can read stdout
-        vm_a.os.spawn_process(&vm_a.lua,
-            r#"
-local ok, err = pcall(function() net.listen(8080) end)
-io.write(ok and "ok" or "fail")
-while true do end
-"#,
+        // Use a port unique to this test to avoid clashes with other tests.
+        let port = 19998u16;
+        // VM A: process 1 listens on port, writes "bound", then loops so it keeps the port
+        vm_a.os.spawn_process(
+            &vm_a.lua,
+            &format!(
+                r#"net.listen({}); io.write("bound"); while true do end"#,
+                port
+            ),
             vec![],
             0,
             "root",
         );
 
         let mut vms = vec![vm_a, vm_b];
-        run_n_ticks_vms_network(&mut manager, &mut vms, 100).await;
+        // Run until first process has bound (so we see "bound" on stdout)
+        run_n_ticks_vms_network(&mut manager, &mut vms, 50).await;
+        let has_bound = vms[0]
+            .os
+            .processes
+            .iter()
+            .any(|p| p.stdout.lock().map_or(false, |s| s.contains("bound")));
+        assert!(has_bound, "First process should bind to port {}", port);
+
+        // VM A: process 2 tries to listen on same port (must fail), writes "ok" or "fail"
+        vms[0].spawn_process(
+            &format!(
+                r#"
+local ok, err = pcall(function() net.listen({}) end)
+io.write(ok and "ok" or "fail")
+while true do end
+"#,
+                port
+            ),
+            vec![],
+            0,
+            "root",
+        );
+
+        run_n_ticks_vms_network(&mut manager, &mut vms, 50).await;
 
         let second_stdout = vms[0]
             .os
@@ -8178,7 +8202,8 @@ while true do end
             .unwrap_or_default();
         assert!(
             second_stdout.contains("fail"),
-            "Second process's net.listen(8080) should fail (address in use); got stdout: {:?}",
+            "Second process's net.listen({}) should fail (address in use); got stdout: {:?}",
+            port,
             second_stdout
         );
     }
@@ -8235,8 +8260,8 @@ while true do end
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -8346,8 +8371,8 @@ while true do end
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -8470,8 +8495,8 @@ while true do end
         };
         let (_rec_dummy, nic_dummy) = manager.create_vm(config_dummy).await.unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_dummy = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_dummy = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, _rec.id);
         vm.attach_nic(nic);
         let mut vm_dummy = VirtualMachine::with_id(lua_dummy, _rec_dummy.id);
@@ -8614,8 +8639,8 @@ while true do end
             .await
             .unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -8741,8 +8766,8 @@ while true do end
             .await
             .unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -8847,8 +8872,8 @@ os.write_stdin(pid, "curl {}/hello")
 "##;
         fs_service.write_file(_rec_s.id, "/var/www/about.ntml", about_ntml.as_bytes(), Some("application/x-ntml"), "root").await.unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -8906,8 +8931,8 @@ while true do end
         fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
         fs_service.write_file(_rec_s.id, "/var/www/robot.txt", b"Robot: operational\n", Some("text/plain"), "root").await.unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -8965,8 +8990,8 @@ while true do end
         fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
         fs_service.write_file(_rec_s.id, "/var/www/index.ntml", b"home", Some("application/x-ntml"), "root").await.unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -9024,8 +9049,8 @@ while true do end
         fs_service.mkdir(_rec_s.id, "/var/www", "root").await.unwrap();
         fs_service.write_file(_rec_s.id, "/var/www/404.ntml", b"Custom 404 page", Some("application/x-ntml"), "root").await.unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -9084,8 +9109,8 @@ while true do end
         fs_service.write_file(_rec_s.id, "/var/www/robot.txt", b"plain", Some("text/plain"), "root").await.unwrap();
         fs_service.write_file(_rec_s.id, "/var/www/robot.ntml", b"ntml", Some("application/x-ntml"), "root").await.unwrap();
 
-        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_s = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_s = VirtualMachine::with_id(lua_s, _rec_s.id);
         vm_s.attach_nic(nic_s);
         let mut vm_c = VirtualMachine::with_id(lua_c, _rec_c.id);
@@ -9182,8 +9207,8 @@ while true do end
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -9274,8 +9299,8 @@ while true do end
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -9381,8 +9406,8 @@ while true do end
         let (_rec_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _rec_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _rec_b.id);
@@ -9494,8 +9519,8 @@ while true do end
         let (_record_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _record_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _record_b.id);
@@ -9620,8 +9645,8 @@ end
         let (_record_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _record_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _record_b.id);
@@ -9757,8 +9782,8 @@ end
         let (_record_b, nic_b) = manager.create_vm(config_b).await.unwrap();
         let ip_b = nic_b.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _record_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _record_b.id);
@@ -9859,9 +9884,9 @@ end
         let ip_b = nic_b.ip.to_string();
         let ip_c = nic_c.ip.to_string();
 
-        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
-        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua_a = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_b = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
+        let lua_c = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm_a = VirtualMachine::with_id(lua_a, _record_a.id);
         vm_a.attach_nic(nic_a);
         let mut vm_b = VirtualMachine::with_id(lua_b, _record_b.id);
@@ -9989,7 +10014,7 @@ end
 
         let (record, nic) = manager.create_vm(config).await.unwrap();
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, record.id);
         vm.attach_nic(nic);
         let mut vms = vec![vm];
@@ -10097,7 +10122,7 @@ end
         let (record, nic) = manager.create_vm(config).await.unwrap();
         let vm_id = record.id;
 
-        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone()).unwrap();
+        let lua = crate::create_vm_lua_state(pool.clone(), fs_service.clone(), user_service.clone(), email_service.clone(), email_account_service.clone(), mailbox_hub.clone(), None, None).unwrap();
         let mut vm = VirtualMachine::with_id(lua, record.id);
         vm.attach_nic(nic);
         let mut vms = vec![vm];

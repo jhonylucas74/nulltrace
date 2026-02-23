@@ -16,6 +16,7 @@ import diskmanagerEn from "./en/diskmanager.json";
 import startupEn from "./en/startup.json";
 import backgroundEn from "./en/background.json";
 import themeEn from "./en/theme.json";
+import walletEn from "./en/wallet.json";
 
 import commonPtBr from "./pt-br/common.json";
 import appsPtBr from "./pt-br/apps.json";
@@ -32,6 +33,7 @@ import diskmanagerPtBr from "./pt-br/diskmanager.json";
 import startupPtBr from "./pt-br/startup.json";
 import backgroundPtBr from "./pt-br/background.json";
 import themePtBr from "./pt-br/theme.json";
+import walletPtBr from "./pt-br/wallet.json";
 
 const LOCALE_STORAGE_KEY = "nulltrace-locale";
 const SUPPORTED_LOCALES = ["en", "pt-br"] as const;
@@ -59,7 +61,7 @@ i18n.use(initReactI18next).init({
   fallbackLng: "en",
   supportedLngs: ["en", "pt-br"],
   lowerCaseLng: true,
-  ns: ["common", "apps", "email", "notifications", "settings", "terminal", "login", "code", "sysinfo", "procspy", "systemmonitor", "diskmanager", "startup", "background", "theme"],
+  ns: ["common", "apps", "email", "notifications", "settings", "terminal", "login", "code", "sysinfo", "procspy", "systemmonitor", "diskmanager", "startup", "background", "theme", "wallet"],
   defaultNS: "common",
   resources: {
     en: {
@@ -78,6 +80,7 @@ i18n.use(initReactI18next).init({
       startup: startupEn,
       background: backgroundEn,
       theme: themeEn,
+      wallet: walletEn,
     },
     "pt-br": {
       common: commonPtBr,
@@ -95,6 +98,7 @@ i18n.use(initReactI18next).init({
       startup: startupPtBr,
       background: backgroundPtBr,
       theme: themePtBr,
+      wallet: walletPtBr,
     },
   },
   interpolation: {

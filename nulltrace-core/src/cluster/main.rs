@@ -45,6 +45,7 @@ use vm_manager::{ProcessSnapshot, VmManager};
 use db::vm_service::VmConfig;
 
 /// Creates a fully configured Lua state for a VM: sandbox, APIs, VmContext, memory limit.
+/// When fkebank_service and crypto_service are Some, the fkebank and crypto Lua APIs are registered (for NPC VMs like money.null).
 fn create_vm_lua_state(
     pool: sqlx::PgPool,
     fs_service: Arc<FsService>,
@@ -52,6 +53,8 @@ fn create_vm_lua_state(
     email_service: Arc<EmailService>,
     email_account_service: Arc<EmailAccountService>,
     mailbox_hub: mailbox_hub::MailboxHub,
+    fkebank_service: Option<Arc<db::fkebank_account_service::FkebankAccountService>>,
+    crypto_service: Option<Arc<db::crypto_wallet_service::CryptoWalletService>>,
 ) -> Result<mlua::Lua, mlua::Error> {
     let lua = os::create_lua_state();
     lua.set_app_data(VmContext::new(pool));
@@ -62,6 +65,8 @@ fn create_vm_lua_state(
         email_service,
         email_account_service,
         mailbox_hub,
+        fkebank_service,
+        crypto_service,
     )?;
     lua.set_memory_limit(os::LUA_MEMORY_LIMIT_BYTES)?;
     Ok(lua)
@@ -106,9 +111,15 @@ async fn main() {
         .expect("Failed to seed default player");
     println!("[cluster] Default player ready (Haru)");
 
-    // Seed Haru's wallet (idempotent)
+    // Seed Haru's wallet (idempotent) and give $20 initial USD if balance is zero
     if let Some(haru) = player_service.get_by_username("Haru").await.ok().flatten() {
         let _ = wallet_service.create_wallet_for_player(haru.id).await;
+        let balances = wallet_service.get_balances(haru.id).await.ok().unwrap_or_default();
+        let usd_balance = balances.iter().find(|b| b.currency == "USD").map(|b| b.balance).unwrap_or(0);
+        if usd_balance == 0 {
+            let _ = wallet_service.credit(haru.id, "USD", 2000, "Initial balance").await;
+            println!("[cluster] Haru initial USD balance set to $20");
+        }
     }
 
     // ── Seed webserver player (Nexus VM owner) if not present ──
@@ -159,6 +170,7 @@ async fn main() {
             mailbox_hub.clone(),
             &player_service,
             &vm_service,
+            &wallet_service,
         )
         .await
     };
@@ -246,6 +258,8 @@ fn create_stress_vms(
             email_service.clone(),
             email_account_service.clone(),
             mailbox_hub.clone(),
+            None,
+            None,
         )
         .expect("Failed to create VM Lua state");
         let mut vm = VirtualMachine::new(lua);
@@ -364,6 +378,7 @@ async fn load_game_vms(
     mailbox_hub: mailbox_hub::MailboxHub,
     player_service: &Arc<PlayerService>,
     vm_service: &Arc<VmService>,
+    wallet_service: &Arc<WalletService>,
 ) -> Vec<VirtualMachine> {
     println!("[cluster] GAME MODE: Loading VMs from database...");
 
@@ -487,6 +502,86 @@ async fn load_game_vms(
         println!("[cluster] ✓ NPC VM emailbox.null created (emailbox_httpd + email_sender)");
     }
 
+    // 1d. Create NPC VM money.null: Fkebank USD account + token, GET / with balances/transactions, refund-half script
+    {
+        let config = VmConfig {
+            hostname: "money".to_string(),
+            dns_name: Some("money.null".to_string()),
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+            create_email_account: false,
+        };
+        let (record, _nic) = manager
+            .create_vm(config)
+            .await
+            .expect("Failed to create money NPC VM");
+        let vm_id = record.id;
+
+        let (_, token) = wallet_service
+            .create_wallet_for_vm(vm_id)
+            .await
+            .expect("Failed to create wallet for money.null VM");
+
+        let _ = fs_service.mkdir(vm_id, "/etc/wallet", "root").await;
+        let _ = fs_service.mkdir(vm_id, "/etc/wallet/fkebank", "root").await;
+        let _ = fs_service.mkdir(vm_id, "/etc/wallet/keys", "root").await;
+        let _ = fs_service.mkdir(vm_id, "/var/www", "root").await;
+
+        let _ = fs_service
+            .write_file(vm_id, "/etc/wallet/fkebank/token", token.as_bytes(), Some("text/plain"), "root")
+            .await;
+
+        let money_init_lua = include_str!("../lua_scripts/money_init.lua");
+        let _ = fs_service
+            .write_file(
+                vm_id,
+                "/var/www/money_init.lua",
+                money_init_lua.as_bytes(),
+                Some("text/plain"),
+                "root",
+            )
+            .await;
+        let money_httpd_lua = include_str!("../lua_scripts/money_httpd.lua");
+        let _ = fs_service
+            .write_file(
+                vm_id,
+                "/var/www/money_httpd.lua",
+                money_httpd_lua.as_bytes(),
+                Some("text/plain"),
+                "root",
+            )
+            .await;
+        let money_refund_lua = include_str!("../lua_scripts/money_refund.lua");
+        let _ = fs_service
+            .write_file(
+                vm_id,
+                "/var/www/money_refund.lua",
+                money_refund_lua.as_bytes(),
+                Some("text/plain"),
+                "root",
+            )
+            .await;
+
+        let bootstrap_content = "lua /var/www/money_init.lua\nlua /var/www/money_httpd.lua\nlua /var/www/money_refund.lua\n";
+        let _ = fs_service
+            .write_file(
+                vm_id,
+                "/etc/bootstrap",
+                bootstrap_content.as_bytes(),
+                Some("text/plain"),
+                "root",
+            )
+            .await;
+
+        println!("[cluster] ✓ NPC VM money.null created (Fkebank account + httpd + refund-half)");
+    }
+
     // 2. Restore all running/crashed player VMs from database
     match manager.restore_vms().await {
         Ok(records) => {
@@ -518,6 +613,8 @@ async fn load_game_vms(
             email_service.clone(),
             email_account_service.clone(),
             mailbox_hub.clone(),
+            Some(wallet_service.fkebank_service()),
+            Some(wallet_service.crypto_service()),
         )
         .expect("Failed to create VM Lua state");
         let mut vm = VirtualMachine::with_id_and_cpu(lua, vm_id, cpu_cores);

@@ -66,6 +66,11 @@ impl VirtualMachine {
         self.nic = Some(nic);
     }
 
+    /// Spawn a process on this VM (avoids split borrows when calling from tests).
+    pub fn spawn_process(&mut self, lua_code: &str, args: Vec<String>, user_id: i32, username: &str) {
+        self.os.spawn_process(&self.lua, lua_code, args, user_id, username);
+    }
+
     /// Resets the Lua state after memory limit exceeded: clears processes, drops old Lua, replaces with new.
     /// The factory creates a fresh Lua (sandbox, APIs, VmContext, memory limit).
     pub fn reset_lua_state(&mut self, factory: impl FnOnce() -> Result<Lua, mlua::Error>) -> Result<(), mlua::Error> {

@@ -31,7 +31,18 @@ pub fn create_lua_state() -> Lua {
     lua.globals().set("print", rust_print).unwrap();
 
     let count = AtomicU64::new(0);
-    lua.set_interrupt(move |_| {
+    const MAX_STACK_LEVEL: usize = 64;
+    lua.set_interrupt(move |lua| {
+        // Only yield when no C (Rust) frame is on the stack; avoids "yield across C-call boundary".
+        for level in 1..=MAX_STACK_LEVEL {
+            if let Some(what) = lua.inspect_stack(level, |debug| debug.source().what) {
+                if what == "C" {
+                    return Ok(VmState::Continue);
+                }
+            } else {
+                break;
+            }
+        }
         if count.fetch_add(1, Ordering::Relaxed) % 2 == 0 {
             return Ok(VmState::Yield);
         }

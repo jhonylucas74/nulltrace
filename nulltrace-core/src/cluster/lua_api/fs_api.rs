@@ -203,6 +203,41 @@ pub fn register(lua: &Lua, fs_service: Arc<FsService>) -> Result<()> {
         )?;
     }
 
+    // fs.read_lines(path) -> table of line strings | nil (avoids gmatch in Lua which can trigger yield across C boundary)
+    {
+        let svc = fs_service.clone();
+        fs.set(
+            "read_lines",
+            lua.create_function(move |lua, path: String| {
+                let ctx = lua
+                    .app_data_ref::<VmContext>()
+                    .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+                let vm_id = ctx.vm_id;
+                drop(ctx);
+
+                let svc = svc.clone();
+                let result = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        svc.read_file(vm_id, &path).await
+                    })
+                })
+                .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+
+                match result {
+                    Some((data, _mime)) => {
+                        let s = String::from_utf8_lossy(&data);
+                        let tbl = lua.create_table()?;
+                        for (i, line) in s.lines().enumerate() {
+                            tbl.set(i + 1, line)?;
+                        }
+                        Ok(mlua::Value::Table(tbl))
+                    }
+                    None => Ok(mlua::Value::Nil),
+                }
+            })?,
+        )?;
+    }
+
     // fs.read_bytes(path) -> buffer (raw bytes) | nil
     {
         let svc = fs_service.clone();

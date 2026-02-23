@@ -21,6 +21,17 @@ use game::{
     MoveEmailRequest, MoveEmailResponse,
     DeleteEmailRequest, DeleteEmailResponse,
     MailboxStreamRequest, MailboxStreamMessage,
+    GetWalletBalancesRequest, GetWalletBalancesResponse,
+    GetWalletTransactionsRequest, GetWalletTransactionsResponse,
+    GetWalletKeysRequest, GetWalletKeysResponse,
+    TransferFundsRequest, TransferFundsResponse,
+    ConvertFundsRequest, ConvertFundsResponse,
+    GetWalletCardsRequest, GetWalletCardsResponse,
+    CreateWalletCardRequest, CreateWalletCardResponse,
+    DeleteWalletCardRequest, DeleteWalletCardResponse,
+    GetCardTransactionsRequest, GetCardTransactionsResponse,
+    GetCardStatementRequest, GetCardStatementResponse,
+    PayCardBillRequest, PayCardBillResponse,
 };
 use tonic::{Request, Response, Status, transport::Server};
 use tokio_stream::wrappers::ReceiverStream;
@@ -420,6 +431,118 @@ impl GameService for MyGameService {
     ) -> Result<Response<Self::MailboxStreamStream>, Status> {
         let (_tx, rx) = tokio::sync::mpsc::channel(1);
         Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn get_wallet_balances(
+        &self,
+        _request: Request<GetWalletBalancesRequest>,
+    ) -> Result<Response<GetWalletBalancesResponse>, Status> {
+        Ok(Response::new(GetWalletBalancesResponse {
+            balances: vec![],
+            error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn get_wallet_transactions(
+        &self,
+        _request: Request<GetWalletTransactionsRequest>,
+    ) -> Result<Response<GetWalletTransactionsResponse>, Status> {
+        Ok(Response::new(GetWalletTransactionsResponse {
+            transactions: vec![],
+            error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn get_wallet_keys(
+        &self,
+        _request: Request<GetWalletKeysRequest>,
+    ) -> Result<Response<GetWalletKeysResponse>, Status> {
+        Ok(Response::new(GetWalletKeysResponse {
+            keys: vec![],
+            error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn transfer_funds(
+        &self,
+        _request: Request<TransferFundsRequest>,
+    ) -> Result<Response<TransferFundsResponse>, Status> {
+        Ok(Response::new(TransferFundsResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn convert_funds(
+        &self,
+        _request: Request<ConvertFundsRequest>,
+    ) -> Result<Response<ConvertFundsResponse>, Status> {
+        Ok(Response::new(ConvertFundsResponse {
+            success: false,
+            converted_amount: 0,
+            error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn get_wallet_cards(
+        &self,
+        _request: Request<GetWalletCardsRequest>,
+    ) -> Result<Response<GetWalletCardsResponse>, Status> {
+        Ok(Response::new(GetWalletCardsResponse {
+            cards: vec![],
+            error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn create_wallet_card(
+        &self,
+        _request: Request<CreateWalletCardRequest>,
+    ) -> Result<Response<CreateWalletCardResponse>, Status> {
+        Ok(Response::new(CreateWalletCardResponse {
+            card: None,
+            error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn delete_wallet_card(
+        &self,
+        _request: Request<DeleteWalletCardRequest>,
+    ) -> Result<Response<DeleteWalletCardResponse>, Status> {
+        Ok(Response::new(DeleteWalletCardResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn get_card_transactions(
+        &self,
+        _request: Request<GetCardTransactionsRequest>,
+    ) -> Result<Response<GetCardTransactionsResponse>, Status> {
+        Ok(Response::new(GetCardTransactionsResponse {
+            transactions: vec![],
+            error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn get_card_statement(
+        &self,
+        _request: Request<GetCardStatementRequest>,
+    ) -> Result<Response<GetCardStatementResponse>, Status> {
+        Ok(Response::new(GetCardStatementResponse {
+            statement: None,
+            error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn pay_card_bill(
+        &self,
+        _request: Request<PayCardBillRequest>,
+    ) -> Result<Response<PayCardBillResponse>, Status> {
+        Ok(Response::new(PayCardBillResponse {
+            success: false,
+            amount_paid: 0,
+            error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
     }
 }
 

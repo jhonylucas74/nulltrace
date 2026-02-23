@@ -1203,6 +1203,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
+name = "lua-patterns"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f3da90ef01f4466adefe593c05d534fe270d04a2b067608cf8b230123e5a281"
+
+[[package]]
 name = "luau0-src"
 version = "0.15.4+luau682"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1312,6 +1318,7 @@ dependencies = [
  "chrono",
  "dashmap",
  "jsonwebtoken",
+ "lua-patterns",
  "mlua",
  "num_cpus",
  "prost",

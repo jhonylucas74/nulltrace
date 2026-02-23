@@ -317,21 +317,35 @@ impl WalletCardService {
             return Ok(0);
         }
 
-        // Debit USD from wallet (only if sufficient balance)
-        let deducted = sqlx::query_as::<_, (i64,)>(
-            r#"
-            UPDATE wallet_accounts
-            SET balance = balance - $1, updated_at = now()
-            WHERE player_id = $2 AND currency = 'USD' AND balance >= $1
-            RETURNING balance
-            "#,
+        // Get player's Fkebank account key
+        let key_row = sqlx::query_as::<_, (String,)>(
+            "SELECT key FROM fkebank_accounts WHERE owner_type = 'player' AND owner_id = $1",
         )
-        .bind(debt)
         .bind(player_id)
         .fetch_optional(&mut *tx)
         .await?;
+        let account_key = match key_row {
+            Some((k,)) => k,
+            None => {
+                tx.rollback().await?;
+                return Err(WalletError::InsufficientBalance);
+            }
+        };
 
-        if deducted.is_none() {
+        // Debit USD from Fkebank account
+        let deducted = sqlx::query(
+            r#"
+            UPDATE fkebank_accounts
+            SET balance = balance - $1, updated_at = now()
+            WHERE key = $2 AND balance >= $1
+            "#,
+        )
+        .bind(debt)
+        .bind(&account_key)
+        .execute(&mut *tx)
+        .await?;
+
+        if deducted.rows_affected() == 0 {
             tx.rollback().await?;
             return Err(WalletError::InsufficientBalance);
         }
@@ -356,16 +370,16 @@ impl WalletCardService {
         .execute(&mut *tx)
         .await?;
 
-        // Log wallet debit
+        // Log wallet debit (key-based)
         sqlx::query(
             r#"
-            INSERT INTO wallet_transactions (id, player_id, tx_type, currency, amount, fee, description)
-            VALUES ($1, $2, 'debit', 'USD', $3, 0, 'Credit card bill payment')
+            INSERT INTO wallet_transactions (id, currency, amount, fee, description, from_key, to_key, counterpart_key, created_at)
+            VALUES ($1, 'USD', $2, 0, 'Credit card bill payment', $3, 'system', NULL, now())
             "#,
         )
         .bind(Uuid::new_v4())
-        .bind(player_id)
         .bind(debt)
+        .bind(&account_key)
         .execute(&mut *tx)
         .await?;
 
@@ -380,6 +394,26 @@ impl WalletCardService {
 
         tx.commit().await?;
         Ok(debt)
+    }
+
+    /// Returns the current open statement for a card. Public for tests.
+    pub async fn get_current_statement(
+        &self,
+        card_id: Uuid,
+    ) -> Result<Option<CardStatement>, WalletError> {
+        let row = sqlx::query_as::<_, CardStatement>(
+            r#"
+            SELECT id, card_id, period_start, period_end, total_amount, status, due_date, paid_at, created_at
+            FROM wallet_card_statements
+            WHERE card_id = $1 AND status = 'open'
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(card_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
     }
 
     /// Returns the current open statement for a card, creating one if none exists
@@ -437,5 +471,344 @@ impl WalletCardService {
         .await?;
 
         Ok(new_stmt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::player_service::PlayerService;
+    use super::super::test_pool;
+    use super::super::wallet_service::WalletService;
+    use super::*;
+    use uuid::Uuid;
+
+    fn unique_username() -> String {
+        format!("card_test_{}", Uuid::new_v4())
+    }
+
+    async fn create_test_player_with_wallet(pool: &sqlx::PgPool) -> Uuid {
+        let ps = PlayerService::new(pool.clone());
+        let ws = WalletService::new(pool.clone());
+        let name = unique_username();
+        let p = ps.create_player(&name, "pw").await.unwrap();
+        ws.create_wallet_for_player(p.id).await.unwrap();
+        p.id
+    }
+
+    #[tokio::test]
+    async fn test_create_card_creates_card_and_open_statement() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool.clone());
+
+        let card = wcs
+            .create_card(player_id, Some("Virtual 1"), "Test User", 100_00)
+            .await
+            .unwrap();
+
+        assert_eq!(card.player_id, player_id);
+        assert!(card.number_full.starts_with('4'));
+        assert_eq!(card.number_full.len(), 16);
+        assert_eq!(card.last4.len(), 4);
+        assert_eq!(card.credit_limit, 100_00);
+        assert_eq!(card.current_debt, 0);
+        assert!(card.is_virtual);
+        assert!(card.is_active);
+
+        let stmt = wcs.get_current_statement(card.id).await.unwrap();
+        assert!(stmt.is_some());
+        assert_eq!(stmt.unwrap().status, "open");
+    }
+
+    #[tokio::test]
+    async fn test_get_cards_returns_only_active() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool.clone());
+
+        let c1 = wcs
+            .create_card(player_id, None, "User", 50_00)
+            .await
+            .unwrap();
+        let cards = wcs.get_cards(player_id).await.unwrap();
+        assert_eq!(cards.len(), 1);
+
+        wcs.delete_card(c1.id, player_id).await.unwrap();
+        let cards_after = wcs.get_cards(player_id).await.unwrap();
+        assert!(cards_after.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_delete_card_soft_delete() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool.clone());
+
+        let card = wcs.create_card(player_id, None, "User", 100_00).await.unwrap();
+        let ok = wcs.delete_card(card.id, player_id).await.unwrap();
+        assert!(ok);
+
+        let cards = wcs.get_cards(player_id).await.unwrap();
+        assert!(cards.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_make_purchase_increases_debt() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool.clone());
+
+        let card = wcs.create_card(player_id, None, "User", 100_00).await.unwrap();
+        wcs.make_purchase(card.id, player_id, 30_00, "Purchase").await.unwrap();
+
+        let cards = wcs.get_cards(player_id).await.unwrap();
+        assert_eq!(cards[0].current_debt, 30_00);
+
+        let txs = wcs.get_card_transactions(card.id, "all").await.unwrap();
+        assert_eq!(txs.len(), 1);
+        assert_eq!(txs[0].tx_type, "purchase");
+        assert_eq!(txs[0].amount, 30_00);
+    }
+
+    #[tokio::test]
+    async fn test_make_purchase_over_limit_fails() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool.clone());
+
+        let card = wcs.create_card(player_id, None, "User", 50_00).await.unwrap();
+        wcs.make_purchase(card.id, player_id, 30_00, "OK").await.unwrap();
+        let res = wcs.make_purchase(card.id, player_id, 30_00, "Over").await;
+        assert!(matches!(res, Err(WalletError::CardLimitExceeded)));
+    }
+
+    #[tokio::test]
+    async fn test_pay_card_bill_debits_usd_and_zeros_debt() {
+        let pool = test_pool().await;
+        let ws = WalletService::new(pool.clone());
+        let wcs = WalletCardService::new(pool.clone());
+        let player_id = create_test_player_with_wallet(&pool).await;
+
+        ws.credit(player_id, "USD", 200_00, "seed").await.unwrap();
+        let card = wcs.create_card(player_id, None, "User", 100_00).await.unwrap();
+        wcs.make_purchase(card.id, player_id, 75_00, "Bill").await.unwrap();
+
+        let paid = wcs.pay_card_bill(card.id, player_id).await.unwrap();
+        assert_eq!(paid, 75_00);
+
+        let cards = wcs.get_cards(player_id).await.unwrap();
+        assert_eq!(cards[0].current_debt, 0);
+
+        let balances = ws.get_balances(player_id).await.unwrap();
+        let usd = balances.iter().find(|b| b.currency == "USD").unwrap();
+        assert_eq!(usd.balance, 200_00 - 75_00);
+    }
+
+    #[tokio::test]
+    async fn test_pay_card_bill_insufficient_usd_fails() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool.clone());
+
+        let card = wcs.create_card(player_id, None, "User", 100_00).await.unwrap();
+        wcs.make_purchase(card.id, player_id, 50_00, "Bill").await.unwrap();
+        // No USD credit - balance 0
+        let res = wcs.pay_card_bill(card.id, player_id).await;
+        assert!(matches!(res, Err(WalletError::InsufficientBalance)));
+    }
+
+    #[tokio::test]
+    async fn test_pay_card_bill_zero_debt_returns_zero() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool.clone());
+
+        let card = wcs.create_card(player_id, None, "User", 100_00).await.unwrap();
+        let paid = wcs.pay_card_bill(card.id, player_id).await.unwrap();
+        assert_eq!(paid, 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_card_transactions_filter() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool.clone());
+
+        let card = wcs.create_card(player_id, None, "User", 100_00).await.unwrap();
+        wcs.make_purchase(card.id, player_id, 10_00, "Tx").await.unwrap();
+
+        let all = wcs.get_card_transactions(card.id, "all").await.unwrap();
+        assert_eq!(all.len(), 1);
+        let today = wcs.get_card_transactions(card.id, "today").await.unwrap();
+        assert!(!today.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_next_billing_monday() {
+        use chrono::TimeZone;
+        // Wednesday 2025-02-19 12:00 UTC -> next Monday 2025-02-24 12:00
+        let wed = Utc.with_ymd_and_hms(2025, 2, 19, 12, 0, 0).unwrap();
+        let mon = next_billing_monday(wed);
+        assert_eq!(mon.weekday(), chrono::Weekday::Mon);
+        assert_eq!(mon.day(), 24);
+        assert_eq!(mon.month(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_next_billing_monday_from_monday_returns_next_week() {
+        use chrono::TimeZone;
+        let mon = Utc.with_ymd_and_hms(2025, 2, 24, 12, 0, 0).unwrap();
+        let next = next_billing_monday(mon);
+        assert_eq!(next.weekday(), chrono::Weekday::Mon);
+        assert_eq!(next.day(), 3);
+        assert_eq!(next.month(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_cards_same_player() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool);
+
+        let c1 = wcs.create_card(player_id, Some("Card 1"), "User", 100_00).await.unwrap();
+        let c2 = wcs.create_card(player_id, Some("Card 2"), "User", 200_00).await.unwrap();
+
+        let cards = wcs.get_cards(player_id).await.unwrap();
+        assert_eq!(cards.len(), 2);
+        assert_ne!(c1.id, c2.id);
+        assert!(c1.number_full != c2.number_full);
+    }
+
+    #[tokio::test]
+    async fn test_get_cards_empty_for_new_player() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool);
+
+        let cards = wcs.get_cards(player_id).await.unwrap();
+        assert!(cards.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_delete_card_wrong_player_returns_false() {
+        let pool = test_pool().await;
+        let ps = PlayerService::new(pool.clone());
+        let ws = WalletService::new(pool.clone());
+        let wcs = WalletCardService::new(pool.clone());
+
+        let p1 = ps.create_player(&format!("card_test_1_{}", Uuid::new_v4()), "pw").await.unwrap();
+        let p2 = ps.create_player(&format!("card_test_2_{}", Uuid::new_v4()), "pw").await.unwrap();
+        ws.create_wallet_for_player(p1.id).await.unwrap();
+        ws.create_wallet_for_player(p2.id).await.unwrap();
+
+        let card = wcs.create_card(p1.id, None, "User", 100_00).await.unwrap();
+        let ok = wcs.delete_card(card.id, p2.id).await.unwrap();
+        assert!(!ok);
+        let cards = wcs.get_cards(p1.id).await.unwrap();
+        assert_eq!(cards.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_card_transactions_empty_before_purchase() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool);
+
+        let card = wcs.create_card(player_id, None, "User", 100_00).await.unwrap();
+        let txs = wcs.get_card_transactions(card.id, "all").await.unwrap();
+        assert!(txs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_make_purchase_multiple_then_pay_full() {
+        let pool = test_pool().await;
+        let ws = WalletService::new(pool.clone());
+        let wcs = WalletCardService::new(pool.clone());
+        let player_id = create_test_player_with_wallet(&pool).await;
+
+        ws.credit(player_id, "USD", 500_00, "seed").await.unwrap();
+        let card = wcs.create_card(player_id, None, "User", 200_00).await.unwrap();
+        wcs.make_purchase(card.id, player_id, 20_00, "A").await.unwrap();
+        wcs.make_purchase(card.id, player_id, 30_00, "B").await.unwrap();
+        wcs.make_purchase(card.id, player_id, 50_00, "C").await.unwrap();
+
+        let cards = wcs.get_cards(player_id).await.unwrap();
+        assert_eq!(cards[0].current_debt, 100_00);
+
+        let paid = wcs.pay_card_bill(card.id, player_id).await.unwrap();
+        assert_eq!(paid, 100_00);
+        let cards_after = wcs.get_cards(player_id).await.unwrap();
+        assert_eq!(cards_after[0].current_debt, 0);
+
+        let txs = wcs.get_card_transactions(card.id, "all").await.unwrap();
+        assert_eq!(txs.len(), 4); // 3 purchases + 1 payment
+        assert!(txs.iter().any(|t| t.tx_type == "payment" && t.amount == 100_00));
+    }
+
+    #[tokio::test]
+    async fn test_create_card_statement_has_open_status() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool);
+
+        let card = wcs.create_card(player_id, None, "Holder", 50_00).await.unwrap();
+        let stmt = wcs.get_current_statement(card.id).await.unwrap();
+        assert!(stmt.is_some());
+        let s = stmt.unwrap();
+        assert_eq!(s.status, "open");
+        assert!(s.total_amount >= 0);
+    }
+
+    #[tokio::test]
+    async fn test_pay_card_bill_wrong_card_id_fails() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool);
+
+        let card = wcs.create_card(player_id, None, "User", 100_00).await.unwrap();
+        let wrong_id = Uuid::new_v4();
+        let res = wcs.pay_card_bill(wrong_id, player_id).await;
+        assert!(res.is_err());
+        let cards = wcs.get_cards(player_id).await.unwrap();
+        assert_eq!(cards[0].current_debt, 0);
+        assert_eq!(card.id, cards[0].id);
+    }
+
+    #[tokio::test]
+    async fn test_make_purchase_exact_limit_ok() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool);
+
+        let card = wcs.create_card(player_id, None, "User", 99_00).await.unwrap();
+        wcs.make_purchase(card.id, player_id, 99_00, "Full limit").await.unwrap();
+        let cards = wcs.get_cards(player_id).await.unwrap();
+        assert_eq!(cards[0].current_debt, 99_00);
+        let res = wcs.make_purchase(card.id, player_id, 1, "Over").await;
+        assert!(matches!(res, Err(WalletError::CardLimitExceeded)));
+    }
+
+    #[tokio::test]
+    async fn test_get_card_transactions_filter_7d() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool);
+
+        let card = wcs.create_card(player_id, None, "User", 100_00).await.unwrap();
+        wcs.make_purchase(card.id, player_id, 10_00, "Tx").await.unwrap();
+        let txs_7d = wcs.get_card_transactions(card.id, "7d").await.unwrap();
+        assert!(!txs_7d.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_card_label_stored() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool);
+
+        let card = wcs.create_card(player_id, Some("My Virtual"), "User", 100_00).await.unwrap();
+        assert_eq!(card.label.as_deref(), Some("My Virtual"));
+        let cards = wcs.get_cards(player_id).await.unwrap();
+        assert_eq!(cards[0].label.as_deref(), Some("My Virtual"));
     }
 }

@@ -1971,12 +1971,17 @@ fn bearer_auth<T>(req: &mut tonic::Request<T>, token: &str) -> Result<(), String
     Ok(())
 }
 
-/// Helper: map Unauthenticated gRPC status to a friendly string.
+/// Helper: map gRPC status to a user-facing string (prefer the status message).
 fn map_grpc_err(e: tonic::Status) -> String {
     if e.code() == tonic::Code::Unauthenticated {
         "UNAUTHENTICATED".to_string()
     } else {
-        e.to_string()
+        let msg = e.message();
+        if msg.is_empty() {
+            e.to_string()
+        } else {
+            msg.to_string()
+        }
     }
 }
 

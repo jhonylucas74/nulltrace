@@ -1,0 +1,11 @@
+{
+  "card_limit": "Limit",
+  "card_debt": "Debt",
+  "card_due_date": "Due date",
+  "card_pay_bill": "Pay bill",
+  "card_new_virtual": "New virtual card",
+  "keys_copy": "Copy",
+  "convert_simulator": "Converter (simulator)",
+  "transfer_insufficient_balance": "Insufficient balance",
+  "transfer_invalid_address": "Invalid address for this currency"
+}

@@ -17,6 +17,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { getRate } from "../lib/walletConversion";
 import { useWallet, parseAmount, applyAmountMask, formatAmount, type WalletTx } from "../contexts/WalletContext";
 import styles from "./WalletApp.module.css";
@@ -422,6 +423,7 @@ function StatementSection({
 }
 
 function TransferSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
+  const { t } = useTranslation("wallet");
   const [recipientKey, setRecipientKey] = useState("");
   const [amountStr, setAmountStr] = useState("");
   const [currency, setCurrency] = useState("USD");
@@ -450,7 +452,7 @@ function TransferSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
       setRecipientKey("");
       setAmountStr("");
     } else {
-      const userMsg = err.includes("InsufficientBalance") ? "Insufficient balance." : err.includes("UNAUTHENTICATED") ? "Session expired." : "Transfer failed.";
+      const userMsg = err.includes("InsufficientBalance") ? t("transfer_insufficient_balance") : err.includes("UNAUTHENTICATED") ? "Session expired." : "Transfer failed.";
       setMessage({ type: "error", text: userMsg });
     }
   };
@@ -514,6 +516,7 @@ function TransferSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
 }
 
 function KeysSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
+  const { t } = useTranslation("wallet");
   const [copied, setCopied] = useState<string | null>(null);
 
   const copyToClipboard = async (text: string, id: string) => {
@@ -558,7 +561,7 @@ function KeysSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
               aria-label={`Copy ${k.currency} key`}
             >
               <Copy size={14} />
-              {copied === k.currency ? "Copied" : "Copy"}
+              {copied === k.currency ? "Copied" : t("keys_copy")}
             </button>
           </div>
         </div>
@@ -570,6 +573,7 @@ function KeysSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
 type CardTab = "cards" | "statement";
 
 function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
+  const { t } = useTranslation("wallet");
   const [cardTab, setCardTab] = useState<CardTab>("statement");
   const [cvvRevealed, setCvvRevealed] = useState<string | null>(null);
   const [copiedCardId, setCopiedCardId] = useState<string | null>(null);
@@ -677,7 +681,7 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
                     title="Copy number"
                   >
                     <Copy size={14} />
-                    {copiedCardId === card.id ? "Copied" : "Copy"}
+                    {copiedCardId === card.id ? "Copied" : t("keys_copy")}
                   </button>
                 </div>
                 <div className={styles.virtualCardMeta}>
@@ -705,7 +709,7 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
           </div>
           <button type="button" className={styles.addCardBtn} onClick={handleCreateCard} disabled={creating}>
             <Plus size={18} />
-            {creating ? "Creating…" : "Create virtual card"}
+            {creating ? "Creating…" : t("card_new_virtual")}
           </button>
         </>
       )}
@@ -714,13 +718,13 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
         <div className={styles.cardStatementSection}>
           <div className={styles.cardSummaryBlock}>
             <div className={styles.cardSummaryRow}>
-              <span className={styles.cardSummaryLabel}>Current debt</span>
+              <span className={styles.cardSummaryLabel}>{t("card_debt")}</span>
               <span className={styles.cardSummaryValue}>
                 {cardDebtDisplay.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
               </span>
             </div>
             <div className={styles.cardSummaryRow}>
-              <span className={styles.cardSummaryLabel}>Credit limit</span>
+              <span className={styles.cardSummaryLabel}>{t("card_limit")}</span>
               <span className={styles.cardSummaryValue}>
                 {cardLimitDisplay.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
               </span>
@@ -745,12 +749,12 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             </div>
           </div>
           <div className={styles.cardBillingNote}>
-            <span className={styles.cardBillingLabel}>Next invoice due (Fkebank):</span>{" "}
+            <span className={styles.cardBillingLabel}>{t("card_due_date")} (Fkebank):</span>{" "}
             <span className={styles.cardBillingDate}>{dueDateStr}</span>
           </div>
           {firstCard && cardDebtDisplay > 0 && (
             <button type="button" className={styles.submitBtn} onClick={handlePayBill}>
-              Pay bill ({cardDebtDisplay.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD)
+              {t("card_pay_bill")} ({cardDebtDisplay.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD)
             </button>
           )}
           <h3 className={styles.cardStatementTitle}>Card statement</h3>
@@ -781,6 +785,7 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
 }
 
 function ConvertSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
+  const { t } = useTranslation("wallet");
   const [fromSymbol, setFromSymbol] = useState("USD");
   const [toSymbol, setToSymbol] = useState("BTC");
   const [fromAmountStr, setFromAmountStr] = useState("");
@@ -816,7 +821,7 @@ function ConvertSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
       setMessage({ type: "success", text: "Conversion completed." });
       setFromAmountStr("");
     } else {
-      const userMsg = err.includes("InsufficientBalance") ? "Insufficient balance." : "Conversion failed.";
+      const userMsg = /insufficient/i.test(err) ? t("transfer_insufficient_balance") : err;
       setMessage({ type: "error", text: userMsg });
     }
   }, [fromDisplay, fromSymbol, toSymbol, wallet]);

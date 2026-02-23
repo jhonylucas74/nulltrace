@@ -6,6 +6,9 @@ pub mod faction_service;
 pub mod shortcuts_service;
 pub mod email_service;
 pub mod email_account_service;
+pub mod wallet_common;
+pub mod fkebank_account_service;
+pub mod crypto_wallet_service;
 pub mod wallet_service;
 pub mod wallet_card_service;
 
@@ -70,22 +73,25 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
     fs_service::FsService::cleanup_orphan_blobs(pool).await?;
-    sqlx::raw_sql(include_str!("../../../migrations/016_create_wallet_accounts.sql"))
+    sqlx::raw_sql(include_str!("../../../migrations/016_create_fkebank_accounts.sql"))
         .execute(pool)
         .await?;
-    sqlx::raw_sql(include_str!("../../../migrations/017_create_wallet_keys.sql"))
+    sqlx::raw_sql(include_str!("../../../migrations/017_create_fkebank_tokens.sql"))
         .execute(pool)
         .await?;
-    sqlx::raw_sql(include_str!("../../../migrations/018_create_wallet_transactions.sql"))
+    sqlx::raw_sql(include_str!("../../../migrations/018_create_crypto_wallets.sql"))
         .execute(pool)
         .await?;
-    sqlx::raw_sql(include_str!("../../../migrations/019_create_wallet_cards.sql"))
+    sqlx::raw_sql(include_str!("../../../migrations/019_create_wallet_transactions_keybased.sql"))
         .execute(pool)
         .await?;
-    sqlx::raw_sql(include_str!("../../../migrations/020_create_wallet_card_transactions.sql"))
+    sqlx::raw_sql(include_str!("../../../migrations/020_create_wallet_cards.sql"))
         .execute(pool)
         .await?;
-    sqlx::raw_sql(include_str!("../../../migrations/021_create_wallet_card_statements.sql"))
+    sqlx::raw_sql(include_str!("../../../migrations/021_create_wallet_card_transactions.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/022_create_wallet_card_statements.sql"))
         .execute(pool)
         .await?;
     Ok(())

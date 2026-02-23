@@ -1,0 +1,24 @@
+---
+description: VM string module is Rust-backed; safe with respect to yield
+globs: 
+alwaysApply: true
+---
+
+# Lua string module (Rust-backed in VM)
+
+In **VM Lua scripts** (cluster in-game scripts), the global **`string`** module is **replaced** by a Rust-backed implementation. The API is the same as standard Lua:
+
+- `string.match(s, pattern [, init])`
+- `string.gmatch(s, pattern)`
+- `string.gsub(s, pattern, repl [, n])`
+- `string.format(fmt, ...)`
+- `string.sub(s, i [, j])`
+- `string.rep(s, n)`
+- `string.char(...)`
+- `string.byte(s [, i [, j]])`
+
+You can use these as usual (e.g. `line:match("^(%w+)=(.+)$")`, `(content .. "\n"):gmatch("([^\n]+)")`). They run in Rust and do **not** trigger "attempt to yield across metamethod/C-call boundary".
+
+For convenience you can also use **`fs.read_lines(path)`** to read a file as a table of lines, and any future **`str`** helpers (e.g. `str.parse_key_value`, `str.split_lines`, `str.ends_with`) if added. The native Lua string library is not used in the VM; the Rust implementation is already safe.
+
+**Where:** Implemented in [nulltrace-core/src/cluster/lua_api/string_api.rs](nulltrace-core/src/cluster/lua_api/string_api.rs), registered in `lua_api::register_all()`.

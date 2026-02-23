@@ -272,34 +272,31 @@ Migration: 021_create_wallet_card_statements.sql
 - [x] Remover função `NftsSection()` de `WalletApp.tsx`
 - [x] Remover import `Image as ImageIcon` (não usado)
 - [x] Deletar `nulltrace-client/src/lib/walletNfts.ts`
-- [ ] Remover chaves de tradução de NFT em `en/apps.json` e `pt-br/apps.json`
+- [x] Remover chaves de tradução de NFT em `en/apps.json` e `pt-br/apps.json` (nenhuma chave de NFT encontrada nos arquivos de idioma)
 
 ---
 
 ## Fase 6 — Internacionalização (i18n)
 
-- [ ] Adicionar chaves de tradução para textos novos da wallet em `en/apps.json`
-- [ ] Adicionar equivalentes em `pt-br/apps.json`
-- [ ] Sugestão de chaves:
-  - `wallet.card.limit`, `wallet.card.debt`, `wallet.card.due_date`, `wallet.card.pay_bill`
-  - `wallet.card.new_virtual`, `wallet.keys.copy`, `wallet.convert.simulator`
-  - `wallet.transfer.insufficient_balance`, `wallet.transfer.invalid_address`
+- [x] Adicionar chaves de tradução para textos novos da wallet em `en/wallet.json`
+- [x] Adicionar equivalentes em `pt-br/wallet.json`
+- [x] Chaves em uso: `card_limit`, `card_debt`, `card_due_date`, `card_pay_bill`, `card_new_virtual`, `keys_copy`, `transfer_insufficient_balance` (namespace `wallet`)
 
 ---
 
 ## Fase 7 — Verificação
 
-- [ ] Criar player de teste → verificar 4 `wallet_accounts` + 4 `wallet_keys` criados
-- [ ] Testar `credit` e `debit` via gRPC
-- [ ] Testar transfer entre dois players — verificar saldo de ambos atualizado atomicamente
-- [ ] Testar transfer para endereço externo (sem player destino)
-- [ ] Testar conversão USD → BTC e verificar saldos corretos
-- [ ] Testar criação de cartão virtual
-- [ ] Testar compra no cartão → `current_debt` atualizado, erro ao ultrapassar limite
-- [ ] Testar pagamento da fatura → débito em USD, `current_debt` zerado
-- [ ] Testar filtros de statement (hoje, 7d, 30d)
-- [ ] Verificar que NFTs foram removidos sem erros de TypeScript
-- [ ] Verificar formatos de endereço gerados por currency
+- [x] Criar player de teste → verificar 4 `wallet_accounts` + 4 `wallet_keys` criados (teste: `test_create_wallet_for_player_creates_accounts_and_keys`)
+- [x] Testar `credit` e `debit` via gRPC (testes: `test_credit_increases_balance_and_creates_transaction`, `test_debit_*`)
+- [x] Testar transfer entre dois players — verificar saldo de ambos atualizado atomicamente (`test_transfer_between_players_atomic`)
+- [x] Testar transfer para endereço externo (sem player destino) (`test_transfer_to_external_address`)
+- [x] Testar conversão USD → BTC e verificar saldos corretos (`test_convert_usd_to_btc`, `test_convert_insufficient_balance_fails`)
+- [x] Testar criação de cartão virtual (`test_create_card_creates_card_and_open_statement`, `test_get_cards_returns_only_active`)
+- [x] Testar compra no cartão → `current_debt` atualizado, erro ao ultrapassar limite (`test_make_purchase_*`, `test_make_purchase_over_limit_fails`)
+- [x] Testar pagamento da fatura → débito em USD, `current_debt` zerado (`test_pay_card_bill_*`)
+- [x] Testar filtros de statement (hoje, 7d, 30d) (`test_get_transactions_filter_today`, `test_get_card_transactions_filter`)
+- [x] Verificar que NFTs foram removidos sem erros de TypeScript
+- [x] Verificar formatos de endereço gerados por currency (`test_key_formats`)
 
 ---
 
