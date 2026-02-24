@@ -2,6 +2,7 @@ mod auth;
 mod bench_scripts;
 mod bin_programs;
 mod file_search;
+mod incoming_money_listener;
 mod mailbox_hub;
 mod path_util;
 mod process;
@@ -43,9 +44,11 @@ use tonic_web::GrpcWebLayer;
 use vm::VirtualMachine;
 use vm_manager::{ProcessSnapshot, VmManager};
 use db::vm_service::VmConfig;
+use db::wallet_common::{generate_btc_address, generate_eth_address, generate_sol_address};
+use uuid::Uuid;
 
 /// Creates a fully configured Lua state for a VM: sandbox, APIs, VmContext, memory limit.
-/// When fkebank_service and crypto_service are Some, the fkebank and crypto Lua APIs are registered (for NPC VMs like money.null).
+/// When fkebank_service and crypto_service are Some, the fkebank, crypto, and incoming_money Lua APIs are registered (for NPC VMs like money.null).
 fn create_vm_lua_state(
     pool: sqlx::PgPool,
     fs_service: Arc<FsService>,
@@ -55,6 +58,7 @@ fn create_vm_lua_state(
     mailbox_hub: mailbox_hub::MailboxHub,
     fkebank_service: Option<Arc<db::fkebank_account_service::FkebankAccountService>>,
     crypto_service: Option<Arc<db::crypto_wallet_service::CryptoWalletService>>,
+    incoming_money_listener: Option<Arc<incoming_money_listener::IncomingMoneyListener>>,
 ) -> Result<mlua::Lua, mlua::Error> {
     let lua = os::create_lua_state();
     lua.set_app_data(VmContext::new(pool));
@@ -67,6 +71,7 @@ fn create_vm_lua_state(
         mailbox_hub,
         fkebank_service,
         crypto_service,
+        incoming_money_listener,
     )?;
     lua.set_memory_limit(os::LUA_MEMORY_LIMIT_BYTES)?;
     Ok(lua)
@@ -149,6 +154,18 @@ async fn main() {
         Err(e) => println!("[cluster] Redis not available ({}), running without cross-pod support", e),
     }
 
+    // ── IncomingMoneyListener (for money.null double-back; requires Redis) ──
+    let incoming_money_listener = incoming_money_listener::IncomingMoneyListener::new(pool.clone(), REDIS_URL)
+        .ok()
+        .map(|l| {
+            let arc = Arc::new(l);
+            arc.clone().spawn_poll_loop(1000);
+            arc
+        });
+    if incoming_money_listener.is_some() {
+        println!("[cluster] IncomingMoneyListener started (poll every 1s)");
+    }
+
     // ── Criar ou carregar VMs dependendo do modo ──
     let mut vms = if stress_mode {
         create_stress_vms(
@@ -171,6 +188,7 @@ async fn main() {
             &player_service,
             &vm_service,
             &wallet_service,
+            incoming_money_listener.clone(),
         )
         .await
     };
@@ -258,6 +276,7 @@ fn create_stress_vms(
             email_service.clone(),
             email_account_service.clone(),
             mailbox_hub.clone(),
+            None,
             None,
             None,
         )
@@ -379,6 +398,7 @@ async fn load_game_vms(
     player_service: &Arc<PlayerService>,
     vm_service: &Arc<VmService>,
     wallet_service: &Arc<WalletService>,
+    incoming_money_listener: Option<Arc<incoming_money_listener::IncomingMoneyListener>>,
 ) -> Vec<VirtualMachine> {
     println!("[cluster] GAME MODE: Loading VMs from database...");
 
@@ -418,7 +438,18 @@ async fn load_game_vms(
         manager.clear_active_vms();
     }
 
-    // 1b. Load site VMs from sites/ folder (each subdir with config.yaml = one site; reset and create)
+    // 1b. Restore all running/crashed VMs first (player + NPC like money.null, emailbox.null)
+    match manager.restore_vms().await {
+        Ok(records) => {
+            println!("[cluster] Restored {} VM(s) from database", records.len());
+        }
+        Err(e) => {
+            println!("[cluster] Warning: Failed to restore VMs: {}", e);
+            return vms;
+        }
+    }
+
+    // 1c. Load site VMs from sites/ folder (destroy existing + create; sites are reset each start)
     let sites_base = sites::sites_base_path();
     if sites_base.exists() {
         if let Err(e) = sites::load_site_vms(
@@ -432,11 +463,14 @@ async fn load_game_vms(
         {
             println!("[cluster] Warning: load_site_vms failed: {}", e);
         }
-        manager.clear_active_vms();
     }
 
-    // 1c. Create NPC VM emailbox.null: sends 10 emails to Haru; GET /inbox is a controller (first page of inbox)
-    {
+    // 1d. Create NPC VM emailbox.null only if not already restored
+    let has_emailbox = manager
+        .get_active_vms()
+        .iter()
+        .any(|v| v.dns_name.as_deref() == Some("emailbox.null"));
+    if !has_emailbox {
         let config = VmConfig {
             hostname: "emailbox".to_string(),
             dns_name: Some("emailbox.null".to_string()),
@@ -502,8 +536,12 @@ async fn load_game_vms(
         println!("[cluster] ✓ NPC VM emailbox.null created (emailbox_httpd + email_sender)");
     }
 
-    // 1d. Create NPC VM money.null: Fkebank USD account + token, GET / with balances/transactions, refund-half script
-    {
+    // 1e. Create NPC VM money.null only if not already restored
+    let has_money = manager
+        .get_active_vms()
+        .iter()
+        .any(|v| v.dns_name.as_deref() == Some("money.null"));
+    if !has_money {
         let config = VmConfig {
             hostname: "money".to_string(),
             dns_name: Some("money.null".to_string()),
@@ -523,15 +561,49 @@ async fn load_game_vms(
             .expect("Failed to create money NPC VM");
         let vm_id = record.id;
 
-        let (_, token) = wallet_service
-            .create_wallet_for_vm(vm_id)
+        let (key, token) = wallet_service
+            .create_wallet_for_account("money.null", Some("Money Null"), None)
             .await
-            .expect("Failed to create wallet for money.null VM");
+            .expect("Failed to create wallet for money.null");
+
+        // Seed money.null with 100 USD ($100 = 10000 cents) if balance is zero
+        let fkebank = wallet_service.fkebank_service();
+        if fkebank.get_balance_by_key(&key).await.unwrap_or(0) == 0 {
+            let _ = fkebank.credit(&key, 10_000, "seed").await;
+        }
 
         let _ = fs_service.mkdir(vm_id, "/etc/wallet", "root").await;
         let _ = fs_service.mkdir(vm_id, "/etc/wallet/fkebank", "root").await;
         let _ = fs_service.mkdir(vm_id, "/etc/wallet/keys", "root").await;
         let _ = fs_service.mkdir(vm_id, "/var/www", "root").await;
+
+        // Seed crypto (100 of each): generate addresses, register, write .priv, credit, write crypto_addresses
+        let crypto = wallet_service.crypto_service();
+        let mut crypto_lines = Vec::new();
+        for (currency, addr) in [
+            ("BTC", generate_btc_address()),
+            ("ETH", generate_eth_address()),
+            ("SOL", generate_sol_address()),
+        ] {
+            let _ = crypto.register(&addr, None, currency).await;
+            let priv_content = format!("{}", Uuid::new_v4().simple());
+            let priv_path = format!("/etc/wallet/keys/{}.priv", currency.to_lowercase());
+            let _ = fs_service
+                .write_file(vm_id, &priv_path, priv_content.as_bytes(), Some("text/plain"), "root")
+                .await;
+            let _ = crypto.credit(currency, &addr, 10_000, "seed", "system").await;
+            crypto_lines.push(format!("{}={}", currency, addr));
+        }
+        let crypto_addrs_content = crypto_lines.join("\n");
+        let _ = fs_service
+            .write_file(
+                vm_id,
+                "/etc/wallet/crypto_addresses",
+                crypto_addrs_content.as_bytes(),
+                Some("text/plain"),
+                "root",
+            )
+            .await;
 
         let _ = fs_service
             .write_file(vm_id, "/etc/wallet/fkebank/token", token.as_bytes(), Some("text/plain"), "root")
@@ -579,18 +651,7 @@ async fn load_game_vms(
             )
             .await;
 
-        println!("[cluster] ✓ NPC VM money.null created (Fkebank account + httpd + refund-half)");
-    }
-
-    // 2. Restore all running/crashed player VMs from database
-    match manager.restore_vms().await {
-        Ok(records) => {
-            println!("[cluster] Restored {} VM(s) from database", records.len());
-        }
-        Err(e) => {
-            println!("[cluster] Warning: Failed to restore VMs: {}", e);
-            return vms;
-        }
+        println!("[cluster] ✓ NPC VM money.null created (Fkebank account + httpd + double-back)");
     }
 
     // 2. Get all active VM IDs (already registered in manager by restore_vms)
@@ -615,6 +676,7 @@ async fn load_game_vms(
             mailbox_hub.clone(),
             Some(wallet_service.fkebank_service()),
             Some(wallet_service.crypto_service()),
+            incoming_money_listener.clone(),
         )
         .expect("Failed to create VM Lua state");
         let mut vm = VirtualMachine::with_id_and_cpu(lua, vm_id, cpu_cores);
@@ -628,6 +690,23 @@ async fn load_game_vms(
                 println!("[cluster]   VM {} ({}) - IP: {}", active_vm.hostname, vm_id, ip);
             } else {
                 println!("[cluster]   VM {} ({}) - No IP assigned", active_vm.hostname, vm_id);
+            }
+        }
+
+        // For money.null VM: always overwrite scripts with latest embedded versions on cluster start
+        if let Some(active_vm) = manager.get_active_vm(vm_id) {
+            if active_vm.hostname == "money.null" {
+                let money_refund_lua = include_str!("../lua_scripts/money_refund.lua");
+                let _ = fs_service
+                    .write_file(
+                        vm_id,
+                        "/var/www/money_refund.lua",
+                        money_refund_lua.as_bytes(),
+                        Some("text/plain"),
+                        "root",
+                    )
+                    .await;
+                println!("[cluster]   money.null: updated money_refund.lua to latest version");
             }
         }
 
@@ -646,6 +725,10 @@ async fn load_game_vms(
                             fs_service.read_file(vm_id, &format!("/bin/{}", program)).await
                         {
                             if let Ok(lua_code) = String::from_utf8(code) {
+                                let arg0 = args.first().map(|s| s.as_str()).unwrap_or("");
+                                if arg0.contains("money_refund") {
+                                    println!("[cluster] Spawning money_refund for vm {} (hostname={})", vm_id, manager.get_active_vm(vm_id).map(|a| a.hostname.as_str()).unwrap_or("?"));
+                                }
                                 vm.os.spawn_process(&vm.lua, &lua_code, args, 0, "root");
                             }
                         }

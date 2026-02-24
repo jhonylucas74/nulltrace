@@ -9,8 +9,9 @@ use mlua::{Lua, Result, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
-fn tx_to_lua_table(lua: &Lua, from_key: &str, to_key: &str, amount: i64, description: Option<&str>, created_at: i64) -> Result<Value> {
+fn tx_to_lua_table(lua: &Lua, id: &str, from_key: &str, to_key: &str, amount: i64, description: Option<&str>, created_at: i64) -> Result<Value> {
     let t = lua.create_table()?;
+    t.set("id", id)?;
     t.set("from_key", from_key)?;
     t.set("to_key", to_key)?;
     t.set("amount", amount)?;
@@ -131,6 +132,7 @@ pub fn register(lua: &Lua, fs_service: Arc<FsService>, crypto_service: Arc<Crypt
                         i + 1,
                         tx_to_lua_table(
                             lua,
+                            &r.id.to_string(),
                             &r.from_key,
                             &r.to_key,
                             r.amount,

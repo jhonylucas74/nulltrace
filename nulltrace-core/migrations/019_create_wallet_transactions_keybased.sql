@@ -1,7 +1,6 @@
 -- Key-based transactions: from_key / to_key (PIX key for USD, address for crypto). No player_id/vm_id.
--- Drop old table if it existed (previous schema had player_id).
-DROP TABLE IF EXISTS wallet_transactions;
-CREATE TABLE wallet_transactions (
+-- Persisted in PostgreSQL; do NOT drop on restart (would wipe extrato).
+CREATE TABLE IF NOT EXISTS wallet_transactions (
     id              UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
     currency        VARCHAR(10) NOT NULL,
     amount          BIGINT      NOT NULL,

@@ -233,22 +233,6 @@ impl CryptoWalletService {
             tx.rollback().await.map_err(WalletError::Db)?;
             return Err(WalletError::InsufficientBalance);
         }
-        sqlx::query(
-            r#"
-            INSERT INTO wallet_transactions (id, currency, amount, fee, description, from_key, to_key, counterpart_key, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
-            "#,
-        )
-        .bind(Uuid::new_v4())
-        .bind(currency)
-        .bind(amount)
-        .bind(0_i64)
-        .bind(description)
-        .bind(from_key)
-        .bind("system")
-        .bind(None::<String>)
-        .execute(&mut *tx)
-        .await?;
 
         // Ensure recipient wallet exists, then credit
         let exists = sqlx::query_scalar::<_, bool>(
@@ -279,6 +263,7 @@ impl CryptoWalletService {
         .bind(to_key)
         .execute(&mut *tx)
         .await?;
+        // Single transaction record: from_key -> to_key (no duplicate debit record)
         sqlx::query(
             r#"
             INSERT INTO wallet_transactions (id, currency, amount, fee, description, from_key, to_key, counterpart_key, created_at)

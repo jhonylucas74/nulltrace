@@ -1,5 +1,6 @@
--- One-time init: create crypto wallets (BTC, ETH, SOL) and write /etc/wallet/crypto_addresses.
+-- One-time init: create crypto wallets (BTC, ETH, SOL), write /etc/wallet/crypto_addresses.
 -- Idempotent: if crypto_addresses exists, skip. Run before money_httpd and money_refund.
+-- Seed is done from Rust in main.rs when creating money.null VM.
 
 local addrs_path = "/etc/wallet/crypto_addresses"
 local keys_dir = "/etc/wallet/keys"

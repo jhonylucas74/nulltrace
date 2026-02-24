@@ -6,6 +6,11 @@ use uuid::Uuid;
 
 use super::wallet_common::{generate_fkebank_key, WalletError};
 
+/// Namespace for deterministic NPC account owner_ids (DNS namespace).
+fn npc_account_namespace() -> Uuid {
+    Uuid::parse_str("6ba7b810-9dad-11d1-80b4-00c04fd430c8").expect("invalid NPC namespace UUID")
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct FkebankAccount {
     pub id: Uuid,
@@ -39,6 +44,20 @@ pub struct FkebankAccountService {
 impl FkebankAccountService {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Create a USD account for an NPC identified by stable account_id (e.g. "money.null").
+    /// Uses deterministic owner_id from account_id; vm_id is never used in wallet logic.
+    /// Idempotent (one account per account_id).
+    pub async fn create_account_for_account_id(
+        &self,
+        account_id: &str,
+        full_name: Option<&str>,
+        document_id: Option<&str>,
+    ) -> Result<FkebankAccount, WalletError> {
+        let owner_id = Uuid::new_v5(&npc_account_namespace(), format!("nulltrace.npc.{}", account_id).as_bytes());
+        self.create_account_for_owner("npc", owner_id, full_name, document_id)
+            .await
     }
 
     /// Create a USD account for a player or VM. Idempotent (one account per owner).
@@ -411,9 +430,9 @@ mod tests {
     async fn test_get_key_by_token_and_balance() {
         let pool = super::super::test_pool().await;
         let svc = FkebankAccountService::new(pool);
-        let vm_id = Uuid::new_v4();
+        let account_id = format!("test-npc-{}", Uuid::new_v4());
 
-        let account = svc.create_account_for_owner("vm", vm_id, None, None).await.unwrap();
+        let account = svc.create_account_for_account_id(&account_id, None, None).await.unwrap();
         let token = svc.create_token(account.id).await.unwrap();
 
         let key = svc.get_key_by_token(&token).await.unwrap();
@@ -430,9 +449,9 @@ mod tests {
     async fn test_validate_token_correct_and_incorrect() {
         let pool = super::super::test_pool().await;
         let svc = FkebankAccountService::new(pool);
-        let vm_id = Uuid::new_v4();
+        let account_id = format!("test-npc-{}", Uuid::new_v4());
 
-        let account = svc.create_account_for_owner("vm", vm_id, None, None).await.unwrap();
+        let account = svc.create_account_for_account_id(&account_id, None, None).await.unwrap();
         let token = svc.create_token(account.id).await.unwrap();
 
         let valid = svc.validate_token(&account.key, &token).await.unwrap();
@@ -463,9 +482,9 @@ mod tests {
     async fn test_history_by_key_with_filter() {
         let pool = super::super::test_pool().await;
         let svc = FkebankAccountService::new(pool);
-        let vm_id = Uuid::new_v4();
+        let account_id = format!("test-npc-{}", Uuid::new_v4());
 
-        let account = svc.create_account_for_owner("vm", vm_id, None, None).await.unwrap();
+        let account = svc.create_account_for_account_id(&account_id, None, None).await.unwrap();
         svc.credit(&account.key, 1000, "first").await.unwrap();
         svc.credit(&account.key, 2000, "second").await.unwrap();
 
@@ -489,10 +508,10 @@ mod tests {
     async fn test_create_account_with_full_name_and_document() {
         let pool = super::super::test_pool().await;
         let svc = FkebankAccountService::new(pool);
-        let vm_id = Uuid::new_v4();
+        let account_id = format!("test-npc-{}", Uuid::new_v4());
 
         let account = svc
-            .create_account_for_owner("vm", vm_id, Some("Money Null"), Some("doc-123"))
+            .create_account_for_account_id(&account_id, Some("Money Null"), Some("doc-123"))
             .await
             .unwrap();
         assert_eq!(account.full_name.as_deref(), Some("Money Null"));
@@ -503,9 +522,9 @@ mod tests {
     async fn test_debit_to_key_records_to_key_in_transaction() {
         let pool = super::super::test_pool().await;
         let svc = FkebankAccountService::new(pool);
-        let vm_id = Uuid::new_v4();
+        let account_id = format!("test-npc-{}", Uuid::new_v4());
 
-        let account = svc.create_account_for_owner("vm", vm_id, None, None).await.unwrap();
+        let account = svc.create_account_for_account_id(&account_id, None, None).await.unwrap();
         svc.credit(&account.key, 5000, "seed").await.unwrap();
         svc.debit_to_key(&account.key, 1000, "External", "external-addr").await.unwrap();
 
@@ -518,9 +537,9 @@ mod tests {
     async fn test_transfer_same_key_fails() {
         let pool = super::super::test_pool().await;
         let svc = FkebankAccountService::new(pool);
-        let vm_id = Uuid::new_v4();
+        let account_id = format!("test-npc-{}", Uuid::new_v4());
 
-        let account = svc.create_account_for_owner("vm", vm_id, None, None).await.unwrap();
+        let account = svc.create_account_for_account_id(&account_id, None, None).await.unwrap();
         svc.credit(&account.key, 1000, "seed").await.unwrap();
         let res = svc.transfer(&account.key, &account.key, 100, None).await;
         assert!(res.is_err());
@@ -531,9 +550,9 @@ mod tests {
     async fn test_transfer_to_nonexistent_recipient_fails() {
         let pool = super::super::test_pool().await;
         let svc = FkebankAccountService::new(pool);
-        let vm_id = Uuid::new_v4();
+        let account_id = format!("test-npc-{}", Uuid::new_v4());
 
-        let account = svc.create_account_for_owner("vm", vm_id, None, None).await.unwrap();
+        let account = svc.create_account_for_account_id(&account_id, None, None).await.unwrap();
         svc.credit(&account.key, 5000, "seed").await.unwrap();
 
         let res = svc.transfer(&account.key, "fkebank-nonexistent-key", 1000, None).await;
@@ -541,5 +560,63 @@ mod tests {
 
         let balance = svc.get_balance_by_key(&account.key).await.unwrap();
         assert_eq!(balance, 5000);
+    }
+
+    /// Transfer rollback on recipient not found preserves sender balance (money never lost).
+    #[tokio::test]
+    async fn test_transfer_rollback_on_recipient_not_found_preserves_sender_balance() {
+        let pool = super::super::test_pool().await;
+        let svc = FkebankAccountService::new(pool);
+        let account_id = format!("test-npc-{}", Uuid::new_v4());
+
+        let account = svc.create_account_for_account_id(&account_id, None, None).await.unwrap();
+        svc.credit(&account.key, 10000, "seed").await.unwrap();
+        let initial = svc.get_balance_by_key(&account.key).await.unwrap();
+
+        let res = svc.transfer(&account.key, "fkebank-ghost-key-12345", 5000, None).await;
+        assert!(res.is_err());
+
+        let after = svc.get_balance_by_key(&account.key).await.unwrap();
+        assert_eq!(after, initial, "sender balance must be unchanged when recipient not found");
+    }
+
+    /// History with filter "all" returns complete history (no cutoff).
+    #[tokio::test]
+    async fn test_history_returns_all_with_filter_all() {
+        let pool = super::super::test_pool().await;
+        let svc = FkebankAccountService::new(pool);
+        let account_id = format!("test-npc-{}", Uuid::new_v4());
+
+        let account = svc.create_account_for_account_id(&account_id, None, None).await.unwrap();
+        for i in 1..=5 {
+            svc.credit(&account.key, i * 100, &format!("credit {}", i)).await.unwrap();
+        }
+
+        let all = svc.history_by_key(&account.key, None, "all").await.unwrap();
+        assert_eq!(all.len(), 5, "filter 'all' must return complete history");
+
+        let empty_filter = svc.history_by_key(&account.key, None, "").await.unwrap();
+        assert_eq!(empty_filter.len(), 5, "empty filter must behave like 'all'");
+    }
+
+    /// Transfer is atomic: debit and credit happen together or not at all.
+    #[tokio::test]
+    async fn test_transfer_atomicity_debit_and_credit_together() {
+        let pool = super::super::test_pool().await;
+        let svc = FkebankAccountService::new(pool);
+        let a_id = Uuid::new_v4();
+        let b_id = Uuid::new_v4();
+
+        let acc_a = svc.create_account_for_owner("player", a_id, None, None).await.unwrap();
+        let acc_b = svc.create_account_for_owner("player", b_id, None, None).await.unwrap();
+        svc.credit(&acc_a.key, 5000, "seed").await.unwrap();
+
+        svc.transfer(&acc_a.key, &acc_b.key, 2000, None).await.unwrap();
+
+        let bal_a = svc.get_balance_by_key(&acc_a.key).await.unwrap();
+        let bal_b = svc.get_balance_by_key(&acc_b.key).await.unwrap();
+        assert_eq!(bal_a, 3000);
+        assert_eq!(bal_b, 2000);
+        assert_eq!(bal_a + bal_b, 5000, "total money must be conserved");
     }
 }

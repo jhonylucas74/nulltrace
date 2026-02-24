@@ -4,6 +4,8 @@
 
 local token_path = "/etc/wallet/fkebank/token"
 local crypto_addrs_path = "/etc/wallet/crypto_addresses"
+local refund_errors_path = "/var/www/refund_errors.txt"
+local refund_debug_path = "/var/www/refund_debug.log"
 local root = (os.get_args() and os.get_args()[1]) or "/var/www"
 
 local function format_usd(cents)
@@ -57,9 +59,8 @@ while true do
           for i = 1, #addrs_lines do
             local line = addrs_lines[i]
             if type(line) == "string" and line ~= "" then
-              local currency, addr = line:match("^(%w+)=(.+)$")
+              local currency, addr = fs.parse_key_value_line(line)
               if currency and addr and addr ~= "" then
-                addr = (addr and type(addr) == "string") and addr:match("^%s*(.-)%s*$") or addr
                 local ok, bal = pcall(crypto.balance, addr)
                 local display = (ok and type(bal) == "number") and format_crypto(bal) or "?"
                 lines[#lines + 1] = string.format("%s: %s (%s)\n", currency, addr, display)
@@ -126,6 +127,20 @@ while true do
         end
         if #all_tx > max_tx then
           lines[#lines + 1] = string.format("... and %d more\n", #all_tx - max_tx)
+        end
+
+        -- Refund errors (visible when refund fails or amount below minimum)
+        local ok_err, err_content = pcall(fs.read, refund_errors_path)
+        if ok_err and err_content and type(err_content) == "string" and err_content ~= "" then
+          lines[#lines + 1] = "\n# Refund errors (failed or below minimum)\n"
+          lines[#lines + 1] = err_content
+        end
+
+        -- Debug log (refund process lifecycle)
+        local ok_dbg, dbg_content = pcall(fs.read, refund_debug_path)
+        if ok_dbg and dbg_content and type(dbg_content) == "string" and dbg_content ~= "" then
+          lines[#lines + 1] = "\n# Refund debug log\n"
+          lines[#lines + 1] = dbg_content
         end
 
         return table.concat(lines, ""), 200

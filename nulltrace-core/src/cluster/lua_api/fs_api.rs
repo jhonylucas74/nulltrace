@@ -203,6 +203,33 @@ pub fn register(lua: &Lua, fs_service: Arc<FsService>) -> Result<()> {
         )?;
     }
 
+    // fs.parse_key_value_line(line) -> key, value or nil,nil. Parses "KEY=value", trims value. Avoids string.match in Lua (yield boundary).
+    {
+        fs.set(
+            "parse_key_value_line",
+            lua.create_function(|lua, line: String| {
+                let line = line.trim();
+                if line.is_empty() {
+                    return Ok((Value::Nil, Value::Nil));
+                }
+                match line.find('=') {
+                    Some(eq_pos) if eq_pos > 0 => {
+                        let key = line[..eq_pos].trim();
+                        let value = line[eq_pos + 1..].trim();
+                        if key.is_empty() {
+                            return Ok((Value::Nil, Value::Nil));
+                        }
+                        Ok((
+                            Value::String(lua.create_string(key)?),
+                            Value::String(lua.create_string(value)?),
+                        ))
+                    }
+                    _ => Ok((Value::Nil, Value::Nil)),
+                }
+            })?,
+        )?;
+    }
+
     // fs.read_lines(path) -> table of line strings | nil (avoids gmatch in Lua which can trigger yield across C boundary)
     {
         let svc = fs_service.clone();

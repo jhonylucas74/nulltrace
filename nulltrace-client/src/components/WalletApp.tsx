@@ -100,10 +100,13 @@ function WalletContent() {
     saveVisibleSymbols(visibleSymbols);
   }, [visibleSymbols]);
 
-  // Refresh transactions when filter changes
+  // Refresh balance and statement whenever user switches tabs or changes period
   useEffect(() => {
-    wallet.fetchTransactions(statementPeriod);
-  }, [statementPeriod]); // eslint-disable-line react-hooks/exhaustive-deps
+    wallet.refreshBalances();
+    if (section === "statement") {
+      wallet.fetchTransactions(statementPeriod);
+    }
+  }, [section, statementPeriod]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openSelectPage = () => {
     setDraftSelection(new Set(visibleSymbols));

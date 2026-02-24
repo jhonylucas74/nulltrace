@@ -811,4 +811,70 @@ mod tests {
         let cards = wcs.get_cards(player_id).await.unwrap();
         assert_eq!(cards[0].label.as_deref(), Some("My Virtual"));
     }
+
+    /// Statement reflects all purchases made in the billing period.
+    #[tokio::test]
+    async fn test_statement_reflects_all_purchases_in_period() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool.clone());
+
+        let card = wcs.create_card(player_id, None, "User", 100_00).await.unwrap();
+        wcs.make_purchase(card.id, player_id, 20_00, "Purchase 1").await.unwrap();
+        wcs.make_purchase(card.id, player_id, 30_00, "Purchase 2").await.unwrap();
+        wcs.make_purchase(card.id, player_id, 15_00, "Purchase 3").await.unwrap();
+
+        let stmt = wcs.get_current_statement(card.id).await.unwrap().unwrap();
+        assert_eq!(stmt.total_amount, 65_00); // 20 + 30 + 15
+
+        let txs = wcs.get_card_transactions(card.id, "all").await.unwrap();
+        assert_eq!(txs.len(), 3);
+    }
+
+    /// Statement total matches sum of purchases.
+    #[tokio::test]
+    async fn test_statement_total_matches_purchases() {
+        let pool = test_pool().await;
+        let player_id = create_test_player_with_wallet(&pool).await;
+        let wcs = WalletCardService::new(pool.clone());
+
+        let card = wcs.create_card(player_id, None, "User", 200_00).await.unwrap();
+        let amounts = [10_00, 25_00, 40_00, 5_00];
+        let expected_total: i64 = amounts.iter().sum();
+
+        for (i, &amt) in amounts.iter().enumerate() {
+            wcs.make_purchase(card.id, player_id, amt, &format!("Tx {}", i)).await.unwrap();
+        }
+
+        let stmt = wcs.get_current_statement(card.id).await.unwrap().unwrap();
+        assert_eq!(stmt.total_amount, expected_total);
+
+        let cards = wcs.get_cards(player_id).await.unwrap();
+        assert_eq!(cards[0].current_debt, expected_total);
+    }
+
+    /// Paying a bill creates a wallet transaction with correct keys (from_key = player, to_key = system).
+    #[tokio::test]
+    async fn test_pay_bill_creates_wallet_transaction_with_correct_keys() {
+        let pool = test_pool().await;
+        let ws = WalletService::new(pool.clone());
+        let wcs = WalletCardService::new(pool.clone());
+        let player_id = create_test_player_with_wallet(&pool).await;
+
+        ws.credit(player_id, "USD", 500_00, "seed").await.unwrap();
+        let card = wcs.create_card(player_id, None, "User", 100_00).await.unwrap();
+        wcs.make_purchase(card.id, player_id, 75_00, "Bill").await.unwrap();
+
+        let txs_before = ws.get_transactions(player_id, "all").await.unwrap();
+        let debit_count_before = txs_before.iter().filter(|t| t.tx_type == "debit").count();
+
+        wcs.pay_card_bill(card.id, player_id).await.unwrap();
+
+        let txs_after = ws.get_transactions(player_id, "all").await.unwrap();
+        let debit_txs: Vec<_> = txs_after.iter().filter(|t| t.tx_type == "debit").collect();
+        assert_eq!(debit_txs.len(), debit_count_before + 1);
+
+        let bill_debit = debit_txs.iter().find(|t| t.amount == 75_00).unwrap();
+        assert_eq!(bill_debit.counterpart_address.as_deref(), Some("system"));
+    }
 }

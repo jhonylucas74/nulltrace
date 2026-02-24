@@ -5,6 +5,7 @@ use crate::db::fs_service::FsService;
 use crate::path_util;
 use crate::process_parser;
 use crate::db::user_service::UserService;
+use chrono::Utc;
 use mlua::{Lua, Result, Value};
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
@@ -160,6 +161,21 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>, fs_service: Arc<FsSer
                 .app_data_ref::<VmContext>()
                 .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
             Ok(ctx.hostname.clone())
+        })?,
+    )?;
+
+    // os.date(format) -> string. Format e.g. "!%Y-%m-%d %H:%M:%S" (UTC). ! prefix = UTC.
+    os.set(
+        "date",
+        lua.create_function(|_lua, format: Option<String>| {
+            let fmt = format.as_deref().unwrap_or("%c");
+            let now = Utc::now();
+            let s = if fmt.starts_with('!') {
+                now.format(&fmt[1..]).to_string()
+            } else {
+                now.format(fmt).to_string()
+            };
+            Ok(s)
         })?,
     )?;
 
@@ -729,6 +745,24 @@ pub fn register(lua: &Lua, user_service: Arc<UserService>, fs_service: Arc<FsSer
             })?,
         )?;
     }
+
+    // os.server_log(msg) -> nil. Prints to cluster stdout for debugging (vm_id, pid, msg).
+    os.set(
+        "server_log",
+        lua.create_function(|lua, msg: String| {
+            let ctx = lua
+                .app_data_ref::<VmContext>()
+                .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+            println!(
+                "[server_log] vm={} pid={} hostname={} | {}",
+                ctx.vm_id,
+                ctx.current_pid,
+                ctx.hostname,
+                msg
+            );
+            Ok(Value::Nil)
+        })?,
+    )?;
 
     lua.globals().set("os", os)?;
     Ok(())

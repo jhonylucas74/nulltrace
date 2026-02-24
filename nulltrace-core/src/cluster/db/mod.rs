@@ -94,6 +94,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(include_str!("../../../migrations/022_create_wallet_card_statements.sql"))
         .execute(pool)
         .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/023_add_npc_owner_type.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

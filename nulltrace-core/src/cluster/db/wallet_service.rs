@@ -80,11 +80,17 @@ impl WalletService {
         Ok(())
     }
 
-    /// Creates Fkebank USD account for a VM (and token). Idempotent. Returns (account_key, token) for writing to VM fs.
-    pub async fn create_wallet_for_vm(&self, vm_id: Uuid) -> Result<(String, String), WalletError> {
+    /// Creates Fkebank USD account for an NPC identified by account_id (e.g. "money.null").
+    /// Wallet logic uses keys; vm_id is never used. Idempotent. Returns (account_key, token) for writing to VM fs.
+    pub async fn create_wallet_for_account(
+        &self,
+        account_id: &str,
+        full_name: Option<&str>,
+        document_id: Option<&str>,
+    ) -> Result<(String, String), WalletError> {
         let account = self
             .fkebank
-            .create_account_for_owner("vm", vm_id, None, None)
+            .create_account_for_account_id(account_id, full_name, document_id)
             .await?;
         let token = self.fkebank.create_token(account.id).await?;
         Ok((account.key, token))
@@ -395,17 +401,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_wallet_for_vm_returns_key_and_token() {
+    async fn test_create_wallet_for_account_returns_key_and_token() {
         let pool = test_pool().await;
         let ws = WalletService::new(pool.clone());
-        let vm_id = Uuid::new_v4();
+        let account_id = format!("test-npc-{}", Uuid::new_v4());
 
-        let (key, token) = ws.create_wallet_for_vm(vm_id).await.unwrap();
+        let (key, token) = ws.create_wallet_for_account(&account_id, None, None).await.unwrap();
         assert!(key.starts_with("fkebank-"));
         assert!(!token.is_empty());
         assert!(token.len() >= 32);
 
-        let (key2, token2) = ws.create_wallet_for_vm(vm_id).await.unwrap();
+        let (key2, token2) = ws.create_wallet_for_account(&account_id, None, None).await.unwrap();
         assert_eq!(key, key2);
         assert!(!token2.is_empty());
     }
@@ -805,12 +811,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_find_player_by_address_vm_account_returns_none() {
+    async fn test_find_player_by_address_npc_account_returns_none() {
         let pool = test_pool().await;
         let ws = WalletService::new(pool.clone());
-        let vm_id = Uuid::new_v4();
+        let account_id = format!("test-npc-{}", Uuid::new_v4());
 
-        let (key, _) = ws.create_wallet_for_vm(vm_id).await.unwrap();
+        let (key, _) = ws.create_wallet_for_account(&account_id, None, None).await.unwrap();
         let found = ws.find_player_by_address(&key).await.unwrap();
         assert_eq!(found, None);
     }
@@ -875,5 +881,86 @@ mod tests {
         let transfer_in = txs_b.iter().find(|t| t.tx_type == "transfer_in").unwrap();
         assert_eq!(transfer_in.amount, 1000);
         assert!(transfer_in.counterpart_address.as_deref().unwrap_or("").starts_with("fkebank-"));
+    }
+
+    /// Transfer to an NPC account key (e.g. money.null) and verify balance increases.
+    #[tokio::test]
+    async fn test_transfer_to_npc_account_and_verify_balance() {
+        let pool = test_pool().await;
+        let ws = WalletService::new(pool.clone());
+        let player_id = create_test_player(&pool).await;
+        let account_id = format!("test-npc-{}", Uuid::new_v4());
+
+        ws.create_wallet_for_player(player_id).await.unwrap();
+        let (money_key, _) = ws.create_wallet_for_account(&account_id, None, None).await.unwrap();
+        ws.credit(player_id, "USD", 10000, "seed").await.unwrap();
+
+        ws.transfer_to_address(player_id, &money_key, "USD", 5000).await.unwrap();
+
+        let balances = ws.get_balances(player_id).await.unwrap();
+        let usd = balances.iter().find(|b| b.currency == "USD").unwrap();
+        assert_eq!(usd.balance, 5000);
+
+        let money_balance = ws.fkebank_service().get_balance_by_key(&money_key).await.unwrap();
+        assert_eq!(money_balance, 5000);
+    }
+
+    /// transfer_in transactions include counterpart_address (sender's public key).
+    #[tokio::test]
+    async fn test_get_transactions_includes_counterpart_address_for_transfer_in() {
+        let pool = test_pool().await;
+        let ps = PlayerService::new(pool.clone());
+        let ws = WalletService::new(pool.clone());
+
+        let p_a = ps.create_player(&unique_username(), "pw").await.unwrap();
+        let p_b = ps.create_player(&unique_username(), "pw").await.unwrap();
+        ws.create_wallet_for_player(p_a.id).await.unwrap();
+        ws.create_wallet_for_player(p_b.id).await.unwrap();
+        ws.credit(p_a.id, "USD", 3000, "seed").await.unwrap();
+
+        let keys_b = ws.get_keys(p_b.id).await.unwrap();
+        let keys_a = ws.get_keys(p_a.id).await.unwrap();
+        ws.transfer_to_address(p_a.id, &keys_b[0].key_address, "USD", 1500).await.unwrap();
+
+        let txs_b = ws.get_transactions(p_b.id, "all").await.unwrap();
+        let transfer_in = txs_b.iter().find(|t| t.tx_type == "transfer_in").unwrap();
+        assert_eq!(transfer_in.counterpart_address.as_deref(), Some(keys_a[0].key_address.as_str()));
+    }
+
+    /// transfer_out transactions include counterpart_address (recipient's public key).
+    #[tokio::test]
+    async fn test_get_transactions_includes_counterpart_address_for_transfer_out() {
+        let pool = test_pool().await;
+        let ps = PlayerService::new(pool.clone());
+        let ws = WalletService::new(pool.clone());
+
+        let p_a = ps.create_player(&unique_username(), "pw").await.unwrap();
+        let p_b = ps.create_player(&unique_username(), "pw").await.unwrap();
+        ws.create_wallet_for_player(p_a.id).await.unwrap();
+        ws.create_wallet_for_player(p_b.id).await.unwrap();
+        ws.credit(p_a.id, "USD", 3000, "seed").await.unwrap();
+
+        let keys_b = ws.get_keys(p_b.id).await.unwrap();
+        ws.transfer_to_address(p_a.id, &keys_b[0].key_address, "USD", 1200).await.unwrap();
+
+        let txs_a = ws.get_transactions(p_a.id, "all").await.unwrap();
+        let transfer_out = txs_a.iter().find(|t| t.tx_type == "transfer_out").unwrap();
+        assert_eq!(transfer_out.counterpart_address.as_deref(), Some(keys_b[0].key_address.as_str()));
+    }
+
+    /// Filter "all" returns complete history (no truncation).
+    #[tokio::test]
+    async fn test_get_transactions_filter_all_returns_complete_history() {
+        let pool = test_pool().await;
+        let player_id = create_test_player(&pool).await;
+        let ws = WalletService::new(pool.clone());
+
+        ws.create_wallet_for_player(player_id).await.unwrap();
+        for i in 1..=10 {
+            ws.credit(player_id, "USD", i * 100, &format!("credit {}", i)).await.unwrap();
+        }
+
+        let txs = ws.get_transactions(player_id, "all").await.unwrap();
+        assert_eq!(txs.len(), 10, "filter 'all' must return complete history");
     }
 }

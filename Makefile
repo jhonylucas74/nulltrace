@@ -1,15 +1,16 @@
-.PHONY: dev debug test test-ntml client client-debug core stress help
+.PHONY: dev debug test test-ntml client client-debug core core-debug stress help
 
 help:
 	@echo "Nulltrace - Makefile"
 	@echo ""
 	@echo "Available commands:"
 	@echo "  make dev       - Run frontend and backend in parallel"
-	@echo "  make debug     - Like make dev but with Tauri DevTools open"
+	@echo "  make debug     - Like make dev but with Tauri DevTools + cluster tick logs"
 	@echo "  make test      - Run all tests (core + ntml)"
 	@echo "  make test-ntml - Run NTML parser tests only"
 	@echo "  make client    - Run frontend only"
-	@echo "  make core      - Run backend only"
+	@echo "  make core      - Run backend only (no tick spam)"
+	@echo "  make core-debug - Run backend with CLUSTER_DEBUG=1 (tick logs)"
 	@echo "  make stress    - Run stress test with 5k VMs (release mode)"
 
 dev:
@@ -17,8 +18,8 @@ dev:
 	@$(MAKE) -j2 client core
 
 debug:
-	@echo "Starting frontend (with DevTools) and backend..."
-	@$(MAKE) -j2 client-debug core
+	@echo "Starting frontend (with DevTools) and backend (with CLUSTER_DEBUG)..."
+	@$(MAKE) -j2 client-debug core-debug
 
 client:
 	@echo "Starting frontend (nulltrace-client)..."
@@ -31,6 +32,10 @@ client-debug:
 core:
 	@echo "Starting backend (nulltrace-core) in GAME MODE..."
 	@cd nulltrace-core && cargo run --release --bin cluster
+
+core-debug:
+	@echo "Starting backend with CLUSTER_DEBUG (tick logs enabled)..."
+	@cd nulltrace-core && CLUSTER_DEBUG=1 cargo run --release --bin cluster
 
 test:
 	@echo "Running tests (PostgreSQL required at postgres://nulltrace:nulltrace@localhost:5432/nulltrace)..."
