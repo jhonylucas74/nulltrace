@@ -43,6 +43,7 @@ service GameService {
   rpc GetWalletTransactions (GetWalletTransactionsRequest) returns (GetWalletTransactionsResponse);
   rpc GetWalletKeys (GetWalletKeysRequest) returns (GetWalletKeysResponse);
   rpc TransferFunds (TransferFundsRequest) returns (TransferFundsResponse);
+  rpc ResolveTransferKey (ResolveTransferKeyRequest) returns (ResolveTransferKeyResponse);
   rpc ConvertFunds (ConvertFundsRequest) returns (ConvertFundsResponse);
   rpc GetWalletCards (GetWalletCardsRequest) returns (GetWalletCardsResponse);
   rpc CreateWalletCard (CreateWalletCardRequest) returns (CreateWalletCardResponse);
@@ -601,6 +602,17 @@ message ConvertFundsResponse {
   bool   success          = 1;
   int64  converted_amount = 2;  // DB-cents of to_currency
   string error_message    = 3;
+}
+
+message ResolveTransferKeyRequest {
+  string key = 1;
+}
+
+message ResolveTransferKeyResponse {
+  bool   is_valid            = 1;
+  bool   is_usd              = 2;
+  string account_holder_name = 3;
+  string target_currency     = 4;  // "USD" | "BTC" | "ETH" | "SOL"
 }
 
 message WalletCard {

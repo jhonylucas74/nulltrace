@@ -68,6 +68,45 @@ pub fn register(lua: &Lua, fs_service: Arc<FsService>, fkebank_service: Arc<Fkeb
         )?;
     }
 
+    // fkebank.key(token_path) -> account key string or nil (for display; company/USD key)
+    {
+        let fs = fs_service.clone();
+        let svc = fkebank_service.clone();
+        fkebank.set(
+            "key",
+            lua.create_function(move |lua, token_path: String| {
+                let ctx = lua
+                    .app_data_ref::<VmContext>()
+                    .ok_or_else(|| mlua::Error::runtime("No VM context"))?;
+                let vm_id = ctx.vm_id;
+                drop(ctx);
+
+                let token = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        let data = fs.read_file(vm_id, &token_path).await.ok();
+                        data.and_then(|opt| opt.and_then(|(d, _)| String::from_utf8(d).ok()))
+                    })
+                })
+                .ok_or_else(|| mlua::Error::runtime("Could not read token file"))?;
+                let token = token.trim().to_string();
+                if token.is_empty() {
+                    return Ok(Value::Nil);
+                }
+
+                let key = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        svc.get_key_by_token(&token).await
+                    })
+                })
+                .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+                match key {
+                    Some(k) => Ok(Value::String(lua.create_string(&k)?)),
+                    None => Ok(Value::Nil),
+                }
+            })?,
+        )?;
+    }
+
     // fkebank.balance(token_path) -> balance_cents or error
     {
         let fs = fs_service.clone();

@@ -25,6 +25,7 @@ use game::{
     GetWalletTransactionsRequest, GetWalletTransactionsResponse,
     GetWalletKeysRequest, GetWalletKeysResponse,
     TransferFundsRequest, TransferFundsResponse,
+    ResolveTransferKeyRequest, ResolveTransferKeyResponse,
     ConvertFundsRequest, ConvertFundsResponse,
     GetWalletCardsRequest, GetWalletCardsResponse,
     CreateWalletCardRequest, CreateWalletCardResponse,
@@ -470,6 +471,18 @@ impl GameService for MyGameService {
         Ok(Response::new(TransferFundsResponse {
             success: false,
             error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn resolve_transfer_key(
+        &self,
+        _request: Request<ResolveTransferKeyRequest>,
+    ) -> Result<Response<ResolveTransferKeyResponse>, Status> {
+        Ok(Response::new(ResolveTransferKeyResponse {
+            is_valid: false,
+            is_usd: false,
+            account_holder_name: String::new(),
+            target_currency: String::new(),
         }))
     }
 

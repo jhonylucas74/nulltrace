@@ -20,7 +20,7 @@ use game::{
     TerminalOpened, UnsubscribePid, WriteFileRequest, ReadFileRequest, EmptyTrashRequest,
     GetInstalledStoreAppsRequest, InstallStoreAppRequest, UninstallStoreAppRequest,
     GetWalletBalancesRequest, GetWalletTransactionsRequest, GetWalletKeysRequest,
-    TransferFundsRequest, ConvertFundsRequest, GetWalletCardsRequest, CreateWalletCardRequest,
+    TransferFundsRequest, ResolveTransferKeyRequest, ConvertFundsRequest, GetWalletCardsRequest, CreateWalletCardRequest,
     DeleteWalletCardRequest, GetCardTransactionsRequest, GetCardStatementRequest, PayCardBillRequest,
 };
 use std::collections::HashMap;
@@ -2099,6 +2099,30 @@ pub async fn grpc_transfer_funds(
     bearer_auth(&mut req, &token)?;
     let res = client.transfer_funds(req).await.map_err(map_grpc_err)?.into_inner();
     Ok(TransferFundsCommandResponse { success: res.success, error_message: res.error_message })
+}
+
+#[derive(serde::Serialize)]
+pub struct ResolveTransferKeyCommandResponse {
+    pub is_valid: bool,
+    pub is_usd: bool,
+    pub account_holder_name: String,
+    pub target_currency: String,
+}
+
+/// Tauri command: Resolve a transfer key/address; returns whether valid and for USD the account holder name.
+#[tauri::command]
+pub async fn grpc_resolve_transfer_key(token: String, key: String) -> Result<ResolveTransferKeyCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(ResolveTransferKeyRequest { key: key.trim().to_string() });
+    bearer_auth(&mut req, &token)?;
+    let res = client.resolve_transfer_key(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(ResolveTransferKeyCommandResponse {
+        is_valid: res.is_valid,
+        is_usd: res.is_usd,
+        account_holder_name: res.account_holder_name,
+        target_currency: res.target_currency,
+    })
 }
 
 #[derive(serde::Serialize)]

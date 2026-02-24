@@ -87,6 +87,7 @@ type Section = "overview" | "statement" | "transfer" | "keys" | "card" | "conver
 type View = "main" | "select";
 
 function WalletContent() {
+  const { t } = useTranslation("wallet");
   const wallet = useWallet();
   const [visibleSymbols, setVisibleSymbols] = useState<Set<string>>(loadVisibleSymbols);
   const [section, setSection] = useState<Section>("overview");
@@ -192,7 +193,7 @@ function WalletContent() {
           onClick={() => setSection("overview")}
         >
           <span className={styles.navIcon}><LayoutDashboard size={18} /></span>
-          Overview
+          {t("nav_overview")}
         </button>
         <button
           type="button"
@@ -200,7 +201,7 @@ function WalletContent() {
           onClick={() => setSection("statement")}
         >
           <span className={styles.navIcon}><Receipt size={18} /></span>
-          Statement
+          {t("nav_statement")}
         </button>
         <button
           type="button"
@@ -208,7 +209,7 @@ function WalletContent() {
           onClick={() => setSection("transfer")}
         >
           <span className={styles.navIcon}><Send size={18} /></span>
-          Transfer
+          {t("nav_transfer")}
         </button>
         <button
           type="button"
@@ -216,7 +217,7 @@ function WalletContent() {
           onClick={() => setSection("keys")}
         >
           <span className={styles.navIcon}><Key size={18} /></span>
-          Keys
+          {t("nav_keys")}
         </button>
         <button
           type="button"
@@ -224,7 +225,7 @@ function WalletContent() {
           onClick={() => setSection("card")}
         >
           <span className={styles.navIcon}><CreditCard size={18} /></span>
-          Card
+          {t("nav_card")}
         </button>
         <button
           type="button"
@@ -232,7 +233,7 @@ function WalletContent() {
           onClick={() => setSection("convert")}
         >
           <span className={styles.navIcon}><ArrowLeftRight size={18} /></span>
-          Convert
+          {t("nav_convert")}
         </button>
       </aside>
       <main className={styles.main}>
@@ -240,17 +241,17 @@ function WalletContent() {
           <>
             <div className={styles.header}>
               <div>
-                <h2 className={styles.mainTitle}>Overview</h2>
-                <p className={styles.mainSubtitle}>Your balances.</p>
+                <h2 className={styles.mainTitle}>{t("overview_title")}</h2>
+                <p className={styles.mainSubtitle}>{t("overview_subtitle")}</p>
               </div>
               <button
                 type="button"
                 className={styles.configBtn}
                 onClick={openSelectPage}
-                title="Choose which currencies to show"
+                title={t("overview_manage_currencies")}
               >
                 <Settings2 size={14} />
-                Manage currencies
+                {t("overview_manage_currencies")}
               </button>
             </div>
             <div className={styles.cards}>
@@ -267,8 +268,8 @@ function WalletContent() {
                     {wallet.getFormattedBalance(item.symbol)}
                   </div>
                   {item.symbol === "USD" && (
-                    <p className={styles.cardUsdNote}>
-                      USD is trackable and managed by Fkebank.
+                      <p className={styles.cardUsdNote}>
+                      {t("overview_usd_note")}
                     </p>
                   )}
                   {item.symbol !== "USD" && (
@@ -288,7 +289,7 @@ function WalletContent() {
             </div>
             <div className={styles.overviewCardDebt}>
               <div className={styles.overviewCardDebtRow}>
-                <span className={styles.overviewCardDebtLabel}>Card debt (Fkebank)</span>
+                <span className={styles.overviewCardDebtLabel}>{t("overview_card_debt_label")}</span>
                 <span className={styles.overviewCardDebtValue}>
                   {(wallet.cardDebt / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                 </span>
@@ -429,53 +430,116 @@ function TransferSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
   const [currency, setCurrency] = useState("USD");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [keyResolution, setKeyResolution] = useState<{
+    is_valid: boolean;
+    is_usd: boolean;
+    account_holder_name: string;
+    target_currency: string;
+  } | null>(null);
+
+  // Debounced key validation: resolve after user stops typing
+  useEffect(() => {
+    const key = recipientKey.trim();
+    if (!key) {
+      setKeyResolution(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      wallet.resolveTransferKey(key).then(setKeyResolution);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [recipientKey, wallet]);
+
+  const balanceCents = wallet.balances[currency] ?? 0;
+  const displayAmount = parseAmount(amountStr);
+  const amountCents = Math.round(displayAmount * 100);
+  const exceedsBalance = displayAmount > 0 && amountCents > balanceCents;
+  const zeroBalance = balanceCents === 0;
+  const keyValid = recipientKey.trim() === "" || (keyResolution != null && keyResolution.is_valid);
+  const canSubmit =
+    !busy &&
+    !zeroBalance &&
+    !exceedsBalance &&
+    recipientKey.trim().length > 0 &&
+    displayAmount > 0 &&
+    keyValid;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
     const key = recipientKey.trim();
     if (!key) {
-      setMessage({ type: "error", text: "Enter recipient key." });
+      setMessage({ type: "error", text: t("transfer_enter_key") });
       return;
     }
-    const displayAmount = parseAmount(amountStr);
     if (displayAmount <= 0) {
-      setMessage({ type: "error", text: "Enter a valid amount." });
+      setMessage({ type: "error", text: t("transfer_enter_valid_amount") });
       return;
     }
-    const amountCents = Math.round(displayAmount * 100);
+    if (exceedsBalance) {
+      setMessage({ type: "error", text: t("transfer_exceeds_balance") });
+      return;
+    }
+    if (keyResolution != null && !keyResolution.is_valid) {
+      setMessage({ type: "error", text: t("transfer_invalid_key") });
+      return;
+    }
     setBusy(true);
-    const err = await wallet.transfer(currency, amountCents, key);
+    const err = await wallet.transfer(currency, amountCents, key, keyResolution?.target_currency);
     setBusy(false);
     if (err === null) {
-      setMessage({ type: "success", text: "Transfer completed." });
+      setMessage({ type: "success", text: t("transfer_success") });
       setRecipientKey("");
       setAmountStr("");
     } else {
-      const userMsg = err.includes("InsufficientBalance") ? t("transfer_insufficient_balance") : err.includes("UNAUTHENTICATED") ? "Session expired." : "Transfer failed.";
+      console.error("[Wallet Transfer] failed – raw error for investigation:", {
+        rawError: err,
+        currency,
+        amountCents,
+        targetCurrency: keyResolution?.target_currency ?? "(same)",
+        recipientKeyLength: key.length,
+        recipientKeyPrefix: key.slice(0, 30) + (key.length > 30 ? "…" : ""),
+      });
+      const userMsg = err.includes("InsufficientBalance")
+        ? t("transfer_insufficient_balance")
+        : err.includes("UNAUTHENTICATED")
+          ? t("transfer_session_expired")
+          : err === "CONVERTED_AMOUNT_TOO_SMALL" || err.includes("Converted amount is zero") || err.includes("too small")
+            ? t("transfer_converted_amount_too_small")
+            : t("transfer_failed");
       setMessage({ type: "error", text: userMsg });
     }
   };
 
   return (
     <>
-      <h2 className={styles.mainTitle}>Transfer</h2>
-      <p className={styles.mainSubtitle}>Send to another account using their key or address.</p>
+      <h2 className={styles.mainTitle}>{t("transfer_title")}</h2>
+      <p className={styles.mainSubtitle}>{t("transfer_subtitle")}</p>
       <form className={styles.form} onSubmit={handleSubmit}>
         <div className={styles.formGroup}>
-          <label className={styles.formLabel} htmlFor="transfer-key">Recipient key / address</label>
+          <label className={styles.formLabel} htmlFor="transfer-key">{t("transfer_recipient_label")}</label>
           <input
             id="transfer-key"
             type="text"
-            className={styles.formInput}
+            className={`${styles.formInput} ${keyResolution?.is_valid ? styles.formInputValid : ""}`}
             value={recipientKey}
             onChange={(e) => setRecipientKey(e.target.value)}
-            placeholder="Paste address or key"
+            placeholder={t("transfer_recipient_placeholder")}
             disabled={busy}
           />
+          {keyResolution?.is_valid && keyResolution.is_usd && keyResolution.account_holder_name && (
+            <p className={styles.transferAccountHolder}>
+              {t("transfer_account_holder")}: {keyResolution.account_holder_name}
+            </p>
+          )}
+          {keyResolution?.is_valid && keyResolution.target_currency && keyResolution.target_currency !== currency && (
+            <p className={styles.transferAccountHolder} aria-live="polite">
+              {t("transfer_cross_currency_hint", { from: currency, to: keyResolution.target_currency })}
+            </p>
+          )}
         </div>
         <div className={styles.formGroup}>
-          <label className={styles.formLabel} htmlFor="transfer-amount">Amount</label>
+          <label className={styles.formLabel} htmlFor="transfer-amount">{t("transfer_amount_label")}</label>
           <input
             id="transfer-amount"
             type="text"
@@ -484,12 +548,13 @@ function TransferSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             className={styles.formInput}
             value={amountStr}
             onChange={(e) => setAmountStr(applyAmountMask(e.target.value, currency === "USD" ? 2 : 8))}
-            placeholder="0.00"
-            disabled={busy}
+            placeholder={t("transfer_amount_placeholder")}
+            disabled={busy || zeroBalance}
+            aria-invalid={exceedsBalance}
           />
         </div>
         <div className={styles.formGroup}>
-          <label className={styles.formLabel} htmlFor="transfer-currency">Currency</label>
+          <label className={styles.formLabel} htmlFor="transfer-currency">{t("transfer_currency_label")}</label>
           <select
             id="transfer-currency"
             className={styles.formSelect}
@@ -502,15 +567,31 @@ function TransferSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             ))}
           </select>
         </div>
-        {message && (
+        {exceedsBalance && (
+          <p className={`${styles.formMessage} ${styles.formMessageError}`} role="alert">
+            {t("transfer_exceeds_balance")}
+          </p>
+        )}
+        {message && !exceedsBalance && (
           <p className={`${styles.formMessage} ${message.type === "success" ? styles.formMessageSuccess : styles.formMessageError}`}>
             {message.text}
           </p>
         )}
-        <button type="submit" className={styles.submitBtn} disabled={busy}>
-          {busy ? "Sending…" : "Send"}
+        <button type="submit" className={styles.submitBtn} disabled={!canSubmit}>
+          {busy ? t("transfer_sending") : t("transfer_send")}
         </button>
       </form>
+      <div className={`${styles.convertBalanceSummary} ${styles.transferBalanceSummary}`}>
+        <div className={styles.convertBalanceSummaryTitle}>{t("transfer_balance_summary_title")}</div>
+        <div className={styles.convertBalanceSummaryRow}>
+          {CURRENCIES.map((c) => (
+            <span key={c.symbol} className={styles.convertBalanceSummaryItem}>
+              <span className={styles.convertBalanceSummarySymbol}>{c.symbol}</span>
+              <span className={styles.convertBalanceSummaryAmount}>{wallet.getFormattedBalance(c.symbol)}</span>
+            </span>
+          ))}
+        </div>
+      </div>
     </>
   );
 }
@@ -806,11 +887,11 @@ function ConvertSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
   const handleConfirm = useCallback(async () => {
     setMessage(null);
     if (fromDisplay <= 0) {
-      setMessage({ type: "error", text: "Enter a valid amount." });
+      setMessage({ type: "error", text: t("convert_invalid_amount") });
       return;
     }
     if (fromSymbol === toSymbol) {
-      setMessage({ type: "error", text: "Same currency selected." });
+      setMessage({ type: "error", text: t("convert_same_currency") });
       return;
     }
     const amountCents = Math.round(fromDisplay * 100);
@@ -818,18 +899,22 @@ function ConvertSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
     const err = await wallet.convert(fromSymbol, toSymbol, amountCents);
     setBusy(false);
     if (err === null) {
-      setMessage({ type: "success", text: "Conversion completed." });
+      setMessage({ type: "success", text: t("convert_success") });
       setFromAmountStr("");
     } else {
-      const userMsg = /insufficient/i.test(err) ? t("transfer_insufficient_balance") : err;
+      const userMsg = /insufficient/i.test(err)
+        ? t("transfer_insufficient_balance")
+        : /invalid currency/i.test(err)
+          ? t("convert_failed")
+          : err;
       setMessage({ type: "error", text: userMsg });
     }
-  }, [fromDisplay, fromSymbol, toSymbol, wallet]);
+  }, [fromDisplay, fromSymbol, toSymbol, wallet, t]);
 
   return (
     <>
-      <h2 className={styles.mainTitle}>Convert</h2>
-      <p className={styles.mainSubtitle}>Exchange between your currencies at the current simulator rate.</p>
+      <h2 className={styles.mainTitle}>{t("convert_title")}</h2>
+      <p className={styles.mainSubtitle}>{t("convert_subtitle")}</p>
       <div className={styles.convertPanel}>
         <div className={styles.convertRow}>
           <input
@@ -839,7 +924,7 @@ function ConvertSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             autoComplete="off"
             value={fromAmountStr}
             onChange={(e) => setFromAmountStr(applyAmountMask(e.target.value, fromSymbol === "USD" ? 2 : 8))}
-            placeholder="Amount"
+            placeholder={t("convert_amount_placeholder")}
             disabled={busy}
           />
           <select
@@ -862,7 +947,7 @@ function ConvertSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             className={styles.convertInput}
             value={fromDisplay > 0 ? toDisplay.toFixed(6) : ""}
             readOnly
-            placeholder="You receive"
+            placeholder={t("convert_you_receive")}
           />
           <select
             className={styles.convertSelect}
@@ -881,10 +966,10 @@ function ConvertSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
           </p>
         )}
         <button type="button" className={styles.submitBtn} onClick={handleConfirm} disabled={busy}>
-          {busy ? "Converting…" : "Confirm conversion"}
+          {busy ? t("convert_converting") : t("convert_confirm")}
         </button>
         <div className={styles.convertBalanceSummary}>
-          <div className={styles.convertBalanceSummaryTitle}>Your balances</div>
+          <div className={styles.convertBalanceSummaryTitle}>{t("convert_balance_summary_title")}</div>
           <div className={styles.convertBalanceSummaryRow}>
             {CURRENCIES.map((c) => (
               <span key={c.symbol} className={styles.convertBalanceSummaryItem}>

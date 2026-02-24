@@ -128,6 +128,7 @@ export interface GrpcContextValue {
   getWalletTransactions: (token: string, filter: string) => Promise<{ transactions: GrpcWalletTransaction[]; error_message: string }>;
   getWalletKeys: (token: string) => Promise<{ keys: GrpcWalletKey[]; error_message: string }>;
   transferFunds: (token: string, targetAddress: string, currency: string, amount: number) => Promise<{ success: boolean; error_message: string }>;
+  resolveTransferKey: (token: string, key: string) => Promise<{ is_valid: boolean; is_usd: boolean; account_holder_name: string; target_currency: string }>;
   convertFunds: (token: string, fromCurrency: string, toCurrency: string, amount: number) => Promise<{ success: boolean; converted_amount: number; error_message: string }>;
   getWalletCards: (token: string) => Promise<{ cards: GrpcWalletCard[]; error_message: string }>;
   createWalletCard: (token: string, label: string, creditLimit: number) => Promise<{ card: GrpcWalletCard | null; error_message: string }>;
@@ -225,6 +226,8 @@ export function GrpcProvider({ children }: { children: React.ReactNode }) {
         invoke<{ keys: GrpcWalletKey[]; error_message: string }>("grpc_get_wallet_keys", { token }),
       transferFunds: (token: string, targetAddress: string, currency: string, amount: number) =>
         invoke<{ success: boolean; error_message: string }>("grpc_transfer_funds", { token, targetAddress, currency, amount }),
+      resolveTransferKey: (token: string, key: string) =>
+        invoke<{ is_valid: boolean; is_usd: boolean; account_holder_name: string; target_currency: string }>("grpc_resolve_transfer_key", { token, key }),
       convertFunds: (token: string, fromCurrency: string, toCurrency: string, amount: number) =>
         invoke<{ success: boolean; converted_amount: number; error_message: string }>("grpc_convert_funds", { token, fromCurrency, toCurrency, amount }),
       getWalletCards: (token: string) =>

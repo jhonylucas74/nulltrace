@@ -566,6 +566,19 @@
   border-color: var(--accent);
 }
 
+.formInputValid {
+  border-color: var(--green, #a6e3a1);
+}
+.formInputValid:focus {
+  border-color: var(--green, #a6e3a1);
+}
+
+.transferAccountHolder {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
 .formSelect {
   padding: 0.5rem 1.75rem 0.5rem 0.65rem;
   font-size: 0.9rem;
@@ -754,6 +767,11 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-sm);
+}
+
+/* Transfer page: balance summary matches form width */
+.transferBalanceSummary {
+  max-width: 320px;
 }
 
 .convertBalanceSummaryTitle {

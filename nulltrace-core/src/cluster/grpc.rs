@@ -64,6 +64,7 @@ use game::{
     GetWalletTransactionsRequest, GetWalletTransactionsResponse, WalletTransaction as GrpcWalletTx,
     GetWalletKeysRequest, GetWalletKeysResponse, WalletKey as GrpcWalletKey,
     TransferFundsRequest, TransferFundsResponse,
+    ResolveTransferKeyRequest, ResolveTransferKeyResponse,
     ConvertFundsRequest, ConvertFundsResponse,
     GetWalletCardsRequest, GetWalletCardsResponse, WalletCard as GrpcWalletCard,
     CreateWalletCardRequest, CreateWalletCardResponse,
@@ -2058,6 +2059,84 @@ impl GameService for ClusterGameService {
         }))
     }
 
+    async fn resolve_transfer_key(
+        &self,
+        request: Request<ResolveTransferKeyRequest>,
+    ) -> Result<Response<ResolveTransferKeyResponse>, Status> {
+        let _claims = self.authenticate_request(&request)?;
+        let key = request.into_inner().key.trim().to_string();
+        if key.is_empty() {
+            return Ok(Response::new(ResolveTransferKeyResponse {
+                is_valid: false,
+                is_usd: false,
+                account_holder_name: String::new(),
+                target_currency: String::new(),
+            }));
+        }
+        if key.starts_with("fkebank-") {
+            let account = self
+                .wallet_service
+                .fkebank_service()
+                .get_by_key(&key)
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?;
+            if let Some(acc) = account {
+                let holder = if let Some(ref name) = acc.full_name {
+                    name.clone()
+                } else if acc.owner_type == "player" {
+                    self.player_service
+                        .get_by_id(acc.owner_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|p| p.username)
+                        .unwrap_or_default()
+                } else if acc.owner_type == "vm" {
+                    self.vm_service
+                        .get_vm(acc.owner_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|v| v.hostname)
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                return Ok(Response::new(ResolveTransferKeyResponse {
+                    is_valid: true,
+                    is_usd: true,
+                    account_holder_name: holder,
+                    target_currency: "USD".to_string(),
+                }));
+            }
+            return Ok(Response::new(ResolveTransferKeyResponse {
+                is_valid: false,
+                is_usd: true,
+                account_holder_name: String::new(),
+                target_currency: String::new(),
+            }));
+        }
+        // Crypto-style key: accept known formats (0x..., bc1q..., or SOL base58 ~44 chars)
+        let valid_crypto = key.starts_with("0x") && key.len() == 42
+            || key.starts_with("bc1q") && key.len() >= 40
+            || (key.len() >= 40 && key.len() <= 50 && !key.contains('-'));
+        let target_currency = if key.starts_with("bc1q") {
+            "BTC".to_string()
+        } else if key.starts_with("0x") && key.len() == 42 {
+            "ETH".to_string()
+        } else if valid_crypto {
+            "SOL".to_string()
+        } else {
+            String::new()
+        };
+        Ok(Response::new(ResolveTransferKeyResponse {
+            is_valid: valid_crypto,
+            is_usd: false,
+            account_holder_name: String::new(),
+            target_currency,
+        }))
+    }
+
     async fn convert_funds(
         &self,
         request: Request<ConvertFundsRequest>,
@@ -2247,6 +2326,9 @@ fn wallet_error_to_status(e: WalletError) -> Status {
         WalletError::InsufficientBalance => Status::failed_precondition("Insufficient balance"),
         WalletError::CardLimitExceeded => Status::failed_precondition("Card credit limit exceeded"),
         WalletError::InvalidCurrency => Status::invalid_argument("Invalid currency"),
+        WalletError::ConvertedAmountTooSmall => {
+            Status::invalid_argument("Converted amount is zero or too small")
+        }
         WalletError::Db(db_err) => Status::internal(db_err.to_string()),
     }
 }

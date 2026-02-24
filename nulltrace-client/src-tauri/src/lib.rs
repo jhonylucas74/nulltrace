@@ -318,6 +318,7 @@ pub fn run() {
             grpc::grpc_get_wallet_transactions,
             grpc::grpc_get_wallet_keys,
             grpc::grpc_transfer_funds,
+            grpc::grpc_resolve_transfer_key,
             grpc::grpc_convert_funds,
             grpc::grpc_get_wallet_cards,
             grpc::grpc_create_wallet_card,

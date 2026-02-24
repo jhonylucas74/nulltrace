@@ -1,9 +1,19 @@
 -- money.null HTTP daemon: GET / returns balances, public keys, and recent transactions.
 -- Requires: /etc/wallet/fkebank/token (USD), optional /etc/wallet/crypto_addresses (BTC=addr per line).
+-- All amounts are stored in hundredths (cents); we display in units (e.g. 2 -> 0.02 BTC).
 
 local token_path = "/etc/wallet/fkebank/token"
 local crypto_addrs_path = "/etc/wallet/crypto_addresses"
 local root = (os.get_args() and os.get_args()[1]) or "/var/www"
+
+local function format_usd(cents)
+  if type(cents) ~= "number" then return "0.00" end
+  return string.format("%.2f", cents / 100)
+end
+local function format_crypto(cents)
+  if type(cents) ~= "number" then return "0.0000" end
+  return string.format("%.4f", cents / 100)
+end
 
 net.listen(80)
 while true do
@@ -24,11 +34,22 @@ while true do
 
         local lines = { "# money.null - Balances and transactions\n" }
 
+        -- USD: show account key (company key) and balance, same format as crypto
+        local ok_key, usd_key = pcall(fkebank.key, token_path)
+        local usd_key_str = (ok_key and usd_key and type(usd_key) == "string" and usd_key ~= "") and usd_key or nil
         local ok_usd, usd_balance = pcall(fkebank.balance, token_path)
-        if ok_usd and usd_balance then
-          lines[#lines + 1] = string.format("USD: %d cents\n", usd_balance)
+        if ok_usd and type(usd_balance) == "number" then
+          if usd_key_str then
+            lines[#lines + 1] = string.format("USD: %s (%s)\n", usd_key_str, format_usd(usd_balance))
+          else
+            lines[#lines + 1] = string.format("USD: %s\n", format_usd(usd_balance))
+          end
         else
-          lines[#lines + 1] = "USD: (no account or token)\n"
+          if usd_key_str then
+            lines[#lines + 1] = string.format("USD: %s (no balance)\n", usd_key_str)
+          else
+            lines[#lines + 1] = "USD: (no account or token)\n"
+          end
         end
 
         local addrs_lines = fs.read_lines(crypto_addrs_path)
@@ -38,44 +59,73 @@ while true do
             if type(line) == "string" and line ~= "" then
               local currency, addr = line:match("^(%w+)=(.+)$")
               if currency and addr and addr ~= "" then
+                addr = (addr and type(addr) == "string") and addr:match("^%s*(.-)%s*$") or addr
                 local ok, bal = pcall(crypto.balance, addr)
-                lines[#lines + 1] = string.format("%s: %s (%s)\n", currency, addr, ok and bal and tostring(bal) or "?")
+                local display = (ok and type(bal) == "number") and format_crypto(bal) or "?"
+                lines[#lines + 1] = string.format("%s: %s (%s)\n", currency, addr, display)
               end
             end
           end
         end
 
-        lines[#lines + 1] = "\n# Recent USD transactions\n"
+        -- Collect all transactions (USD + all crypto addresses), then sort by date descending
+        local all_tx = {}
         local ok_h, usd_history = pcall(fkebank.history, token_path, "")
         if ok_h and usd_history and type(usd_history) == "table" then
-          for i = 1, math.min(20, #usd_history) do
+          for i = 1, #usd_history do
             local tx = usd_history[i]
-            if type(tx) == "table" then
-              lines[#lines + 1] = string.format("%s -> %s: %d (%s)\n", tostring(tx.from_key), tostring(tx.to_key), tx.amount or 0, tostring(tx.description or ""))
+            if type(tx) == "table" and tx.created_at_ms then
+              all_tx[#all_tx + 1] = {
+                created_at_ms = tx.created_at_ms,
+                currency = "USD",
+                from_key = tostring(tx.from_key or ""),
+                to_key = tostring(tx.to_key or ""),
+                amount = tx.amount or 0,
+                description = tostring(tx.description or ""),
+              }
             end
           end
         end
-
         if addrs_lines and type(addrs_lines) == "table" then
-          lines[#lines + 1] = "\n# Recent crypto transactions (first address)\n"
           for i = 1, #addrs_lines do
             local line = addrs_lines[i]
             if type(line) == "string" and line ~= "" then
               local currency, addr = line:match("^(%w+)=(.+)$")
               if currency and addr and addr ~= "" then
+                addr = (addr and type(addr) == "string") and addr:match("^%s*(.-)%s*$") or addr
                 local ok_h2, crypto_history = pcall(crypto.history, addr, "")
-                if ok_h2 and crypto_history and type(crypto_history) == "table" and #crypto_history > 0 then
-                  for j = 1, math.min(5, #crypto_history) do
+                if ok_h2 and crypto_history and type(crypto_history) == "table" then
+                  for j = 1, #crypto_history do
                     local tx = crypto_history[j]
-                    if type(tx) == "table" then
-                      lines[#lines + 1] = string.format("%s: %s -> %s: %d\n", currency, tostring(tx.from_key), tostring(tx.to_key), tx.amount or 0)
+                    if type(tx) == "table" and tx.created_at_ms then
+                      all_tx[#all_tx + 1] = {
+                        created_at_ms = tx.created_at_ms,
+                        currency = currency,
+                        from_key = tostring(tx.from_key or ""),
+                        to_key = tostring(tx.to_key or ""),
+                        amount = tx.amount or 0,
+                        description = tostring(tx.description or ""),
+                      }
                     end
                   end
                 end
-                break
               end
             end
           end
+        end
+        table.sort(all_tx, function(a, b) return (a.created_at_ms or 0) > (b.created_at_ms or 0) end)
+        local max_tx = 100
+        lines[#lines + 1] = "\n# All transactions (USD + all keys, newest first)\n"
+        for i = 1, math.min(max_tx, #all_tx) do
+          local tx = all_tx[i]
+          if tx.currency == "USD" then
+            lines[#lines + 1] = string.format("%s -> %s: %s (%s)\n", tx.from_key, tx.to_key, format_usd(tx.amount), tx.description)
+          else
+            lines[#lines + 1] = string.format("%s: %s -> %s: %s\n", tx.currency, tx.from_key, tx.to_key, format_crypto(tx.amount))
+          end
+        end
+        if #all_tx > max_tx then
+          lines[#lines + 1] = string.format("... and %d more\n", #all_tx - max_tx)
         end
 
         return table.concat(lines, ""), 200

@@ -43,6 +43,9 @@ pub struct WalletKey {
 
 const CURRENCIES: &[&str] = &["USD", "BTC", "ETH", "SOL"];
 
+fn player_crypto_vault_key(player_id: Uuid, currency: &str) -> String {
+    format!("player-vault-{}-{}", player_id, currency)
+}
 
 pub struct WalletService {
     pool: PgPool,
@@ -87,59 +90,106 @@ impl WalletService {
         Ok((account.key, token))
     }
 
-    /// Returns balances: USD from Fkebank account, BTC/ETH/SOL as 0 (no player-owned crypto in DB).
+    /// Returns balances: USD from Fkebank account, BTC/ETH/SOL from player crypto vaults (created on first use).
     pub async fn get_balances(&self, player_id: Uuid) -> Result<Vec<WalletBalance>, WalletError> {
         let account = self.fkebank.get_by_owner("player", player_id).await.ok();
         let usd_balance = account.as_ref().map(|a| a.balance).unwrap_or(0);
-        Ok(CURRENCIES
-            .iter()
-            .map(|c| WalletBalance {
+        let mut out = Vec::with_capacity(CURRENCIES.len());
+        for c in CURRENCIES {
+            let balance = if *c == "USD" {
+                usd_balance
+            } else {
+                let key = player_crypto_vault_key(player_id, c);
+                let _ = self.crypto.register(&key, None, c).await?;
+                self.crypto.get_balance(&key).await.unwrap_or(0)
+            };
+            out.push(WalletBalance {
                 currency: (*c).to_string(),
-                balance: if *c == "USD" { usd_balance } else { 0 },
-            })
-            .collect())
+                balance,
+            });
+        }
+        Ok(out)
     }
 
-    /// Returns transactions for the player's USD account (key-based history).
+    /// Returns all wallet transactions (USD + BTC/ETH/SOL) for the player, newest first.
     pub async fn get_transactions(
         &self,
         player_id: Uuid,
         filter: &str,
     ) -> Result<Vec<WalletTransaction>, WalletError> {
         let account = self.fkebank.get_by_owner("player", player_id).await?;
-        let key = &account.key;
-        let rows = self.fkebank.history_by_key(key, None, filter).await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| {
-                let tx_type = if r.to_key == *key && r.from_key == "system" {
+        let usd_key = account.key.clone();
+
+        let mut out: Vec<WalletTransaction> = Vec::new();
+
+        // USD: Fkebank history
+        let usd_rows = self.fkebank.history_by_key(&usd_key, None, filter).await?;
+        for r in usd_rows {
+            let tx_type = if r.to_key == usd_key && r.from_key == "system" {
+                "credit"
+            } else if r.from_key == usd_key && r.to_key == "system" {
+                "debit"
+            } else if r.to_key == usd_key {
+                "transfer_in"
+            } else {
+                "transfer_out"
+            };
+            out.push(WalletTransaction {
+                id: r.id,
+                player_id,
+                tx_type: tx_type.to_string(),
+                currency: r.currency,
+                amount: r.amount,
+                fee: r.fee,
+                description: r.description,
+                counterpart_address: Some(if r.to_key == usd_key {
+                    r.from_key
+                } else {
+                    r.to_key
+                }),
+                counterpart_player_id: None,
+                related_transaction_id: None,
+                created_at: r.created_at,
+            });
+        }
+
+        // Crypto: history for each vault address
+        for currency in &["BTC", "ETH", "SOL"] {
+            let vault_key = player_crypto_vault_key(player_id, currency);
+            let _ = self.crypto.register(&vault_key, None, currency).await?;
+            let rows = self.crypto.history_by_address(&vault_key, filter).await?;
+            for r in rows {
+                let tx_type = if r.to_key == vault_key && r.from_key == "system" {
                     "credit"
-                } else if r.from_key == *key && r.to_key == "system" {
+                } else if r.from_key == vault_key && r.to_key == "system" {
                     "debit"
-                } else if r.to_key == *key {
+                } else if r.to_key == vault_key {
                     "transfer_in"
                 } else {
                     "transfer_out"
                 };
-                WalletTransaction {
+                out.push(WalletTransaction {
                     id: r.id,
                     player_id,
                     tx_type: tx_type.to_string(),
-                    currency: r.currency,
+                    currency: r.currency.clone(),
                     amount: r.amount,
                     fee: r.fee,
                     description: r.description,
-                    counterpart_address: Some(if r.to_key == *key {
-                        r.from_key.clone()
+                    counterpart_address: Some(if r.to_key == vault_key {
+                        r.from_key
                     } else {
-                        r.to_key.clone()
+                        r.to_key
                     }),
                     counterpart_player_id: None,
                     related_transaction_id: None,
                     created_at: r.created_at,
-                }
-            })
-            .collect())
+                });
+            }
+        }
+
+        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(out)
     }
 
     pub async fn credit(
@@ -170,7 +220,7 @@ impl WalletService {
         self.fkebank.debit(&account.key, amount, description).await
     }
 
-    /// Transfer to address. If address is a Fkebank key, internal transfer; else external debit.
+    /// Transfer to address. USD: Fkebank internal or external debit. Crypto: debit player vault, credit target address.
     pub async fn transfer_to_address(
         &self,
         player_id: Uuid,
@@ -178,28 +228,49 @@ impl WalletService {
         currency: &str,
         amount: i64,
     ) -> Result<(), WalletError> {
-        if currency != "USD" {
+        let target = target_address.trim();
+        if target.is_empty() {
             return Err(WalletError::InvalidCurrency);
         }
-        let account = self.fkebank.get_by_owner("player", player_id).await?;
-        let from_key = account.key.as_str();
-        if from_key == target_address {
-            return Err(WalletError::InvalidCurrency);
+        if amount <= 0 {
+            return Err(WalletError::InsufficientBalance);
         }
-        if let Some(to_acc) = self.fkebank.get_by_key(target_address).await? {
-            self.fkebank.transfer(from_key, &to_acc.key, amount, None).await
-        } else {
-            // External: debit and record with to_key = target so it shows as transfer_out
-            self.fkebank
-                .debit_to_key(from_key, amount, "External transfer", target_address)
+        if currency == "USD" {
+            let account = self.fkebank.get_by_owner("player", player_id).await?;
+            let from_key = account.key.as_str();
+            if from_key == target {
+                return Err(WalletError::InvalidCurrency);
+            }
+            if let Some(to_acc) = self.fkebank.get_by_key(target).await? {
+                self.fkebank.transfer(from_key, &to_acc.key, amount, None).await
+            } else {
+                self.fkebank
+                    .debit_to_key(from_key, amount, "External transfer", target)
+                    .await
+            }
+        } else if CURRENCIES.contains(&currency) && currency != "USD" {
+            // Crypto: debit from player vault, credit to target in one atomic transaction
+            let from_key = player_crypto_vault_key(player_id, currency);
+            if from_key == target {
+                return Err(WalletError::InvalidCurrency);
+            }
+            let _ = self.crypto.register(&from_key, None, currency).await?;
+            let balance = self.crypto.get_balance(&from_key).await.unwrap_or(0);
+            if balance < amount {
+                return Err(WalletError::InsufficientBalance);
+            }
+            self.crypto
+                .transfer_atomic(currency, &from_key, target, amount, "Transfer")
                 .await
+        } else {
+            Err(WalletError::InvalidCurrency)
         }
     }
 
-    /// Convert: only same-currency (no-op) or USD->USD supported for now.
+    /// Convert between currencies. Same-currency is a no-op. Cross-currency debits from_currency and credits to_currency at simulator rate.
     pub async fn convert(
         &self,
-        _player_id: Uuid,
+        player_id: Uuid,
         from_currency: &str,
         to_currency: &str,
         amount: i64,
@@ -210,11 +281,44 @@ impl WalletService {
         let out_amount =
             convert_amount(amount, from_currency, to_currency).ok_or(WalletError::InvalidCurrency)?;
         if out_amount == 0 {
+            return Err(WalletError::ConvertedAmountTooSmall);
+        }
+        // Check balance for from_currency
+        let from_balance = if from_currency == "USD" {
+            let account = self.fkebank.get_by_owner("player", player_id).await?;
+            account.balance
+        } else {
+            let key = player_crypto_vault_key(player_id, from_currency);
+            let _ = self.crypto.register(&key, None, from_currency).await;
+            self.crypto.get_balance(&key).await.unwrap_or(0)
+        };
+        if from_balance < amount {
             return Err(WalletError::InsufficientBalance);
         }
-        // Only USD operations via Fkebank; cross-currency (USD<->crypto) would need target crypto address
-        if from_currency != "USD" || to_currency != "USD" {
-            return Err(WalletError::InvalidCurrency);
+        // Debit from_currency
+        if from_currency == "USD" {
+            let account = self.fkebank.get_by_owner("player", player_id).await?;
+            self.fkebank
+                .debit(&account.key, amount, "Convert")
+                .await?;
+        } else {
+            let key = player_crypto_vault_key(player_id, from_currency);
+            self.crypto
+                .debit(from_currency, &key, amount, "Convert")
+                .await?;
+        }
+        // Credit to_currency
+        if to_currency == "USD" {
+            let account = self.fkebank.get_by_owner("player", player_id).await?;
+            self.fkebank
+                .credit(&account.key, out_amount, "Convert")
+                .await?;
+        } else {
+            let key = player_crypto_vault_key(player_id, to_currency);
+            let _ = self.crypto.register(&key, None, to_currency).await;
+            self.crypto
+                .credit(to_currency, &key, out_amount, "Convert", "system")
+                .await?;
         }
         Ok(out_amount)
     }
@@ -441,15 +545,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_convert_cross_currency_invalid_for_now() {
+    async fn test_convert_cross_currency_succeeds() {
         let pool = test_pool().await;
         let player_id = create_test_player(&pool).await;
         let ws = WalletService::new(pool.clone());
 
         ws.create_wallet_for_player(player_id).await.unwrap();
         ws.credit(player_id, "USD", 10000, "seed").await.unwrap();
-        let res = ws.convert(player_id, "USD", "BTC", 10000).await;
-        assert!(matches!(res, Err(WalletError::InvalidCurrency)));
+        let out = ws.convert(player_id, "USD", "BTC", 10000).await.unwrap();
+        assert_eq!(out, 40); // 10000 USD cents at 250 USD per BTC -> 40 BTC cents
+        let balances = ws.get_balances(player_id).await.unwrap();
+        assert_eq!(
+            balances.iter().find(|b| b.currency == "USD").unwrap().balance,
+            0
+        );
+        assert_eq!(
+            balances.iter().find(|b| b.currency == "BTC").unwrap().balance,
+            40
+        );
     }
 
     #[tokio::test]
@@ -564,15 +677,128 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_transfer_to_address_non_usd_fails() {
+    async fn test_transfer_invalid_currency_fails() {
         let pool = test_pool().await;
         let player_id = create_test_player(&pool).await;
         let ws = WalletService::new(pool.clone());
 
         ws.create_wallet_for_player(player_id).await.unwrap();
         ws.credit(player_id, "USD", 1000, "seed").await.unwrap();
-        let res = ws.transfer_to_address(player_id, "fkebank-somekey", "BTC", 100).await;
+        let res = ws.transfer_to_address(player_id, "fkebank-somekey", "XYZ", 100).await;
         assert!(matches!(res, Err(WalletError::InvalidCurrency)));
+    }
+
+    #[tokio::test]
+    async fn test_transfer_btc_succeeds() {
+        let pool = test_pool().await;
+        let player_id = create_test_player(&pool).await;
+        let ws = WalletService::new(pool.clone());
+
+        ws.create_wallet_for_player(player_id).await.unwrap();
+        ws.credit(player_id, "USD", 10000, "seed").await.unwrap();
+        ws.convert(player_id, "USD", "BTC", 10000).await.unwrap(); // 40 BTC cents
+        let target_btc = generate_btc_address();
+        ws.transfer_to_address(player_id, &target_btc, "BTC", 20).await.unwrap();
+
+        let balances = ws.get_balances(player_id).await.unwrap();
+        assert_eq!(balances.iter().find(|b| b.currency == "BTC").unwrap().balance, 20);
+        let recipient_balance = ws.crypto_service().get_balance(&target_btc).await.unwrap();
+        assert_eq!(recipient_balance, 20);
+    }
+
+    #[tokio::test]
+    async fn test_transfer_eth_succeeds() {
+        let pool = test_pool().await;
+        let player_id = create_test_player(&pool).await;
+        let ws = WalletService::new(pool.clone());
+
+        ws.create_wallet_for_player(player_id).await.unwrap();
+        ws.credit(player_id, "USD", 10000, "seed").await.unwrap();
+        ws.convert(player_id, "USD", "ETH", 10000).await.unwrap();
+        let target_eth = generate_eth_address();
+        ws.transfer_to_address(player_id, &target_eth, "ETH", 100).await.unwrap();
+
+        let balances = ws.get_balances(player_id).await.unwrap();
+        let eth_bal = balances.iter().find(|b| b.currency == "ETH").unwrap().balance;
+        assert_eq!(eth_bal, 400); // 500 - 100 at rate 20 USD/cent = 500 ETH cents, minus 100
+        let recipient_balance = ws.crypto_service().get_balance(&target_eth).await.unwrap();
+        assert_eq!(recipient_balance, 100);
+    }
+
+    #[tokio::test]
+    async fn test_transfer_sol_succeeds() {
+        let pool = test_pool().await;
+        let player_id = create_test_player(&pool).await;
+        let ws = WalletService::new(pool.clone());
+
+        ws.create_wallet_for_player(player_id).await.unwrap();
+        ws.credit(player_id, "USD", 10000, "seed").await.unwrap();
+        ws.convert(player_id, "USD", "SOL", 10000).await.unwrap();
+        let target_sol = generate_sol_address();
+        ws.transfer_to_address(player_id, &target_sol, "SOL", 200).await.unwrap();
+
+        let balances = ws.get_balances(player_id).await.unwrap();
+        let sol_bal = balances.iter().find(|b| b.currency == "SOL").unwrap().balance;
+        assert_eq!(sol_bal, 9800); // 10000 SOL cents at rate 1, minus 200
+        let recipient_balance = ws.crypto_service().get_balance(&target_sol).await.unwrap();
+        assert_eq!(recipient_balance, 200);
+    }
+
+    #[tokio::test]
+    async fn test_transfer_crypto_to_self_fails() {
+        let pool = test_pool().await;
+        let player_id = create_test_player(&pool).await;
+        let ws = WalletService::new(pool.clone());
+
+        ws.create_wallet_for_player(player_id).await.unwrap();
+        ws.credit(player_id, "USD", 10000, "seed").await.unwrap();
+        ws.convert(player_id, "USD", "BTC", 5000).await.unwrap();
+        let vault_key = format!("player-vault-{}-BTC", player_id);
+        let res = ws.transfer_to_address(player_id, &vault_key, "BTC", 10).await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_transfer_all_currencies_between_players() {
+        let pool = test_pool().await;
+        let ps = PlayerService::new(pool.clone());
+        let ws = WalletService::new(pool.clone());
+
+        let p_a = ps.create_player(&unique_username(), "pw").await.unwrap();
+        let p_b = ps.create_player(&unique_username(), "pw").await.unwrap();
+        ws.create_wallet_for_player(p_a.id).await.unwrap();
+        ws.create_wallet_for_player(p_b.id).await.unwrap();
+
+        // Seed A with 110 USD; convert 50/30/30 to BTC/ETH/SOL so 10 USD remains
+        ws.credit(p_a.id, "USD", 110_00, "seed").await.unwrap();
+        ws.convert(p_a.id, "USD", "BTC", 50_00).await.unwrap();   // 20 BTC cents, 60 USD left
+        ws.convert(p_a.id, "USD", "ETH", 30_00).await.unwrap();   // 150 ETH cents, 30 USD left
+        ws.convert(p_a.id, "USD", "SOL", 20_00).await.unwrap();   // 2000 SOL cents, 10 USD left
+
+        let keys_b = ws.get_keys(p_b.id).await.unwrap();
+        let addr_usd_b = &keys_b[0].key_address;
+        let addr_btc_b = generate_btc_address();
+        let addr_eth_b = generate_eth_address();
+        let addr_sol_b = generate_sol_address();
+
+        // USD: A -> B (internal Fkebank)
+        ws.transfer_to_address(p_a.id, addr_usd_b, "USD", 10_00).await.unwrap();
+        // BTC: A -> B address
+        ws.transfer_to_address(p_a.id, &addr_btc_b, "BTC", 5).await.unwrap();
+        // ETH: A -> B address
+        ws.transfer_to_address(p_a.id, &addr_eth_b, "ETH", 50).await.unwrap();
+        // SOL: A -> B address
+        ws.transfer_to_address(p_a.id, &addr_sol_b, "SOL", 50).await.unwrap();
+
+        let bal_a = ws.get_balances(p_a.id).await.unwrap();
+        let bal_b = ws.get_balances(p_b.id).await.unwrap();
+
+        assert_eq!(bal_a.iter().find(|b| b.currency == "USD").unwrap().balance, 0);
+        assert_eq!(bal_b.iter().find(|b| b.currency == "USD").unwrap().balance, 10_00);
+
+        assert_eq!(ws.crypto_service().get_balance(&addr_btc_b).await.unwrap(), 5);
+        assert_eq!(ws.crypto_service().get_balance(&addr_eth_b).await.unwrap(), 50);
+        assert_eq!(ws.crypto_service().get_balance(&addr_sol_b).await.unwrap(), 50);
     }
 
     #[tokio::test]

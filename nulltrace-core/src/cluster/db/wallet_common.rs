@@ -8,6 +8,8 @@ pub enum WalletError {
     InsufficientBalance,
     InvalidCurrency,
     CardLimitExceeded,
+    /// Conversion result rounded to zero (amount too small for the rate).
+    ConvertedAmountTooSmall,
 }
 
 impl From<sqlx::Error> for WalletError {
@@ -23,6 +25,7 @@ impl std::fmt::Display for WalletError {
             WalletError::InsufficientBalance => write!(f, "Insufficient balance"),
             WalletError::InvalidCurrency => write!(f, "Invalid currency"),
             WalletError::CardLimitExceeded => write!(f, "Card credit limit exceeded"),
+            WalletError::ConvertedAmountTooSmall => write!(f, "Converted amount is zero or too small"),
         }
     }
 }

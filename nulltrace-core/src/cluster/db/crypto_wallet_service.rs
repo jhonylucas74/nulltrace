@@ -170,6 +170,136 @@ impl CryptoWalletService {
         Ok(())
     }
 
+    /// Debit from address (e.g. for convert: player vault → system). Deducts balance and records transaction.
+    pub async fn debit(
+        &self,
+        currency: &str,
+        key_address: &str,
+        amount: i64,
+        description: &str,
+    ) -> Result<(), WalletError> {
+        if !CRYPTO_CURRENCIES.contains(&currency) {
+            return Err(WalletError::InvalidCurrency);
+        }
+        let updated = sqlx::query(
+            r#"
+            UPDATE crypto_wallets SET balance = balance - $1
+            WHERE key_address = $2 AND currency = $3 AND balance >= $1
+            "#,
+        )
+        .bind(amount)
+        .bind(key_address)
+        .bind(currency)
+        .execute(&self.pool)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(WalletError::InsufficientBalance);
+        }
+        self.insert_tx(currency, amount, 0, description, key_address, "system", None)
+            .await?;
+        Ok(())
+    }
+
+    /// Debit from_address and credit to_address in a single DB transaction so no funds are lost on partial failure.
+    pub async fn transfer_atomic(
+        &self,
+        currency: &str,
+        from_key: &str,
+        to_key: &str,
+        amount: i64,
+        description: &str,
+    ) -> Result<(), WalletError> {
+        if !CRYPTO_CURRENCIES.contains(&currency) {
+            return Err(WalletError::InvalidCurrency);
+        }
+        if from_key == to_key {
+            return Err(WalletError::InvalidCurrency);
+        }
+        let mut tx = self.pool.begin().await.map_err(WalletError::Db)?;
+
+        // Debit sender
+        let deducted = sqlx::query(
+            r#"
+            UPDATE crypto_wallets SET balance = balance - $1
+            WHERE key_address = $2 AND currency = $3 AND balance >= $1
+            "#,
+        )
+        .bind(amount)
+        .bind(from_key)
+        .bind(currency)
+        .execute(&mut *tx)
+        .await?;
+        if deducted.rows_affected() == 0 {
+            tx.rollback().await.map_err(WalletError::Db)?;
+            return Err(WalletError::InsufficientBalance);
+        }
+        sqlx::query(
+            r#"
+            INSERT INTO wallet_transactions (id, currency, amount, fee, description, from_key, to_key, counterpart_key, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(currency)
+        .bind(amount)
+        .bind(0_i64)
+        .bind(description)
+        .bind(from_key)
+        .bind("system")
+        .bind(None::<String>)
+        .execute(&mut *tx)
+        .await?;
+
+        // Ensure recipient wallet exists, then credit
+        let exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM crypto_wallets WHERE key_address = $1)",
+        )
+        .bind(to_key)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !exists {
+            let id = Uuid::new_v4();
+            sqlx::query(
+                r#"
+                INSERT INTO crypto_wallets (id, key_address, public_key, currency, balance, created_at)
+                VALUES ($1, $2, NULL, $3, 0, now())
+                ON CONFLICT (key_address) DO NOTHING
+                "#,
+            )
+            .bind(id)
+            .bind(to_key)
+            .bind(currency)
+            .execute(&mut *tx)
+            .await?;
+        }
+        let _ = sqlx::query(
+            "UPDATE crypto_wallets SET balance = balance + $1 WHERE key_address = $2",
+        )
+        .bind(amount)
+        .bind(to_key)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"
+            INSERT INTO wallet_transactions (id, currency, amount, fee, description, from_key, to_key, counterpart_key, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(currency)
+        .bind(amount)
+        .bind(0_i64)
+        .bind(description)
+        .bind(from_key)
+        .bind(to_key)
+        .bind(None::<String>)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await.map_err(WalletError::Db)?;
+        Ok(())
+    }
+
     /// Debit from address. Caller must prove ownership via private_key_content (verified that it matches from_address).
     /// For now we only check that from_address exists and has sufficient balance; proper crypto verification can be added.
     pub async fn transfer(
@@ -254,6 +384,7 @@ impl CryptoWalletService {
         .await?;
         Ok(())
     }
+
 }
 
 #[cfg(test)]

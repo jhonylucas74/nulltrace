@@ -114,8 +114,10 @@ interface WalletContextValue {
   isLoading: boolean;
   /** Get formatted display balance for a symbol. */
   getFormattedBalance: (symbol: string) => string;
-  /** Transfer funds. Returns error string or null on success. */
-  transfer: (currency: string, amountCents: number, recipientKey: string) => Promise<string | null>;
+  /** Transfer funds. When targetCurrency is provided and differs from currency, converts then transfers. Returns error string or null on success. */
+  transfer: (currency: string, amountCents: number, recipientKey: string, targetCurrency?: string) => Promise<string | null>;
+  /** Resolve transfer key/address. Returns { is_valid, is_usd, account_holder_name, target_currency }. */
+  resolveTransferKey: (key: string) => Promise<{ is_valid: boolean; is_usd: boolean; account_holder_name: string; target_currency: string }>;
   /** Convert funds. Returns error string or null on success. */
   convert: (fromSymbol: string, toSymbol: string, amountCents: number) => Promise<string | null>;
   /** Pay credit card bill. Returns error string or null on success. */
@@ -245,20 +247,91 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   // ── Mutations ───────────────────────────────────────────────────────────────
 
   const transfer = useCallback(
-    async (currency: string, amountCents: number, recipientKey: string): Promise<string | null> => {
+    async (currency: string, amountCents: number, recipientKey: string, targetCurrency?: string): Promise<string | null> => {
       const tok = tokenRef.current;
       if (!tok) return "Not authenticated";
-      try {
-        const res = await grpc.transferFunds(tok, recipientKey, currency, amountCents);
+      const doTransfer = async (curr: string, amount: number) => {
+        const res = await grpc.transferFunds(tok!, recipientKey, curr, amount);
         if (!res.success) return res.error_message || "Transfer failed";
+        return null;
+      };
+      try {
+        if (targetCurrency && targetCurrency !== "" && targetCurrency !== currency && ["USD", "BTC", "ETH", "SOL"].includes(targetCurrency)) {
+          const convertRes = await grpc.convertFunds(tok, currency, targetCurrency, amountCents);
+          if (!convertRes.success) {
+            const msg = convertRes.error_message || "Conversion failed";
+            console.error("[Wallet] transfer cross-currency convert failed:", {
+              currency,
+              targetCurrency,
+              amountCents,
+              recipientKeyPrefix: recipientKey.slice(0, 20) + (recipientKey.length > 20 ? "…" : ""),
+              error: msg,
+            });
+            return msg;
+          }
+          if (convertRes.converted_amount <= 0) {
+            console.error("[Wallet] transfer cross-currency converted amount too small:", {
+              currency,
+              targetCurrency,
+              amountCents,
+              converted_amount: convertRes.converted_amount,
+            });
+            return "CONVERTED_AMOUNT_TOO_SMALL";
+          }
+          const err = await doTransfer(targetCurrency, convertRes.converted_amount);
+          if (err) {
+            console.error("[Wallet] transfer cross-currency transfer failed:", {
+              currency,
+              targetCurrency,
+              amountCents,
+              converted_amount: convertRes.converted_amount,
+              recipientKeyPrefix: recipientKey.slice(0, 20) + (recipientKey.length > 20 ? "…" : ""),
+              error: err,
+            });
+            return err;
+          }
+        } else {
+          const err = await doTransfer(currency, amountCents);
+          if (err) {
+            console.error("[Wallet] transfer same-currency failed:", {
+              currency,
+              amountCents,
+              recipientKeyPrefix: recipientKey.slice(0, 20) + (recipientKey.length > 20 ? "…" : ""),
+              error: err,
+            });
+            return err;
+          }
+        }
         await refreshBalances();
         await fetchTransactions("all");
         return null;
       } catch (e) {
-        return String(e);
+        const msg = String(e);
+        console.error("[Wallet] transfer exception:", {
+          currency,
+          targetCurrency: targetCurrency ?? "(same)",
+          amountCents,
+          recipientKeyPrefix: recipientKey.slice(0, 20) + (recipientKey.length > 20 ? "…" : ""),
+          error: msg,
+          stack: e instanceof Error ? e.stack : undefined,
+        });
+        return msg;
       }
     },
     [grpc, refreshBalances, fetchTransactions]
+  );
+
+  const resolveTransferKey = useCallback(
+    async (key: string): Promise<{ is_valid: boolean; is_usd: boolean; account_holder_name: string; target_currency: string }> => {
+      const tok = tokenRef.current;
+      if (!tok || !key.trim()) return { is_valid: false, is_usd: false, account_holder_name: "", target_currency: "" };
+      try {
+        return await grpc.resolveTransferKey(tok, key.trim());
+      } catch {
+        return { is_valid: false, is_usd: false, account_holder_name: "", target_currency: "" };
+      }
+    },
+    [grpc]
   );
 
   const convert = useCallback(
@@ -364,6 +437,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       getFormattedBalance,
       transfer,
+      resolveTransferKey,
       convert,
       payBill,
       pay,
