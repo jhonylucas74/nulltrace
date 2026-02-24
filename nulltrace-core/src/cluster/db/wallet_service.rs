@@ -241,13 +241,12 @@ impl WalletService {
             if from_key == target {
                 return Err(WalletError::InvalidCurrency);
             }
-            if let Some(to_acc) = self.fkebank.get_by_key(target).await? {
-                self.fkebank.transfer(from_key, &to_acc.key, amount, None).await
-            } else {
-                self.fkebank
-                    .debit_to_key(from_key, amount, "External transfer", target)
-                    .await
-            }
+            let to_acc = self
+                .fkebank
+                .get_by_key(target)
+                .await?
+                .ok_or(WalletError::RecipientNotFound)?;
+            self.fkebank.transfer(from_key, &to_acc.key, amount, None).await
         } else if CURRENCIES.contains(&currency) && currency != "USD" {
             // Crypto: debit from player vault, credit to target in one atomic transaction
             let from_key = player_crypto_vault_key(player_id, currency);
@@ -268,6 +267,7 @@ impl WalletService {
     }
 
     /// Convert between currencies. Same-currency is a no-op. Cross-currency debits from_currency and credits to_currency at simulator rate.
+    /// Debit and credit run in a single DB transaction so no value is lost on partial failure.
     pub async fn convert(
         &self,
         player_id: Uuid,
@@ -283,43 +283,49 @@ impl WalletService {
         if out_amount == 0 {
             return Err(WalletError::ConvertedAmountTooSmall);
         }
+        // Resolve keys before starting the transaction
+        let from_key = if from_currency == "USD" {
+            self.fkebank.get_by_owner("player", player_id).await?.key
+        } else {
+            player_crypto_vault_key(player_id, from_currency)
+        };
+        let to_key = if to_currency == "USD" {
+            self.fkebank.get_by_owner("player", player_id).await?.key
+        } else {
+            player_crypto_vault_key(player_id, to_currency)
+        };
         // Check balance for from_currency
         let from_balance = if from_currency == "USD" {
-            let account = self.fkebank.get_by_owner("player", player_id).await?;
-            account.balance
+            self.fkebank.get_by_owner("player", player_id).await?.balance
         } else {
-            let key = player_crypto_vault_key(player_id, from_currency);
-            let _ = self.crypto.register(&key, None, from_currency).await;
-            self.crypto.get_balance(&key).await.unwrap_or(0)
+            let _ = self.crypto.register(&from_key, None, from_currency).await;
+            self.crypto.get_balance(&from_key).await.unwrap_or(0)
         };
         if from_balance < amount {
             return Err(WalletError::InsufficientBalance);
         }
-        // Debit from_currency
+        let mut tx = self.pool.begin().await?;
+        // Debit from_currency (same tx)
         if from_currency == "USD" {
-            let account = self.fkebank.get_by_owner("player", player_id).await?;
             self.fkebank
-                .debit(&account.key, amount, "Convert")
+                .debit_on_tx(&mut tx, &from_key, amount, "Convert")
                 .await?;
         } else {
-            let key = player_crypto_vault_key(player_id, from_currency);
             self.crypto
-                .debit(from_currency, &key, amount, "Convert")
+                .debit_on_tx(&mut tx, from_currency, &from_key, amount, "Convert")
                 .await?;
         }
-        // Credit to_currency
+        // Credit to_currency (same tx; rollback on error)
         if to_currency == "USD" {
-            let account = self.fkebank.get_by_owner("player", player_id).await?;
             self.fkebank
-                .credit(&account.key, out_amount, "Convert")
+                .credit_on_tx(&mut tx, &to_key, out_amount, "Convert")
                 .await?;
         } else {
-            let key = player_crypto_vault_key(player_id, to_currency);
-            let _ = self.crypto.register(&key, None, to_currency).await;
             self.crypto
-                .credit(to_currency, &key, out_amount, "Convert", "system")
+                .credit_on_tx(&mut tx, to_currency, &to_key, out_amount, "Convert", "system")
                 .await?;
         }
+        tx.commit().await?;
         Ok(out_amount)
     }
 
@@ -466,7 +472,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_transfer_to_external_address() {
+    async fn test_transfer_usd_to_nonexistent_recipient_fails() {
+        // USD transfer only to keys that exist in fkebank; no external debit (money must not disappear).
         let pool = test_pool().await;
         let player_id = create_test_player(&pool).await;
         let ws = WalletService::new(pool.clone());
@@ -474,16 +481,12 @@ mod tests {
         ws.create_wallet_for_player(player_id).await.unwrap();
         ws.credit(player_id, "USD", 5000, "seed").await.unwrap();
 
-        ws.transfer_to_address(player_id, "external-fkebank-deadbeef", "USD", 1000)
-            .await
-            .unwrap();
+        let res = ws.transfer_to_address(player_id, "external-fkebank-deadbeef", "USD", 1000).await;
+        assert!(matches!(res, Err(WalletError::RecipientNotFound)));
 
         let balances = ws.get_balances(player_id).await.unwrap();
         let usd = balances.iter().find(|b| b.currency == "USD").unwrap();
-        assert_eq!(usd.balance, 4000);
-
-        let txs = ws.get_transactions(player_id, "all").await.unwrap();
-        assert!(txs.iter().any(|t| t.tx_type == "transfer_out" && t.amount == 1000));
+        assert_eq!(usd.balance, 5000); // unchanged
     }
 
     #[tokio::test]

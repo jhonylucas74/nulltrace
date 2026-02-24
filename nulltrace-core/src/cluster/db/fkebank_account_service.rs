@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use chrono::{DateTime, Duration, Utc};
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgPool, Transaction};
 use uuid::Uuid;
 
 use super::wallet_common::{generate_fkebank_key, WalletError};
@@ -227,14 +227,18 @@ impl FkebankAccountService {
             tx.rollback().await?;
             return Err(WalletError::InsufficientBalance);
         }
-        // Credit to_key if it's a fkebank account; otherwise external (still debit from_key)
-        let _ = sqlx::query(
+        // Credit to_key; if recipient does not exist, rollback so money is never lost.
+        let credited = sqlx::query(
             "UPDATE fkebank_accounts SET balance = balance + $1, updated_at = now() WHERE key = $2",
         )
         .bind(amount)
         .bind(to_key)
         .execute(&mut *tx)
         .await?;
+        if credited.rows_affected() != 1 {
+            tx.rollback().await?;
+            return Err(WalletError::RecipientNotFound);
+        }
         self.insert_transaction_tx(&mut *tx, "USD", amount, 0, "Transfer", from_key, to_key, Some(to_key.to_string())).await?;
         tx.commit().await?;
         Ok(())
@@ -296,6 +300,54 @@ impl FkebankAccountService {
         .bind(counterpart_key)
         .execute(tx)
         .await?;
+        Ok(())
+    }
+
+    /// Debit key within an existing transaction (for atomic convert). Caller commits or rolls back.
+    pub async fn debit_on_tx(
+        &self,
+        tx: &mut Transaction<'_, sqlx::Postgres>,
+        key: &str,
+        amount: i64,
+        description: &str,
+    ) -> Result<(), WalletError> {
+        let updated = sqlx::query(
+            r#"
+            UPDATE fkebank_accounts SET balance = balance - $1, updated_at = now()
+            WHERE key = $2 AND balance >= $1
+            "#,
+        )
+        .bind(amount)
+        .bind(key)
+        .execute(&mut **tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(WalletError::InsufficientBalance);
+        }
+        self.insert_transaction_tx(&mut **tx, "USD", amount, 0, description, key, "system", Some("system".to_string()))
+            .await?;
+        Ok(())
+    }
+
+    /// Credit key within an existing transaction (for atomic convert). Caller commits or rolls back.
+    pub async fn credit_on_tx(
+        &self,
+        tx: &mut Transaction<'_, sqlx::Postgres>,
+        key: &str,
+        amount: i64,
+        description: &str,
+    ) -> Result<(), WalletError> {
+        let updated = sqlx::query(
+            "UPDATE fkebank_accounts SET balance = balance + $1, updated_at = now() WHERE key = $2",
+        )
+        .bind(amount)
+        .bind(key)
+        .execute(&mut **tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(WalletError::InvalidCurrency);
+        }
+        self.insert_transaction_tx(&mut **tx, "USD", amount, 0, description, "system", key, None).await?;
         Ok(())
     }
 
@@ -472,5 +524,22 @@ mod tests {
         svc.credit(&account.key, 1000, "seed").await.unwrap();
         let res = svc.transfer(&account.key, &account.key, 100, None).await;
         assert!(res.is_err());
+    }
+
+    /// Transfer to a key that does not exist: must return error and leave sender balance unchanged.
+    #[tokio::test]
+    async fn test_transfer_to_nonexistent_recipient_fails() {
+        let pool = super::super::test_pool().await;
+        let svc = FkebankAccountService::new(pool);
+        let vm_id = Uuid::new_v4();
+
+        let account = svc.create_account_for_owner("vm", vm_id, None, None).await.unwrap();
+        svc.credit(&account.key, 5000, "seed").await.unwrap();
+
+        let res = svc.transfer(&account.key, "fkebank-nonexistent-key", 1000, None).await;
+        assert!(matches!(res, Err(super::super::wallet_common::WalletError::RecipientNotFound)));
+
+        let balance = svc.get_balance_by_key(&account.key).await.unwrap();
+        assert_eq!(balance, 5000);
     }
 }

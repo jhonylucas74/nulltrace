@@ -2329,6 +2329,7 @@ fn wallet_error_to_status(e: WalletError) -> Status {
         WalletError::ConvertedAmountTooSmall => {
             Status::invalid_argument("Converted amount is zero or too small")
         }
+        WalletError::RecipientNotFound => Status::invalid_argument("Recipient not found"),
         WalletError::Db(db_err) => Status::internal(db_err.to_string()),
     }
 }

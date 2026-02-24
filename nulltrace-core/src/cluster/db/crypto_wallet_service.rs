@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use chrono::{DateTime, Duration, Utc};
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgPool, Transaction};
 use uuid::Uuid;
 
 use super::wallet_common::WalletError;
@@ -382,6 +382,116 @@ impl CryptoWalletService {
         .bind(counterpart_key)
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    async fn insert_tx_on(
+        &self,
+        tx: &mut Transaction<'_, sqlx::Postgres>,
+        currency: &str,
+        amount: i64,
+        fee: i64,
+        description: &str,
+        from_key: &str,
+        to_key: &str,
+        counterpart_key: Option<&str>,
+    ) -> Result<(), WalletError> {
+        sqlx::query(
+            r#"
+            INSERT INTO wallet_transactions (id, currency, amount, fee, description, from_key, to_key, counterpart_key, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(currency)
+        .bind(amount)
+        .bind(fee)
+        .bind(description)
+        .bind(from_key)
+        .bind(to_key)
+        .bind(counterpart_key)
+        .execute(tx.as_mut())
+        .await?;
+        Ok(())
+    }
+
+    /// Debit within an existing transaction (for atomic convert). Caller commits or rolls back.
+    pub async fn debit_on_tx(
+        &self,
+        tx: &mut Transaction<'_, sqlx::Postgres>,
+        currency: &str,
+        key_address: &str,
+        amount: i64,
+        description: &str,
+    ) -> Result<(), WalletError> {
+        if !CRYPTO_CURRENCIES.contains(&currency) {
+            return Err(WalletError::InvalidCurrency);
+        }
+        let updated = sqlx::query(
+            r#"
+            UPDATE crypto_wallets SET balance = balance - $1
+            WHERE key_address = $2 AND currency = $3 AND balance >= $1
+            "#,
+        )
+        .bind(amount)
+        .bind(key_address)
+        .bind(currency)
+        .execute(tx.as_mut())
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(WalletError::InsufficientBalance);
+        }
+        self.insert_tx_on(tx, currency, amount, 0, description, key_address, "system", None)
+            .await?;
+        Ok(())
+    }
+
+    /// Credit within an existing transaction (for atomic convert). Ensures wallet exists in same tx. Caller commits or rolls back.
+    pub async fn credit_on_tx(
+        &self,
+        tx: &mut Transaction<'_, sqlx::Postgres>,
+        currency: &str,
+        key_address: &str,
+        amount: i64,
+        description: &str,
+        from_key: &str,
+    ) -> Result<(), WalletError> {
+        if !CRYPTO_CURRENCIES.contains(&currency) {
+            return Err(WalletError::InvalidCurrency);
+        }
+        let exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM crypto_wallets WHERE key_address = $1)",
+        )
+        .bind(key_address)
+        .fetch_one(tx.as_mut())
+        .await?;
+        if !exists {
+            let id = Uuid::new_v4();
+            sqlx::query(
+                r#"
+                INSERT INTO crypto_wallets (id, key_address, public_key, currency, balance, created_at)
+                VALUES ($1, $2, NULL, $3, 0, now())
+                ON CONFLICT (key_address) DO NOTHING
+                "#,
+            )
+            .bind(id)
+            .bind(key_address)
+            .bind(currency)
+            .execute(tx.as_mut())
+            .await?;
+        }
+        let updated = sqlx::query(
+            "UPDATE crypto_wallets SET balance = balance + $1 WHERE key_address = $2",
+        )
+        .bind(amount)
+        .bind(key_address)
+        .execute(tx.as_mut())
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(WalletError::InvalidCurrency);
+        }
+        self.insert_tx_on(tx, currency, amount, 0, description, from_key, key_address, None)
+            .await?;
         Ok(())
     }
 
