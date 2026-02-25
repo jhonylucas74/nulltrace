@@ -383,16 +383,19 @@ while true do
 end
 "##;
 
-/// Curl: HTTP GET client. Args: [host[:port]/path] or [host] [path]. Connects via net.connect, sends GET, writes raw HTTP response to stdout.
+/// Curl: HTTP client. Args: [host[:port]/path] (GET) or [host[:port]/path] [body] (POST).
+/// Connects via net.connect, sends request, writes raw HTTP response to stdout.
 /// Subject to a 30s process timeout (enforced by run_process hub); on timeout the process is killed and the client receives HTTP 504 Gateway Timeout.
-/// Example: curl ntml.org/robot or curl 10.0.1.5/robot
+/// Example: curl ntml.org/robot or curl card.null/pay "card_number=xxx&cvv=yyy"
 pub const CURL: &str = r#"
 local args = os.get_args()
 if not args or #args < 1 then
-  io.write("curl: usage: curl [host[:port]/path]\n")
+  io.write("curl: usage: curl [host[:port]/path] [body]\n")
   return
 end
 local url = args[1]
+local body = args[2]
+local method = (body and body ~= "") and "POST" or "GET"
 -- Parse host[:port] and path from url (host/path or host:port/path)
 local slash_pos = nil
 for i = 1, #url do
@@ -428,7 +431,7 @@ if not ok or not conn then
   io.write("curl: connection failed\n")
   return
 end
-local req = http.build_request("GET", path, nil)
+local req = http.build_request(method, path, body)
 conn:send(req)
 local resp = nil
 while true do

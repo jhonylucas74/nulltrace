@@ -37,7 +37,18 @@ while true do
       local path_only = http.normalize_request_path(req.path or "/")
       local method = (req.method and req.method:upper()) or "GET"
 
-      if path_only == "/pay" and (method == "POST" or method == "GET") then
+      if path_only == "/scripts/card.lua" and method == "GET" then
+        local ok, script_content = pcall(fs.read, "/var/www/scripts/card.lua")
+        if ok and script_content and script_content ~= "" then
+          body = script_content
+          status = 200
+          headers = { ["Content-Type"] = "text/plain; charset=utf-8" }
+        else
+          body = "# Script not found.\n"
+          status = 404
+          headers = { ["Content-Type"] = "text/plain; charset=utf-8" }
+        end
+      elseif path_only == "/pay" and (method == "POST" or method == "GET") then
         local params
         if method == "POST" and req.body and req.body ~= "" then
           params = parse_form_body(req.body)
@@ -64,7 +75,10 @@ while true do
           else
             local pay_ok, pay_err = pcall(card.pay_invoice, invoice_id, card_number, cvv, expiry_month, expiry_year, holder_name)
             if pay_ok then
-              body = "# Payment successful. $100 charged.\n"
+              local new_total = 0
+              local ok_t, t = pcall(card.total_collected, dest_key)
+              if ok_t and type(t) == "number" then new_total = t end
+              body = "# Payment successful. $100 charged.\nNEW_TOTAL=" .. format_usd(new_total) .. "\n"
               status = 200
             else
               body = "# Payment failed: " .. tostring(pay_err or "unknown") .. "\n"
@@ -81,18 +95,26 @@ while true do
           local ok, t = pcall(card.total_collected, dest_key)
           if ok and type(t) == "number" then total = t end
         end
+        local total_str = format_usd(total)
 
-        local lines = {
-          "# card.null - Pay $100 per invoice\n",
-          "\n",
-          "Total collected: $" .. format_usd(total) .. "\n",
-          "\n",
-          "## Pay $100\n",
-          "POST /pay with form fields: card_number, cvv, expiry_month, expiry_year, holder_name\n",
-        }
-        body = table.concat(lines, "")
-        status = 200
-        headers = { ["Content-Type"] = "text/plain; charset=utf-8" }
+        local ok_ntml, ntml_content = pcall(fs.read, "/var/www/index.ntml")
+        if ok_ntml and ntml_content and ntml_content ~= "" then
+          body = (ntml_content:gsub("{{total}}", total_str))
+          status = 200
+          headers = { ["Content-Type"] = "application/x-ntml" }
+        else
+          local lines = {
+            "# card.null - Pay $100 per invoice\n",
+            "\n",
+            "Total collected: $" .. total_str .. "\n",
+            "\n",
+            "## Pay $100\n",
+            "POST /pay with form fields: card_number, cvv, expiry_month, expiry_year, holder_name\n",
+          }
+          body = table.concat(lines, "")
+          status = 200
+          headers = { ["Content-Type"] = "text/plain; charset=utf-8" }
+        end
       end
     end
 

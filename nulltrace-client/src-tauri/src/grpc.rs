@@ -867,9 +867,8 @@ pub struct RunProcessCommandResponse {
     pub exit_code: i32,
 }
 
-/// Tauri command: Run a VM binary with args, collect full stdout and exit code.
-#[tauri::command]
-pub async fn grpc_run_process(
+/// Internal: run process via gRPC. Used by grpc_run_process (async) and ntml http.post (blocking).
+pub async fn run_process_impl(
     bin_name: String,
     args: Vec<String>,
     token: String,
@@ -914,6 +913,35 @@ pub async fn grpc_run_process(
         }
     }
     Ok(RunProcessCommandResponse { stdout, exit_code })
+}
+
+/// Blocking version for use from sync context (e.g. NTML Lua http.post).
+/// Creates a runtime if the current thread is not inside a Tokio context.
+pub fn run_process_blocking(
+    bin_name: String,
+    args: Vec<String>,
+    token: String,
+) -> Result<RunProcessCommandResponse, String> {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| {
+            handle.block_on(run_process_impl(bin_name, args, token))
+        }),
+        Err(_) => {
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| format!("Failed to create tokio runtime: {}", e))?;
+            rt.block_on(run_process_impl(bin_name, args, token))
+        }
+    }
+}
+
+/// Tauri command: Run a VM binary with args, collect full stdout and exit code.
+#[tauri::command]
+pub async fn grpc_run_process(
+    bin_name: String,
+    args: Vec<String>,
+    token: String,
+) -> Result<RunProcessCommandResponse, String> {
+    run_process_impl(bin_name, args, token).await
 }
 
 /// Tauri command: Read file content from the VM. Returns UTF-8 string content.

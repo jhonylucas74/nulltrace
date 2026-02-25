@@ -6,7 +6,8 @@ use nulltrace_ntml::parse_document;
 use mlua::{Lua, ThreadStatus, VmState};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use uuid::Uuid;
 
 /// Lua heap limit per tab: 1 MB (same as core VM).
 pub const LUA_MEMORY_LIMIT_BYTES: usize = 1024 * 1024;
@@ -38,6 +39,20 @@ pub struct TabImport {
     pub content: String,
 }
 
+/// Network entry from Lua http.post, for DevTools Network tab.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HandlerNetworkEntry {
+    pub origin: String,
+    pub url: String,
+    pub method: String,
+    pub status: Option<u16>,
+    pub duration_ms: Option<u64>,
+    pub content_type: Option<String>,
+    pub size: Option<usize>,
+    pub response: Option<String>,
+    pub timestamp: u64,
+}
+
 /// Per-tab Lua state: Lua runtime, patch queue, base URL, and component tree for ui.get_value.
 pub struct TabLuaState {
     pub lua: Lua,
@@ -55,12 +70,31 @@ pub struct TabLuaState {
     pub form_values: Arc<Mutex<Option<std::collections::HashMap<String, String>>>>,
     /// Captured print() output during handler execution.
     pub print_log: Arc<Mutex<Vec<String>>>,
+    /// Token for current handler run (set before run_handler, used by http.post).
+    pub current_token: Arc<Mutex<Option<String>>>,
+    /// Network entries from http.post during current handler run (for DevTools).
+    pub network_entries: Arc<Mutex<Vec<HandlerNetworkEntry>>>,
 }
 
 /// Global key-value storage: origin → (key → value). Shared across all tabs of same origin.
 pub type BrowserStorageStore = Arc<DashMap<String, std::collections::HashMap<String, String>>>;
 
 pub fn new_browser_storage_store() -> BrowserStorageStore {
+    Arc::new(DashMap::new())
+}
+
+/// Pending card request: stored when Lua calls browser.request_card, consumed when user confirms.
+#[derive(Clone, Debug)]
+pub struct CardRequestPending {
+    pub tab_id: String,
+    pub callback_action: String,
+    pub origin: String,
+}
+
+/// Global store: request_id → CardRequestPending.
+pub type CardRequestStore = Arc<DashMap<String, CardRequestPending>>;
+
+pub fn new_card_request_store() -> CardRequestStore {
     Arc::new(DashMap::new())
 }
 
@@ -81,15 +115,51 @@ pub fn new_tab_state_store() -> TabStateStore {
     DashMap::new()
 }
 
+/// Parses raw HTTP response (from curl stdout) into status and body.
+fn parse_http_response(raw: &str) -> (u16, String) {
+    let status = raw
+        .lines()
+        .next()
+        .and_then(|line| {
+            line.split_whitespace()
+                .nth(1)
+                .and_then(|s| s.parse::<u16>().ok())
+        })
+        .unwrap_or(0);
+    let body = raw
+        .split("\r\n\r\n")
+        .nth(1)
+        .or_else(|| raw.split("\n\n").nth(1))
+        .unwrap_or("")
+        .to_string();
+    (status, body)
+}
+
+/// Extracts Content-Type from raw HTTP response headers.
+fn parse_content_type_from_response(raw: &str) -> Option<String> {
+    let head = raw.split("\r\n\r\n").next().or_else(|| raw.split("\n\n").next())?;
+    for line in head.lines().skip(1) {
+        if line.to_lowercase().starts_with("content-type:") {
+            let value = line.splitn(2, ':').nth(1)?.trim();
+            return Some(value.split(';').next()?.trim().to_string());
+        }
+    }
+    None
+}
+
 /// Creates a Lua state for a tab: sandbox, memory limit, interrupt (core style).
 fn create_tab_lua(
     patches: Arc<Mutex<Vec<Patch>>>,
     _base_url: String,
     form_values: Arc<Mutex<Option<std::collections::HashMap<String, String>>>>,
     print_log: Arc<Mutex<Vec<String>>>,
+    current_token: Arc<Mutex<Option<String>>>,
+    network_entries: Arc<Mutex<Vec<HandlerNetworkEntry>>>,
     storage_store: BrowserStorageStore,
     origin: String,
     user_id: String,
+    tab_id: String,
+    card_request_store: CardRequestStore,
     app: tauri::AppHandle,
 ) -> Result<Lua, mlua::Error> {
     let lua = Lua::new();
@@ -302,6 +372,108 @@ fn create_tab_lua(
 
     lua.globals().set("storage", storage)?;
 
+    // Register http API (post: run curl in VM for in-game URLs)
+    let http_tbl = lua.create_table()?;
+    let ct = current_token.clone();
+    let net_entries = network_entries.clone();
+    http_tbl.set(
+        "post",
+        lua.create_function(move |lua, (url, body): (String, Option<String>)| {
+            let token = ct.lock().unwrap().clone().ok_or_else(|| {
+                mlua::Error::RuntimeError("http.post: no auth token (handler not invoked with token)".to_string())
+            })?;
+            let url_norm = url
+                .trim()
+                .replace("https://", "")
+                .replace("http://", "");
+            let full_url = format!("http://{}", url_norm);
+            let body_str = body.unwrap_or_default();
+            let args = if body_str.is_empty() {
+                vec![url_norm]
+            } else {
+                vec![url_norm, body_str]
+            };
+            let start = std::time::Instant::now();
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            match crate::grpc::run_process_blocking("curl".to_string(), args, token) {
+                Ok(res) => {
+                    let duration_ms = start.elapsed().as_millis() as u64;
+                    let (status, resp_body) = parse_http_response(&res.stdout);
+                    let content_type = parse_content_type_from_response(&res.stdout);
+                    let size = resp_body.len();
+                    let response_preview = if resp_body.len() > 8000 {
+                        resp_body.chars().take(8000).collect::<String>()
+                    } else {
+                        resp_body.clone()
+                    };
+                    net_entries.lock().unwrap().push(HandlerNetworkEntry {
+                        origin: "lua".to_string(),
+                        url: full_url,
+                        method: "POST".to_string(),
+                        status: Some(status),
+                        duration_ms: Some(duration_ms),
+                        content_type: content_type,
+                        size: Some(size),
+                        response: Some(response_preview),
+                        timestamp,
+                    });
+                    let tbl = lua.create_table()?;
+                    tbl.set("status", status)?;
+                    tbl.set("body", resp_body)?;
+                    Ok(mlua::Value::Table(tbl))
+                }
+                Err(e) => {
+                    let duration_ms = start.elapsed().as_millis() as u64;
+                    net_entries.lock().unwrap().push(HandlerNetworkEntry {
+                        origin: "lua".to_string(),
+                        url: full_url,
+                        method: "POST".to_string(),
+                        status: None,
+                        duration_ms: Some(duration_ms),
+                        content_type: None,
+                        size: None,
+                        response: Some(e.clone()),
+                        timestamp,
+                    });
+                    Err(mlua::Error::RuntimeError(format!("http.post failed: {}", e)))
+                }
+            }
+        })?,
+    )?;
+    lua.globals().set("http", http_tbl)?;
+
+    // Register browser API (request_card: show OS modal to pick a saved card)
+    let browser = lua.create_table()?;
+    let tab_id_browser = tab_id.clone();
+    let crs = card_request_store.clone();
+    let app_browser = app.clone();
+    browser.set(
+        "request_card",
+        lua.create_function(move |lua, (origin_arg, callback_action): (String, String)| {
+            let request_id = Uuid::new_v4().to_string();
+            crs.insert(
+                request_id.clone(),
+                CardRequestPending {
+                    tab_id: tab_id_browser.clone(),
+                    callback_action: callback_action.clone(),
+                    origin: origin_arg.clone(),
+                },
+            );
+            let payload = serde_json::json!({
+                "request_id": request_id,
+                "tab_id": tab_id_browser,
+                "origin": origin_arg,
+                "callback_action": callback_action,
+            });
+            let _ = app_browser.emit("ntml:request-card", payload);
+            Ok(mlua::Value::String(lua.create_string(&request_id)?))
+        })?,
+    )?;
+    lua.globals().set("browser", browser)?;
+
     Ok(lua)
 }
 
@@ -323,12 +495,15 @@ pub fn create_tab_state(
     markdown_contents: Vec<(String, String)>,
     storage_store: BrowserStorageStore,
     user_id: String,
+    card_request_store: CardRequestStore,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let patches = Arc::new(Mutex::new(Vec::new()));
     let accumulated_patches = Arc::new(Mutex::new(Vec::new()));
     let form_values = Arc::new(Mutex::new(None));
     let print_log = Arc::new(Mutex::new(Vec::new()));
+    let current_token = Arc::new(Mutex::new(None));
+    let network_entries = Arc::new(Mutex::new(Vec::new()));
     let origin = extract_origin(&base_url);
 
     // Hydrate memory from disk before the Lua state is created (scripts may read storage immediately)
@@ -339,9 +514,13 @@ pub fn create_tab_state(
         base_url.clone(),
         form_values.clone(),
         print_log.clone(),
+        current_token.clone(),
+        network_entries.clone(),
         storage_store,
         origin,
         user_id,
+        tab_id.clone(),
+        card_request_store,
         app,
     )
     .map_err(|e| e.to_string())?;
@@ -370,6 +549,8 @@ pub fn create_tab_state(
             markdown_contents,
             form_values,
             print_log,
+            current_token,
+            network_entries,
         },
     );
     Ok(())
@@ -445,18 +626,24 @@ pub fn render_with_accumulated_patches(
 
 /// Runs a Lua handler by name. Returns collected patches and print output, or error.
 /// Uses timeout (200ms) and instruction yield (core style).
+/// `token` is set for the duration of the handler so http.post can authenticate.
 pub fn run_handler(
     store: &TabStateStore,
     tab_id: &str,
     action: &str,
     form_values: Option<std::collections::HashMap<String, String>>,
     event_data: Option<std::collections::HashMap<String, String>>,
-) -> Result<(Vec<Patch>, Vec<String>), String> {
+    token: Option<String>,
+) -> Result<(Vec<Patch>, Vec<String>, Vec<HandlerNetworkEntry>), String> {
     let state = store
         .get_mut(tab_id)
         .ok_or_else(|| format!("Tab {} not found", tab_id))?;
 
     state.patches.lock().unwrap().clear();
+    state.network_entries.lock().unwrap().clear();
+
+    // Set token for http.post (cleared after handler)
+    *state.current_token.lock().unwrap() = token;
 
     // Build context object (ctx) to pass as first argument to handler (React-style)
     let ctx = state.lua.create_table().map_err(|e| e.to_string())?;
@@ -568,13 +755,15 @@ pub fn run_handler(
 
     let patches = state.patches.lock().unwrap().clone();
 
-    // Drain print_log
+    // Drain print_log and network_entries
     let print_output: Vec<String> = std::mem::take(&mut *state.print_log.lock().unwrap());
+    let network_entries: Vec<HandlerNetworkEntry> = std::mem::take(&mut *state.network_entries.lock().unwrap());
 
-    // Clear form_values after handler
+    // Clear form_values and token after handler
     *state.form_values.lock().unwrap() = None;
+    *state.current_token.lock().unwrap() = None;
 
-    Ok((patches, print_output))
+    Ok((patches, print_output, network_entries))
 }
 
 /// Removes a tab state (call when tab is closed).

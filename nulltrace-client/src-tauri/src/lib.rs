@@ -104,8 +104,9 @@ fn ntml_create_tab_state(
     imports: Vec<ntml_runtime::TabImport>,
     markdown_contents: Option<Vec<NtmlMarkdownPayload>>,
     user_id: String,
-    store: tauri::State<ntml_runtime::TabStateStore>,
+    store: tauri::State<std::sync::Arc<ntml_runtime::TabStateStore>>,
     storage: tauri::State<ntml_runtime::BrowserStorageStore>,
+    card_request_store: tauri::State<ntml_runtime::CardRequestStore>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let md: Vec<(String, String)> = markdown_contents
@@ -114,7 +115,7 @@ fn ntml_create_tab_state(
         .map(|m| (m.src, m.content))
         .collect();
     ntml_runtime::create_tab_state(
-        &store,
+        store.as_ref(),
         tab_id,
         base_url,
         script_sources,
@@ -123,22 +124,34 @@ fn ntml_create_tab_state(
         md,
         (*storage).clone(),
         user_id,
+        (*card_request_store).clone(),
         app,
     )
 }
 
 #[tauri::command]
-fn ntml_run_handler(
+async fn ntml_run_handler(
     tab_id: String,
     action: String,
     form_values: Option<std::collections::HashMap<String, String>>,
     event_data: Option<std::collections::HashMap<String, String>>,
-    store: tauri::State<ntml_runtime::TabStateStore>,
+    token: Option<String>,
+    store: tauri::State<'_, std::sync::Arc<ntml_runtime::TabStateStore>>,
 ) -> Result<ntml_run_handler_result::NtmlRunHandlerResult, String> {
-    let (patches, print_output) =
-        ntml_runtime::run_handler(&store, &tab_id, &action, form_values, event_data)?;
-    let html = ntml_runtime::render_with_accumulated_patches(&store, &tab_id, &patches)?;
-    Ok(ntml_run_handler_result::NtmlRunHandlerResult { patches, html, print_output })
+    let store_clone = store.inner().clone();
+    let tab_id_clone = tab_id.clone();
+    let (patches, print_output, network_entries) = tokio::task::spawn_blocking(move || {
+        ntml_runtime::run_handler(&store_clone, &tab_id_clone, &action, form_values, event_data, token)
+    })
+    .await
+    .map_err(|e| format!("Handler task join error: {}", e))??;
+    let html = ntml_runtime::render_with_accumulated_patches(store.inner().as_ref(), &tab_id, &patches)?;
+    Ok(ntml_run_handler_result::NtmlRunHandlerResult {
+        patches,
+        html,
+        print_output,
+        network_entries,
+    })
 }
 
 mod ntml_run_handler_result {
@@ -149,12 +162,36 @@ mod ntml_run_handler_result {
         pub patches: Vec<crate::ntml_runtime::Patch>,
         pub html: String,
         pub print_output: Vec<String>,
+        pub network_entries: Vec<crate::ntml_runtime::HandlerNetworkEntry>,
     }
 }
 
 #[tauri::command]
-fn ntml_close_tab(tab_id: String, store: tauri::State<ntml_runtime::TabStateStore>) {
-    ntml_runtime::close_tab(&store, &tab_id);
+fn ntml_close_tab(
+    tab_id: String,
+    store: tauri::State<std::sync::Arc<ntml_runtime::TabStateStore>>,
+) {
+    ntml_runtime::close_tab(store.as_ref(), &tab_id);
+}
+
+#[derive(serde::Serialize)]
+struct NtmlSubmitCardSelectionResult {
+    tab_id: String,
+    callback_action: String,
+}
+
+#[tauri::command]
+fn ntml_submit_card_selection(
+    request_id: String,
+    card_request_store: tauri::State<ntml_runtime::CardRequestStore>,
+) -> Result<NtmlSubmitCardSelectionResult, String> {
+    let (_key, pending) = card_request_store
+        .remove(&request_id)
+        .ok_or_else(|| format!("Card request {} not found or already expired", request_id))?;
+    Ok(NtmlSubmitCardSelectionResult {
+        tab_id: pending.tab_id,
+        callback_action: pending.callback_action,
+    })
 }
 
 #[tauri::command]
@@ -237,9 +274,9 @@ fn browser_storage_clear(
 fn ntml_eval_lua(
     tab_id: String,
     code: String,
-    store: tauri::State<ntml_runtime::TabStateStore>,
+    store: tauri::State<std::sync::Arc<ntml_runtime::TabStateStore>>,
 ) -> ntml_runtime::EvalLuaResult {
-    ntml_runtime::eval_lua(&store, &tab_id, &code)
+    ntml_runtime::eval_lua(store.as_ref(), &tab_id, &code)
 }
 
 #[tauri::command]
@@ -254,8 +291,9 @@ pub fn run() {
         .manage(grpc::new_terminal_sessions())
         .manage(grpc::new_process_spy_state())
         .manage(grpc::new_mailbox_connections())
-        .manage(ntml_runtime::new_tab_state_store())
+        .manage(std::sync::Arc::new(ntml_runtime::new_tab_state_store()))
         .manage(ntml_runtime::new_browser_storage_store())
+        .manage(ntml_runtime::new_card_request_store())
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             ntml_to_html,
@@ -263,6 +301,7 @@ pub fn run() {
             ntml_run_handler,
             ntml_close_tab,
             ntml_get_head_resources,
+            ntml_submit_card_selection,
             ntml_eval_lua,
             run_luau,
             browser_storage_get_all,

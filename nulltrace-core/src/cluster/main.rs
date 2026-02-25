@@ -699,9 +699,20 @@ async fn load_game_vms(
         let _ = fs_service.mkdir(vm_id, "/etc/wallet", "root").await;
         let _ = fs_service.mkdir(vm_id, "/etc/wallet/fkebank", "root").await;
         let _ = fs_service.mkdir(vm_id, "/var/www", "root").await;
+        let _ = fs_service.mkdir(vm_id, "/var/www/scripts", "root").await;
 
         let _ = fs_service
             .write_file(vm_id, "/etc/wallet/fkebank/token", token.as_bytes(), Some("text/plain"), "root")
+            .await;
+
+        let card_index_ntml = include_str!("../lua_scripts/card_index.ntml");
+        let _ = fs_service
+            .write_file(vm_id, "/var/www/index.ntml", card_index_ntml.as_bytes(), Some("application/x-ntml"), "root")
+            .await;
+
+        let card_scripts_card_lua = include_str!("../lua_scripts/card_scripts_card.lua");
+        let _ = fs_service
+            .write_file(vm_id, "/var/www/scripts/card.lua", card_scripts_card_lua.as_bytes(), Some("text/plain"), "root")
             .await;
 
         let card_httpd_lua = include_str!("../lua_scripts/card_httpd.lua");
@@ -794,6 +805,15 @@ async fn load_game_vms(
                 println!("[cluster]   money.null: updated money_refund.lua to latest version");
             }
             if active_vm.dns_name.as_deref() == Some("card.null") {
+                let _ = fs_service.mkdir(vm_id, "/var/www/scripts", "root").await;
+                let card_index_ntml = include_str!("../lua_scripts/card_index.ntml");
+                let _ = fs_service
+                    .write_file(vm_id, "/var/www/index.ntml", card_index_ntml.as_bytes(), Some("application/x-ntml"), "root")
+                    .await;
+                let card_scripts_card_lua = include_str!("../lua_scripts/card_scripts_card.lua");
+                let _ = fs_service
+                    .write_file(vm_id, "/var/www/scripts/card.lua", card_scripts_card_lua.as_bytes(), Some("text/plain"), "root")
+                    .await;
                 let card_httpd_lua = include_str!("../lua_scripts/card_httpd.lua");
                 let _ = fs_service
                     .write_file(
@@ -804,7 +824,7 @@ async fn load_game_vms(
                         "root",
                     )
                     .await;
-                println!("[cluster]   card.null: updated card_httpd.lua to latest version");
+                println!("[cluster]   card.null: updated card_httpd.lua, index.ntml, scripts/card.lua to latest version");
             }
         }
 

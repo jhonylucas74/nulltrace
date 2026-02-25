@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { Loader2, Plus, X } from "lucide-react";
 import {
   getPageHtml,
@@ -23,6 +24,8 @@ import {
 import { renderLucideIconToSvgAsync } from "../lib/lucideNtmlIcons";
 import { useAuth } from "../contexts/AuthContext";
 import { useDevTools } from "../contexts/DevToolsContext";
+import CardPickerModal from "./CardPickerModal";
+import type { GrpcWalletCard } from "../contexts/GrpcContext";
 import { useWindowManager } from "../contexts/WindowManagerContext";
 import styles from "./Browser.module.css";
 
@@ -80,6 +83,12 @@ export default function Browser() {
   const [addressBarValue, setAddressBarValue] = useState(DEFAULT_BROWSER_URL);
   const addressInputRef = useRef<HTMLInputElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [cardRequestModal, setCardRequestModal] = useState<{
+    requestId: string;
+    tabId: string;
+    origin: string;
+    callbackAction: string;
+  } | null>(null);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const showHistoryPage = activeTab?.url === BROWSER_HISTORY_URL;
@@ -538,15 +547,48 @@ export default function Browser() {
           });
         }
         const eventData = d.eventData && typeof d.eventData === "object" ? d.eventData : undefined;
-        invoke<{ html: string; print_output?: string[] }>("ntml_run_handler", {
+        invoke<{
+          html: string;
+          print_output?: string[];
+          network_entries?: Array<{
+            origin: string;
+            url: string;
+            method: string;
+            status: number | null;
+            duration_ms: number | null;
+            content_type: string | null;
+            size: number | null;
+            response: string | null;
+            timestamp: number;
+          }>;
+        }>("ntml_run_handler", {
           tabId: activeTabId,
           action: d.action,
           formValues: Object.keys(formValues).length > 0 ? formValues : undefined,
           eventData,
+          token: token ?? undefined,
         })
           .then((res) => {
             if (res.print_output && res.print_output.length > 0) {
               pushConsole(res.print_output, activeTabId);
+            }
+            if (res.network_entries?.length) {
+              for (const e of res.network_entries) {
+                pushNetwork(
+                  {
+                    origin: (e.origin as "browser" | "lua") || "lua",
+                    url: e.url,
+                    method: e.method,
+                    status: e.status ?? null,
+                    duration: e.duration_ms ?? null,
+                    contentType: e.content_type ?? null,
+                    size: e.size ?? null,
+                    response: e.response ?? null,
+                    timestamp: e.timestamp,
+                  },
+                  activeTabId
+                );
+              }
             }
             setTabs((prev) =>
               prev.map((t) =>
@@ -580,7 +622,96 @@ export default function Browser() {
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [tauri, activeTabId, navigateTo, fetchVmUrl, token, pushConsole]);
+  }, [tauri, activeTabId, navigateTo, fetchVmUrl, token, pushConsole, pushNetwork]);
+
+  // Listen for ntml:request-card (Lua called browser.request_card)
+  useEffect(() => {
+    if (!tauri) return;
+    let unlisten: (() => void) | undefined;
+    const setup = async () => {
+      unlisten = await listen<{ request_id: string; tab_id: string; origin: string; callback_action: string }>(
+        "ntml:request-card",
+        (event) => {
+          const { request_id, tab_id, origin, callback_action } = event.payload;
+          setCardRequestModal({ requestId: request_id, tabId: tab_id, origin, callbackAction: callback_action });
+        }
+      );
+    };
+    setup();
+    return () => {
+      unlisten?.();
+    };
+  }, [tauri]);
+
+  const handleCardPickerConfirm = useCallback(
+    async (card: GrpcWalletCard) => {
+      if (!cardRequestModal || !token) return;
+      const { requestId } = cardRequestModal;
+      setCardRequestModal(null);
+      try {
+        const res = await invoke<{ tab_id: string; callback_action: string }>("ntml_submit_card_selection", {
+          requestId,
+        });
+        const numberFull = (card.number_full ?? card.numberFull ?? "").replace(/\s/g, "");
+        const eventData: Record<string, string> = {
+          card_number: numberFull,
+          cvv: card.cvv ?? "",
+          expiry_month: String(card.expiry_month ?? card.expiryMonth ?? 0),
+          expiry_year: String(card.expiry_year ?? card.expiryYear ?? 0),
+          holder_name: card.holder_name ?? card.holderName ?? "",
+          last4: card.last4 ?? "",
+        };
+        const handlerRes = await invoke<{
+          html: string;
+          print_output?: string[];
+          network_entries?: Array<{
+            origin: string;
+            url: string;
+            method: string;
+            status: number | null;
+            duration_ms: number | null;
+            content_type: string | null;
+            size: number | null;
+            response: string | null;
+            timestamp: number;
+          }>;
+        }>("ntml_run_handler", {
+          tabId: res.tab_id,
+          action: res.callback_action,
+          formValues: {},
+          eventData,
+          token: token ?? undefined,
+        });
+        if (handlerRes.print_output && handlerRes.print_output.length > 0) {
+          pushConsole(handlerRes.print_output, res.tab_id);
+        }
+        if (handlerRes.network_entries?.length) {
+          for (const e of handlerRes.network_entries) {
+            pushNetwork(
+              {
+                origin: (e.origin as "browser" | "lua") || "lua",
+                url: e.url,
+                method: e.method,
+                status: e.status ?? null,
+                duration: e.duration_ms ?? null,
+                contentType: e.content_type ?? null,
+                size: e.size ?? null,
+                response: e.response ?? null,
+                timestamp: e.timestamp,
+              },
+              res.tab_id
+            );
+          }
+        }
+        setTabs((prev) =>
+          prev.map((t) => (t.id === res.tab_id ? { ...t, content: handlerRes.html } : t))
+        );
+      } catch {
+        // Modal already closed; user can retry from the NTML page
+      }
+    },
+    [cardRequestModal, token, pushConsole, pushNetwork]
+  );
 
   const goBack = useCallback(() => {
     if (historyIndex <= 0) return;
@@ -826,6 +957,17 @@ export default function Browser() {
           />
         )}
       </div>
+
+      {cardRequestModal && token && (
+        <CardPickerModal
+          open={!!cardRequestModal}
+          onClose={() => setCardRequestModal(null)}
+          onConfirm={handleCardPickerConfirm}
+          origin={cardRequestModal.origin}
+          requestId={cardRequestModal.requestId}
+          token={token}
+        />
+      )}
     </div>
   );
 }

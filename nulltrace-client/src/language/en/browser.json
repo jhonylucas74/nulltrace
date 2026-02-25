@@ -1,0 +1,7 @@
+{
+  "card_picker_title": "Card request",
+  "card_picker_description": "Site {{origin}} is requesting your card data. Select a card and confirm.",
+  "card_picker_confirm": "Confirm",
+  "card_picker_cancel": "Cancel",
+  "card_picker_no_cards": "No cards available. Create a card in the Wallet app first."
+}

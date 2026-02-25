@@ -1,0 +1,7 @@
+{
+  "card_picker_title": "Solicitação de cartão",
+  "card_picker_description": "O site {{origin}} está solicitando os dados do seu cartão. Selecione um cartão e confirme.",
+  "card_picker_confirm": "Confirmar",
+  "card_picker_cancel": "Cancelar",
+  "card_picker_no_cards": "Nenhum cartão disponível. Crie um cartão no app Carteira primeiro."
+}
