@@ -28,6 +28,9 @@ export interface WalletTx {
 
 export interface CardTx {
   id: string;
+  card_id?: string;
+  card_label?: string;
+  card_last4?: string;
   tx_type: string; // purchase | payment | refund
   amount: number;  // DB-cents
   description: string;
@@ -109,7 +112,7 @@ interface WalletContextValue {
   cardStatement: GrpcCardStatement | null;
   /** Total card debt across all cards (DB-cents). */
   cardDebt: number;
-  /** Total card credit limit across all cards (DB-cents). */
+  /** Account credit limit (shared by all cards, DB-cents). */
   cardLimit: number;
   isLoading: boolean;
   /** Get formatted display balance for a symbol. */
@@ -120,8 +123,8 @@ interface WalletContextValue {
   resolveTransferKey: (key: string) => Promise<{ is_valid: boolean; is_usd: boolean; account_holder_name: string; target_currency: string }>;
   /** Convert funds. Returns error string or null on success. */
   convert: (fromSymbol: string, toSymbol: string, amountCents: number) => Promise<string | null>;
-  /** Pay credit card bill. Returns error string or null on success. */
-  payBill: (cardId: string) => Promise<string | null>;
+  /** Pay account bill (full debt). Debt is account-level; cards are payment methods. Returns error string or null on success. */
+  payBill: () => Promise<string | null>;
   /**
    * Debit a display-unit amount from the wallet balance synchronously (optimistic).
    * Fires the backend debit in the background. Returns false if local balance is insufficient.
@@ -136,10 +139,12 @@ interface WalletContextValue {
   fetchCardTransactions: (cardId: string, filter: string) => Promise<void>;
   /** Fetch (or refresh) the open card statement. */
   fetchCardStatement: (cardId: string) => Promise<void>;
-  /** Create a new virtual card. Returns created card or null. */
-  createCard: (label: string, creditLimitCents: number) => Promise<GrpcWalletCard | null>;
-  /** Delete a card. Returns true if successful. */
-  deleteCard: (cardId: string) => Promise<boolean>;
+  /** Fetch (or refresh) cards list (updates debt and limit). */
+  fetchCards: () => Promise<void>;
+  /** Create a new virtual card (payment method). Limit is account-level. Returns created card or null. */
+  createCard: (label: string) => Promise<GrpcWalletCard | null>;
+  /** Delete a card. Returns { success, errorMessage? }. Fails when card has debt. */
+  deleteCard: (cardId: string) => Promise<{ success: boolean; errorMessage?: string }>;
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null);
@@ -185,12 +190,19 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     } catch { /* ignore */ }
   }, [grpc]);
 
+  const [accountCreditLimit, setAccountCreditLimit] = useState(0);
+  const [accountTotalDebt, setAccountTotalDebt] = useState(0);
+
   const fetchCards = useCallback(async () => {
     const tok = tokenRef.current;
     if (!tok) return;
     try {
       const res = await grpc.getWalletCards(tok);
-      if (!res.error_message) setCards(res.cards);
+      if (!res.error_message) {
+        setCards(res.cards);
+        setAccountCreditLimit(res.account_credit_limit ?? 0);
+        setAccountTotalDebt(res.account_total_debt ?? 0);
+      }
     } catch { /* ignore */ }
   }, [grpc]);
 
@@ -236,8 +248,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   // ── Derived values ──────────────────────────────────────────────────────────
 
-  const cardDebt = useMemo(() => cards.reduce((sum, c) => sum + c.current_debt, 0), [cards]);
-  const cardLimit = useMemo(() => cards.reduce((sum, c) => sum + c.credit_limit, 0), [cards]);
+  const cardDebt = accountTotalDebt;
+  const cardLimit = accountCreditLimit;
 
   const getFormattedBalance = useCallback(
     (symbol: string) => formatAmount(balances[symbol] ?? 0, symbol),
@@ -352,27 +364,27 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   );
 
   const payBill = useCallback(
-    async (cardId: string): Promise<string | null> => {
+    async (): Promise<string | null> => {
       const tok = tokenRef.current;
       if (!tok) return "Not authenticated";
       try {
-        const res = await grpc.payCardBill(tok, cardId);
+        const res = await grpc.payAccountBill(tok);
         if (!res.success) return res.error_message || "Payment failed";
-        await Promise.all([refreshBalances(), fetchCards(), fetchCardStatement(cardId)]);
+        await Promise.all([refreshBalances(), fetchCards()]);
         return null;
       } catch (e) {
         return String(e);
       }
     },
-    [grpc, refreshBalances, fetchCards, fetchCardStatement]
+    [grpc, refreshBalances, fetchCards]
   );
 
   const createCard = useCallback(
-    async (label: string, creditLimitCents: number): Promise<GrpcWalletCard | null> => {
+    async (label: string): Promise<GrpcWalletCard | null> => {
       const tok = tokenRef.current;
       if (!tok) return null;
       try {
-        const res = await grpc.createWalletCard(tok, label, creditLimitCents);
+        const res = await grpc.createWalletCard(tok, label, 0);
         if (res.card) {
           setCards((prev) => [...prev, res.card!]);
           return res.card;
@@ -384,18 +396,21 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   );
 
   const deleteCard = useCallback(
-    async (cardId: string): Promise<boolean> => {
+    async (cardId: string): Promise<{ success: boolean; errorMessage?: string }> => {
       const tok = tokenRef.current;
-      if (!tok) return false;
+      if (!tok) return { success: false, errorMessage: "Not authenticated" };
       try {
         const res = await grpc.deleteWalletCard(tok, cardId);
         if (res.success) {
           setCards((prev) => prev.filter((c) => c.id !== cardId));
+          await fetchCards();
         }
-        return res.success;
-      } catch { return false; }
+        return { success: res.success, errorMessage: res.error_message || undefined };
+      } catch (e) {
+        return { success: false, errorMessage: String(e) };
+      }
     },
-    [grpc]
+    [grpc, fetchCards]
   );
 
   /**
@@ -445,6 +460,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       fetchTransactions,
       fetchCardTransactions,
       fetchCardStatement,
+      fetchCards,
       createCard,
       deleteCard,
     }),
@@ -452,7 +468,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       balances, keys, cards, transactions, cardTransactions, cardStatement,
       cardDebt, cardLimit, isLoading,
       getFormattedBalance, transfer, convert, payBill, pay,
-      refreshBalances, fetchTransactions, fetchCardTransactions, fetchCardStatement,
+      refreshBalances, fetchTransactions, fetchCardTransactions, fetchCardStatement, fetchCards,
       createCard, deleteCard,
     ]
   );

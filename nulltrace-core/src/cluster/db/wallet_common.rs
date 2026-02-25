@@ -12,6 +12,14 @@ pub enum WalletError {
     ConvertedAmountTooSmall,
     /// Recipient account/key not found (e.g. USD transfer to non-existent Fkebank key).
     RecipientNotFound,
+    /// Invoice not found or invalid.
+    InvoiceNotFound,
+    /// Invoice already paid.
+    InvoiceAlreadyPaid,
+    /// Card not found by number.
+    CardNotFound,
+    /// Card invalid (wrong CVV, expired, wrong holder).
+    CardInvalid,
 }
 
 impl From<sqlx::Error> for WalletError {
@@ -29,6 +37,10 @@ impl std::fmt::Display for WalletError {
             WalletError::CardLimitExceeded => write!(f, "Card credit limit exceeded"),
             WalletError::ConvertedAmountTooSmall => write!(f, "Converted amount is zero or too small"),
             WalletError::RecipientNotFound => write!(f, "Recipient not found"),
+            WalletError::InvoiceNotFound => write!(f, "Invoice not found"),
+            WalletError::InvoiceAlreadyPaid => write!(f, "Invoice already paid"),
+            WalletError::CardNotFound => write!(f, "Card not found"),
+            WalletError::CardInvalid => write!(f, "Card invalid"),
         }
     }
 }

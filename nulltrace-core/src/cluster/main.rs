@@ -31,6 +31,7 @@ use db::user_service::UserService;
 use db::vm_service::VmService;
 use db::wallet_service::WalletService;
 use db::wallet_card_service::WalletCardService;
+use db::card_invoice_service::CardInvoiceService;
 use grpc::game::game_service_server::GameServiceServer;
 use grpc::ClusterGameService;
 use process_run_hub::new_hub as new_process_run_hub;
@@ -49,6 +50,7 @@ use uuid::Uuid;
 
 /// Creates a fully configured Lua state for a VM: sandbox, APIs, VmContext, memory limit.
 /// When fkebank_service and crypto_service are Some, the fkebank, crypto, and incoming_money Lua APIs are registered (for NPC VMs like money.null).
+/// When card_invoice_service is Some, the card API is registered (for NPC VMs like card.null).
 fn create_vm_lua_state(
     pool: sqlx::PgPool,
     fs_service: Arc<FsService>,
@@ -59,6 +61,7 @@ fn create_vm_lua_state(
     fkebank_service: Option<Arc<db::fkebank_account_service::FkebankAccountService>>,
     crypto_service: Option<Arc<db::crypto_wallet_service::CryptoWalletService>>,
     incoming_money_listener: Option<Arc<incoming_money_listener::IncomingMoneyListener>>,
+    card_invoice_service: Option<Arc<CardInvoiceService>>,
 ) -> Result<mlua::Lua, mlua::Error> {
     let lua = os::create_lua_state();
     lua.set_app_data(VmContext::new(pool));
@@ -72,6 +75,7 @@ fn create_vm_lua_state(
         fkebank_service,
         crypto_service,
         incoming_money_listener,
+        card_invoice_service,
     )?;
     lua.set_memory_limit(os::LUA_MEMORY_LIMIT_BYTES)?;
     Ok(lua)
@@ -107,6 +111,11 @@ async fn main() {
     let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
     let wallet_service = Arc::new(WalletService::new(pool.clone()));
     let wallet_card_service = Arc::new(WalletCardService::new(pool.clone()));
+    let card_invoice_service = Arc::new(CardInvoiceService::new(
+        pool.clone(),
+        wallet_service.fkebank_service(),
+        wallet_card_service.clone(),
+    ));
     let mailbox_hub = mailbox_hub::new_hub();
 
     // ── Seed default player (Haru) if not present ──
@@ -188,6 +197,7 @@ async fn main() {
             &player_service,
             &vm_service,
             &wallet_service,
+            &card_invoice_service,
             incoming_money_listener.clone(),
         )
         .await
@@ -276,6 +286,7 @@ fn create_stress_vms(
             email_service.clone(),
             email_account_service.clone(),
             mailbox_hub.clone(),
+            None,
             None,
             None,
             None,
@@ -398,6 +409,7 @@ async fn load_game_vms(
     player_service: &Arc<PlayerService>,
     vm_service: &Arc<VmService>,
     wallet_service: &Arc<WalletService>,
+    card_invoice_service: &Arc<CardInvoiceService>,
     incoming_money_listener: Option<Arc<incoming_money_listener::IncomingMoneyListener>>,
 ) -> Vec<VirtualMachine> {
     println!("[cluster] GAME MODE: Loading VMs from database...");
@@ -654,6 +666,69 @@ async fn load_game_vms(
         println!("[cluster] ✓ NPC VM money.null created (Fkebank account + httpd + double-back)");
     }
 
+    // 1f. Create NPC VM card.null only if not already restored
+    let has_card = manager
+        .get_active_vms()
+        .iter()
+        .any(|v| v.dns_name.as_deref() == Some("card.null"));
+    if !has_card {
+        let config = VmConfig {
+            hostname: "card".to_string(),
+            dns_name: Some("card.null".to_string()),
+            cpu_cores: 1,
+            memory_mb: 512,
+            disk_mb: 10240,
+            ip: None,
+            subnet: None,
+            gateway: None,
+            mac: None,
+            owner_id: None,
+            create_email_account: false,
+        };
+        let (record, _nic) = manager
+            .create_vm(config)
+            .await
+            .expect("Failed to create card NPC VM");
+        let vm_id = record.id;
+
+        let (_key, token) = wallet_service
+            .create_wallet_for_account("card.null", Some("Card Null"), None)
+            .await
+            .expect("Failed to create wallet for card.null");
+
+        let _ = fs_service.mkdir(vm_id, "/etc/wallet", "root").await;
+        let _ = fs_service.mkdir(vm_id, "/etc/wallet/fkebank", "root").await;
+        let _ = fs_service.mkdir(vm_id, "/var/www", "root").await;
+
+        let _ = fs_service
+            .write_file(vm_id, "/etc/wallet/fkebank/token", token.as_bytes(), Some("text/plain"), "root")
+            .await;
+
+        let card_httpd_lua = include_str!("../lua_scripts/card_httpd.lua");
+        let _ = fs_service
+            .write_file(
+                vm_id,
+                "/var/www/card_httpd.lua",
+                card_httpd_lua.as_bytes(),
+                Some("text/plain"),
+                "root",
+            )
+            .await;
+
+        let bootstrap_content = "lua /var/www/card_httpd.lua\n";
+        let _ = fs_service
+            .write_file(
+                vm_id,
+                "/etc/bootstrap",
+                bootstrap_content.as_bytes(),
+                Some("text/plain"),
+                "root",
+            )
+            .await;
+
+        println!("[cluster] ✓ NPC VM card.null created (card invoice HTTP site)");
+    }
+
     // 2. Get all active VM IDs (already registered in manager by restore_vms)
     let active_vm_ids: Vec<uuid::Uuid> = manager
         .get_active_vms()
@@ -667,6 +742,15 @@ async fn load_game_vms(
             .get_active_vm(vm_id)
             .map(|a| a.cpu_cores)
             .unwrap_or(1);
+        let is_card_null = manager
+            .get_active_vm(vm_id)
+            .map(|v| v.dns_name.as_deref() == Some("card.null"))
+            .unwrap_or(false);
+        let card_svc = if is_card_null {
+            Some(card_invoice_service.clone())
+        } else {
+            None
+        };
         let lua = create_vm_lua_state(
             pool.clone(),
             fs_service.clone(),
@@ -677,6 +761,7 @@ async fn load_game_vms(
             Some(wallet_service.fkebank_service()),
             Some(wallet_service.crypto_service()),
             incoming_money_listener.clone(),
+            card_svc,
         )
         .expect("Failed to create VM Lua state");
         let mut vm = VirtualMachine::with_id_and_cpu(lua, vm_id, cpu_cores);
@@ -695,7 +780,7 @@ async fn load_game_vms(
 
         // For money.null VM: always overwrite scripts with latest embedded versions on cluster start
         if let Some(active_vm) = manager.get_active_vm(vm_id) {
-            if active_vm.hostname == "money.null" {
+            if active_vm.dns_name.as_deref() == Some("money.null") {
                 let money_refund_lua = include_str!("../lua_scripts/money_refund.lua");
                 let _ = fs_service
                     .write_file(
@@ -707,6 +792,19 @@ async fn load_game_vms(
                     )
                     .await;
                 println!("[cluster]   money.null: updated money_refund.lua to latest version");
+            }
+            if active_vm.dns_name.as_deref() == Some("card.null") {
+                let card_httpd_lua = include_str!("../lua_scripts/card_httpd.lua");
+                let _ = fs_service
+                    .write_file(
+                        vm_id,
+                        "/var/www/card_httpd.lua",
+                        card_httpd_lua.as_bytes(),
+                        Some("text/plain"),
+                        "root",
+                    )
+                    .await;
+                println!("[cluster]   card.null: updated card_httpd.lua to latest version");
             }
         }
 

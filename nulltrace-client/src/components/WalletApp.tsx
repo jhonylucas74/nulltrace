@@ -614,8 +614,8 @@ function KeysSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
   if (wallet.keys.length === 0) {
     return (
       <>
-        <h2 className={styles.mainTitle}>Keys</h2>
-        <p className={styles.mainSubtitle}>Your receive keys and addresses.</p>
+        <h2 className={styles.mainTitle}>{t("keys_title")}</h2>
+        <p className={styles.mainSubtitle}>{t("keys_subtitle")}</p>
         <p className={styles.statementEmpty}>Loading keys…</p>
       </>
     );
@@ -623,8 +623,8 @@ function KeysSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
 
   return (
     <>
-      <h2 className={styles.mainTitle}>Keys</h2>
-      <p className={styles.mainSubtitle}>Your receive keys and addresses per currency.</p>
+      <h2 className={styles.mainTitle}>{t("keys_title")}</h2>
+      <p className={styles.mainSubtitle}>{t("keys_subtitle")}</p>
 
       {wallet.keys.map((k) => (
         <div key={k.currency} className={styles.keyBlock}>
@@ -632,10 +632,10 @@ function KeysSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             {k.currency} receive {k.currency === "USD" ? "key (Fkebank)" : "address"}
           </div>
           <div className={styles.keyValue}>{k.key_address}</div>
-          {k.currency === "USD" && (
-            <p className={styles.keyExplanation}>
-              Your USD balance is managed by Fkebank. Use this key to receive USD transfers.
-            </p>
+          {k.currency === "USD" ? (
+            <p className={styles.keyExplanation}>{t("keys_usd_explanation")}</p>
+          ) : (
+            <p className={styles.keyExplanation}>{t("keys_crypto_explanation", { currency: k.currency })}</p>
           )}
           <div className={styles.keyCopyWrap}>
             <button
@@ -664,17 +664,19 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
   const [creating, setCreating] = useState(false);
 
   const firstCard = wallet.cards[0] ?? null;
+  const firstCardWithDebt = wallet.cards.find((c) => (c.current_debt ?? c.currentDebt ?? 0) > 0) ?? firstCard;
 
-  // Fetch statement for the first card when tab mounts
+  // Fetch cards, statement, and transactions when on statement tab (keeps debt/limit in sync after in-game purchases)
   useEffect(() => {
-    if (firstCard) {
-      wallet.fetchCardStatement(firstCard.id);
-      wallet.fetchCardTransactions(firstCard.id, "all");
+    if (cardTab === "statement" && firstCardWithDebt) {
+      wallet.fetchCards();
+      wallet.fetchCardStatement(firstCardWithDebt.id);
+      wallet.fetchCardTransactions(firstCardWithDebt.id, "all");
     }
-  }, [firstCard?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cardTab, firstCardWithDebt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const cardDebtDisplay = firstCard ? firstCard.current_debt / 100 : 0;
-  const cardLimitDisplay = firstCard ? firstCard.credit_limit / 100 : 0;
+  const cardDebtDisplay = wallet.cardDebt / 100;
+  const cardLimitDisplay = wallet.cardLimit / 100;
   const usageRatio = cardLimitDisplay > 0 ? Math.min(1, cardDebtDisplay / cardLimitDisplay) : 0;
   const usagePercent = Math.round(usageRatio * 100);
 
@@ -685,7 +687,7 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
 
   const copyCardNumber = async (card: (typeof wallet.cards)[0]) => {
     try {
-      await navigator.clipboard.writeText(card.number_full.replace(/\s/g, ""));
+      await navigator.clipboard.writeText((card.number_full ?? card.numberFull ?? "").replace(/\s/g, ""));
       setCopiedCardId(card.id);
       setTimeout(() => setCopiedCardId(null), 2000);
     } catch { /* ignore */ }
@@ -701,17 +703,22 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
 
   const handleCreateCard = async () => {
     setCreating(true);
-    await wallet.createCard("Virtual " + (wallet.cards.length + 1), 0);
+    await wallet.createCard("Virtual " + (wallet.cards.length + 1));
     setCreating(false);
   };
 
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const handleDeleteCard = async (cardId: string) => {
-    await wallet.deleteCard(cardId);
+    setDeleteError(null);
+    const res = await wallet.deleteCard(cardId);
+    if (!res.success) {
+      setDeleteError(res.errorMessage ?? t("transfer_failed"));
+    }
   };
 
   const handlePayBill = async () => {
-    if (!firstCard) return;
-    await wallet.payBill(firstCard.id);
+    await wallet.payBill();
   };
 
   return (
@@ -739,6 +746,11 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
 
       {cardTab === "cards" && (
         <>
+          {deleteError && (
+            <p className={`${styles.formMessage} ${styles.formMessageError}`} role="alert">
+              {deleteError}
+            </p>
+          )}
           <div className={styles.virtualCardList}>
             {wallet.cards.map((card) => (
               <div key={card.id} className={styles.virtualCard}>
@@ -756,7 +768,7 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
                   </button>
                 </div>
                 <div className={styles.virtualCardNumberRow}>
-                  <span className={styles.virtualCardNumber}>{formatCardNumber(card.number_full)}</span>
+                  <span className={styles.virtualCardNumber}>{formatCardNumber(card.number_full ?? card.numberFull ?? "")}</span>
                   <button
                     type="button"
                     className={styles.virtualCardCopyBtn}
@@ -769,9 +781,9 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
                   </button>
                 </div>
                 <div className={styles.virtualCardMeta}>
-                  <span>{card.holder_name}</span>
+                  <span>{card.holder_name ?? card.holderName ?? ""}</span>
                   <span className={styles.virtualCardValidity}>
-                    Valid thru {String(card.expiry_month).padStart(2, "0")}/{card.expiry_year}
+                    Valid thru {String(card.expiry_month ?? card.expiryMonth ?? 0).padStart(2, "0")}/{card.expiry_year ?? card.expiryYear ?? 0}
                   </span>
                 </div>
                 <div className={styles.virtualCardCvvRow}>
@@ -836,7 +848,7 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
             <span className={styles.cardBillingLabel}>{t("card_due_date")} (Fkebank):</span>{" "}
             <span className={styles.cardBillingDate}>{dueDateStr}</span>
           </div>
-          {firstCard && cardDebtDisplay > 0 && (
+          {cardDebtDisplay > 0 && (
             <button type="button" className={styles.submitBtn} onClick={handlePayBill}>
               {t("card_pay_bill")} ({cardDebtDisplay.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD)
             </button>
@@ -851,7 +863,10 @@ function CardSection({ wallet }: { wallet: ReturnType<typeof useWallet> }) {
                   <span className={styles.cardStatementDate}>
                     {new Date(tx.created_at_ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                   </span>
-                  <span className={styles.cardStatementDesc}>{tx.description || tx.tx_type}</span>
+                  <span className={styles.cardStatementDesc}>
+                    {(tx.card_label || tx.card_last4) ? `${tx.card_label || "Card"} ***${tx.card_last4 || "****"} — ` : ""}
+                    {tx.description || tx.tx_type}
+                  </span>
                   <span
                     className={tx.tx_type === "payment" ? styles.cardStatementAmountCredit : styles.cardStatementAmountDebit}
                   >

@@ -33,6 +33,7 @@ use game::{
     GetCardTransactionsRequest, GetCardTransactionsResponse,
     GetCardStatementRequest, GetCardStatementResponse,
     PayCardBillRequest, PayCardBillResponse,
+    PayAccountBillRequest, PayAccountBillResponse,
 };
 use tonic::{Request, Response, Status, transport::Server};
 use tokio_stream::wrappers::ReceiverStream;
@@ -503,6 +504,8 @@ impl GameService for MyGameService {
     ) -> Result<Response<GetWalletCardsResponse>, Status> {
         Ok(Response::new(GetWalletCardsResponse {
             cards: vec![],
+            account_credit_limit: 0,
+            account_total_debt: 0,
             error_message: "Use the unified cluster binary for wallet".to_string(),
         }))
     }
@@ -552,6 +555,17 @@ impl GameService for MyGameService {
         _request: Request<PayCardBillRequest>,
     ) -> Result<Response<PayCardBillResponse>, Status> {
         Ok(Response::new(PayCardBillResponse {
+            success: false,
+            amount_paid: 0,
+            error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn pay_account_bill(
+        &self,
+        _request: Request<PayAccountBillRequest>,
+    ) -> Result<Response<PayAccountBillResponse>, Status> {
+        Ok(Response::new(PayAccountBillResponse {
             success: false,
             amount_paid: 0,
             error_message: "Use the unified cluster binary for wallet".to_string(),

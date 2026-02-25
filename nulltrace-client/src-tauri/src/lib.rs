@@ -326,6 +326,7 @@ pub fn run() {
             grpc::grpc_get_card_transactions,
             grpc::grpc_get_card_statement,
             grpc::grpc_pay_card_bill,
+            grpc::grpc_pay_account_bill,
         ])
         .setup(|app| {
             if std::env::var_os("TAURI_OPEN_DEVTOOLS").is_some() {

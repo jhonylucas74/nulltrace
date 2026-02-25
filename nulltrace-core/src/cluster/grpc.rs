@@ -72,6 +72,7 @@ use game::{
     GetCardTransactionsRequest, GetCardTransactionsResponse, CardTransaction as GrpcCardTx,
     GetCardStatementRequest, GetCardStatementResponse, CardStatement as GrpcCardStatement,
     PayCardBillRequest, PayCardBillResponse,
+    PayAccountBillRequest, PayAccountBillResponse,
 };
 
 pub struct ClusterGameService {
@@ -274,6 +275,14 @@ impl GameService for ClusterGameService {
                     .unwrap_or_else(|_| "{}".to_string());
                 // Ensure wallet exists for this player (idempotent, ignore errors)
                 let _ = self.wallet_service.create_wallet_for_player(p.id).await;
+                // Ensure default card exists (shared limit from player_credit_accounts)
+                let cards = self.wallet_card_service.get_cards(p.id).await.unwrap_or_default();
+                if cards.is_empty() {
+                    let _ = self
+                        .wallet_card_service
+                        .create_card(p.id, Some("Default"), &p.username)
+                        .await;
+                }
                 Ok(Response::new(LoginResponse {
                     success: true,
                     player_id: p.id.to_string(),
@@ -2177,8 +2186,22 @@ impl GameService for ClusterGameService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
+        let account_credit_limit = self
+            .wallet_card_service
+            .get_account_credit_limit(player_id)
+            .await
+            .unwrap_or(20_000);
+
+        let account_total_debt = self
+            .wallet_card_service
+            .get_account_total_debt(player_id)
+            .await
+            .unwrap_or(0);
+
         Ok(Response::new(GetWalletCardsResponse {
             cards: cards.into_iter().map(card_to_grpc).collect(),
+            account_credit_limit,
+            account_total_debt,
             error_message: String::new(),
         }))
     }
@@ -2193,12 +2216,11 @@ impl GameService for ClusterGameService {
         let req = request.into_inner();
 
         let label = if req.label.is_empty() { None } else { Some(req.label.as_str()) };
-        let limit = if req.credit_limit > 0 { req.credit_limit } else { 100_000 };
         let holder_name = claims.username;
 
         let card = self
             .wallet_card_service
-            .create_card(player_id, label, &holder_name, limit)
+            .create_card(player_id, label, &holder_name)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -2239,7 +2261,7 @@ impl GameService for ClusterGameService {
         request: Request<GetCardTransactionsRequest>,
     ) -> Result<Response<GetCardTransactionsResponse>, Status> {
         let claims = self.authenticate_request(&request)?;
-        let _player_id = Uuid::parse_str(&claims.sub)
+        let player_id = Uuid::parse_str(&claims.sub)
             .map_err(|_| Status::internal("Invalid player_id in token"))?;
         let req = request.into_inner();
         let card_id = Uuid::parse_str(&req.card_id)
@@ -2252,11 +2274,23 @@ impl GameService for ClusterGameService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
+        let (card_label, card_last4) = self
+            .wallet_card_service
+            .get_cards(player_id)
+            .await
+            .ok()
+            .and_then(|cards| cards.into_iter().find(|c| c.id == card_id))
+            .map(|c| (c.label.unwrap_or_default(), c.last4))
+            .unwrap_or_default();
+
         Ok(Response::new(GetCardTransactionsResponse {
             transactions: txns
                 .into_iter()
                 .map(|t| GrpcCardTx {
                     id: t.id.to_string(),
+                    card_id: card_id.to_string(),
+                    card_label: card_label.clone(),
+                    card_last4: card_last4.clone(),
                     tx_type: t.tx_type,
                     amount: t.amount,
                     description: t.description.unwrap_or_default(),
@@ -2319,6 +2353,27 @@ impl GameService for ClusterGameService {
             error_message: String::new(),
         }))
     }
+
+    async fn pay_account_bill(
+        &self,
+        request: Request<PayAccountBillRequest>,
+    ) -> Result<Response<PayAccountBillResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+
+        let paid = self
+            .wallet_card_service
+            .pay_account_bill(player_id)
+            .await
+            .map_err(wallet_error_to_status)?;
+
+        Ok(Response::new(PayAccountBillResponse {
+            success: true,
+            amount_paid: paid,
+            error_message: String::new(),
+        }))
+    }
 }
 
 fn wallet_error_to_status(e: WalletError) -> Status {
@@ -2330,6 +2385,10 @@ fn wallet_error_to_status(e: WalletError) -> Status {
             Status::invalid_argument("Converted amount is zero or too small")
         }
         WalletError::RecipientNotFound => Status::invalid_argument("Recipient not found"),
+        WalletError::InvoiceNotFound => Status::not_found("Invoice not found"),
+        WalletError::InvoiceAlreadyPaid => Status::failed_precondition("Invoice already paid"),
+        WalletError::CardNotFound => Status::not_found("Card not found"),
+        WalletError::CardInvalid => Status::invalid_argument("Card invalid (wrong CVV, expired, or holder)"),
         WalletError::Db(db_err) => Status::internal(db_err.to_string()),
     }
 }
@@ -2347,6 +2406,7 @@ fn card_to_grpc(c: super::db::wallet_card_service::WalletCard) -> GrpcWalletCard
         credit_limit: c.credit_limit,
         current_debt: c.current_debt,
         is_virtual: c.is_virtual,
+        is_active: c.is_active,
     }
 }
 
@@ -2632,5 +2692,147 @@ mod tests {
         assert!(out.error_message.is_empty());
 
         vm_service.delete_vm(vm_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_grpc_get_wallet_cards_returns_credit_limit() {
+        let pool = db::test_pool().await;
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let wallet_service = Arc::new(WalletService::new(pool.clone()));
+        let wallet_card_service = Arc::new(WalletCardService::new(pool.clone()));
+        let name = format!("carduser_{}", Uuid::new_v4());
+        let player = player_service.create_player(&name, "secret").await.unwrap();
+        wallet_service.create_wallet_for_player(player.id).await.unwrap();
+
+        let card = wallet_card_service
+            .create_card(player.id, Some("Test Card"), &name)
+            .await
+            .unwrap();
+        assert_eq!(card.credit_limit, 20_000, "card should have shared $200 limit");
+
+        let svc = test_cluster_game_service(&pool);
+        let token = auth::generate_token(player.id, &name, &auth::get_jwt_secret())
+            .expect("generate token");
+        let mut request = Request::new(GetWalletCardsRequest {});
+        request
+            .metadata_mut()
+            .insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        let res = svc.get_wallet_cards(request).await.unwrap();
+        let out = res.into_inner();
+
+        assert!(
+            out.error_message.is_empty(),
+            "error_message should be empty: {}",
+            out.error_message
+        );
+        assert_eq!(out.cards.len(), 1, "should return one card");
+        assert_eq!(
+            out.cards[0].credit_limit, 20_000,
+            "get_wallet_cards must return credit_limit from DB"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_grpc_create_wallet_card_uses_default_limit_and_returns_it() {
+        let pool = db::test_pool().await;
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let wallet_service = Arc::new(WalletService::new(pool.clone()));
+        let name = format!("createcard_{}", Uuid::new_v4());
+        let player = player_service.create_player(&name, "secret").await.unwrap();
+        wallet_service.create_wallet_for_player(player.id).await.unwrap();
+
+        let svc = test_cluster_game_service(&pool);
+        let token = auth::generate_token(player.id, &name, &auth::get_jwt_secret())
+            .expect("generate token");
+
+        let mut create_req = Request::new(CreateWalletCardRequest {
+            label: "My Card".to_string(),
+            credit_limit: 0,
+        });
+        create_req
+            .metadata_mut()
+            .insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        let create_res = svc.create_wallet_card(create_req).await.unwrap();
+        let create_out = create_res.into_inner();
+        assert!(
+            create_out.error_message.is_empty(),
+            "create error: {}",
+            create_out.error_message
+        );
+        let created = create_out.card.expect("card should be returned");
+        assert_eq!(
+            created.credit_limit, 20_000,
+            "create with credit_limit=0 must use default $200 (20000 cents)"
+        );
+
+        let mut get_req = Request::new(GetWalletCardsRequest {});
+        get_req
+            .metadata_mut()
+            .insert("authorization", format!("Bearer {}", token).parse().unwrap());
+        let get_res = svc.get_wallet_cards(get_req).await.unwrap();
+        let get_out = get_res.into_inner();
+        assert_eq!(get_out.cards.len(), 1);
+        assert_eq!(
+            get_out.cards[0].credit_limit, 20_000,
+            "get_wallet_cards must return the same credit_limit"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_grpc_create_wallet_card_returns_shared_limit() {
+        let pool = db::test_pool().await;
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let wallet_service = Arc::new(WalletService::new(pool.clone()));
+        let name = format!("explimit_{}", Uuid::new_v4());
+        let player = player_service.create_player(&name, "secret").await.unwrap();
+        wallet_service.create_wallet_for_player(player.id).await.unwrap();
+
+        let svc = test_cluster_game_service(&pool);
+        let token = auth::generate_token(player.id, &name, &auth::get_jwt_secret())
+            .expect("generate token");
+
+        let mut create_req = Request::new(CreateWalletCardRequest {
+            label: "Premium".to_string(),
+            credit_limit: 50_000, // ignored; account uses default $200
+        });
+        create_req
+            .metadata_mut()
+            .insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        let create_res = svc.create_wallet_card(create_req).await.unwrap();
+        let created = create_res.into_inner().card.unwrap();
+        assert_eq!(created.credit_limit, 20_000, "shared account limit $200");
+
+        let mut get_req = Request::new(GetWalletCardsRequest {});
+        get_req
+            .metadata_mut()
+            .insert("authorization", format!("Bearer {}", token).parse().unwrap());
+        let get_res = svc.get_wallet_cards(get_req).await.unwrap();
+        assert_eq!(get_res.into_inner().cards[0].credit_limit, 20_000);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_login_creates_default_card() {
+        let pool = db::test_pool().await;
+        let player_service = Arc::new(PlayerService::new(pool.clone()));
+        let _wallet_service = Arc::new(WalletService::new(pool.clone()));
+        let wallet_card_service = Arc::new(WalletCardService::new(pool.clone()));
+        let name = format!("defaultcard_{}", Uuid::new_v4());
+        let player = player_service.create_player(&name, "secret").await.unwrap();
+
+        let svc = test_cluster_game_service(&pool);
+        let login_req = Request::new(LoginRequest {
+            username: name.clone(),
+            password: "secret".to_string(),
+        });
+        let login_res = svc.login(login_req).await.unwrap();
+        let login_out = login_res.into_inner();
+        assert!(login_out.success);
+
+        let cards = wallet_card_service.get_cards(player.id).await.unwrap();
+        assert_eq!(cards.len(), 1, "default card must be created on first login");
+        assert_eq!(cards[0].label.as_deref(), Some("Default"));
     }
 }

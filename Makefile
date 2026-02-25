@@ -60,4 +60,3 @@ stress:
 reset:
 	@echo "Resetting Docker compose (down -v, up -d)..."
 	@cd nulltrace-core && docker compose down -v && docker compose up -d
-	@$(MAKE) dev

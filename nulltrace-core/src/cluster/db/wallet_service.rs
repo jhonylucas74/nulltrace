@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
+use std::cmp::Ordering;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -71,12 +72,26 @@ impl WalletService {
     }
 
     /// Creates Fkebank USD account for player (and token). Idempotent.
+    /// Also ensures player_credit_accounts exists (shared limit for cards).
     pub async fn create_wallet_for_player(&self, player_id: Uuid) -> Result<(), WalletError> {
         let account = self
             .fkebank
             .create_account_for_owner("player", player_id, None, None)
             .await?;
         let _ = self.fkebank.create_token(account.id).await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO player_credit_accounts (player_id, credit_limit, created_at)
+            VALUES ($1, 20000, now())
+            ON CONFLICT (player_id) DO NOTHING
+            "#,
+        )
+        .bind(player_id)
+        .execute(&self.pool)
+        .await
+        .map_err(WalletError::Db)?;
+
         Ok(())
     }
 
@@ -194,7 +209,21 @@ impl WalletService {
             }
         }
 
-        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        out.sort_by(|a, b| {
+            let by_time = b.created_at.cmp(&a.created_at);
+            if by_time == Ordering::Equal
+                && a.description.as_deref() == Some("Convert")
+                && b.description.as_deref() == Some("Convert")
+            {
+                match (a.tx_type.as_str(), b.tx_type.as_str()) {
+                    ("debit", "credit") => Ordering::Less,   // debit first
+                    ("credit", "debit") => Ordering::Greater,
+                    _ => Ordering::Equal,
+                }
+            } else {
+                by_time
+            }
+        });
         Ok(out)
     }
 
@@ -335,13 +364,22 @@ impl WalletService {
         Ok(out_amount)
     }
 
-    /// Returns keys: only USD (Fkebank) key for the player. Crypto has no owner in DB.
+    /// Returns public receive keys/addresses for all currencies. USD from Fkebank; BTC/ETH/SOL from player crypto vaults.
     pub async fn get_keys(&self, player_id: Uuid) -> Result<Vec<WalletKey>, WalletError> {
         let account = self.fkebank.get_by_owner("player", player_id).await?;
-        Ok(vec![WalletKey {
+        let mut keys = vec![WalletKey {
             currency: "USD".to_string(),
             key_address: account.key,
-        }])
+        }];
+        for c in ["BTC", "ETH", "SOL"] {
+            let vault_key = player_crypto_vault_key(player_id, c);
+            let _ = self.crypto.register(&vault_key, None, c).await?;
+            keys.push(WalletKey {
+                currency: c.to_string(),
+                key_address: vault_key,
+            });
+        }
+        Ok(keys)
     }
 
     /// Resolves Fkebank key to player_id if the account is player-owned.
@@ -381,8 +419,9 @@ mod tests {
         let usd = balances.iter().find(|b| b.currency == "USD").unwrap();
         assert_eq!(usd.balance, 0);
         let keys = ws.get_keys(player_id).await.unwrap();
-        assert_eq!(keys.len(), 1);
-        assert!(keys[0].key_address.starts_with("fkebank-"));
+        assert_eq!(keys.len(), 4);
+        let usd_key = keys.iter().find(|k| k.currency == "USD").unwrap();
+        assert!(usd_key.key_address.starts_with("fkebank-"));
     }
 
     #[tokio::test]
@@ -397,7 +436,7 @@ mod tests {
         let balances = ws.get_balances(player_id).await.unwrap();
         assert_eq!(balances.len(), 4);
         let keys = ws.get_keys(player_id).await.unwrap();
-        assert_eq!(keys.len(), 1);
+        assert_eq!(keys.len(), 4);
     }
 
     #[tokio::test]
@@ -511,7 +550,7 @@ mod tests {
         ws.credit(p_a.id, "USD", 10000, "seed").await.unwrap();
 
         let keys_b = ws.get_keys(p_b.id).await.unwrap();
-        let addr_b = keys_b[0].key_address.clone();
+        let addr_b = keys_b.iter().find(|k| k.currency == "USD").unwrap().key_address.clone();
 
         ws.transfer_to_address(p_a.id, &addr_b, "USD", 3000).await.unwrap();
 
@@ -536,7 +575,7 @@ mod tests {
         ws.credit(player_id, "USD", 1000, "seed").await.unwrap();
 
         let keys = ws.get_keys(player_id).await.unwrap();
-        let my_addr = keys[0].key_address.clone();
+        let my_addr = keys.iter().find(|k| k.currency == "USD").unwrap().key_address.clone();
 
         let res = ws.transfer_to_address(player_id, &my_addr, "USD", 100).await;
         assert!(res.is_err());
@@ -582,7 +621,7 @@ mod tests {
 
         ws.create_wallet_for_player(player_id).await.unwrap();
         let keys = ws.get_keys(player_id).await.unwrap();
-        let usd_addr = keys[0].key_address.clone();
+        let usd_addr = keys.iter().find(|k| k.currency == "USD").unwrap().key_address.clone();
 
         let found = ws.find_player_by_address(&usd_addr).await.unwrap();
         assert_eq!(found, Some(player_id));
@@ -785,7 +824,7 @@ mod tests {
         ws.convert(p_a.id, "USD", "SOL", 20_00).await.unwrap();   // 2000 SOL cents, 10 USD left
 
         let keys_b = ws.get_keys(p_b.id).await.unwrap();
-        let addr_usd_b = &keys_b[0].key_address;
+        let addr_usd_b = keys_b.iter().find(|k| k.currency == "USD").unwrap().key_address.as_str();
         let addr_btc_b = generate_btc_address();
         let addr_eth_b = generate_eth_address();
         let addr_sol_b = generate_sol_address();
@@ -875,7 +914,7 @@ mod tests {
         ws.credit(p_a.id, "USD", 5000, "seed").await.unwrap();
 
         let keys_b = ws.get_keys(p_b.id).await.unwrap();
-        ws.transfer_to_address(p_a.id, &keys_b[0].key_address, "USD", 1000).await.unwrap();
+        ws.transfer_to_address(p_a.id, keys_b.iter().find(|k| k.currency == "USD").unwrap().key_address.as_str(), "USD", 1000).await.unwrap();
 
         let txs_b = ws.get_transactions(p_b.id, "all").await.unwrap();
         let transfer_in = txs_b.iter().find(|t| t.tx_type == "transfer_in").unwrap();
@@ -920,11 +959,11 @@ mod tests {
 
         let keys_b = ws.get_keys(p_b.id).await.unwrap();
         let keys_a = ws.get_keys(p_a.id).await.unwrap();
-        ws.transfer_to_address(p_a.id, &keys_b[0].key_address, "USD", 1500).await.unwrap();
+        ws.transfer_to_address(p_a.id, keys_b.iter().find(|k| k.currency == "USD").unwrap().key_address.as_str(), "USD", 1500).await.unwrap();
 
         let txs_b = ws.get_transactions(p_b.id, "all").await.unwrap();
         let transfer_in = txs_b.iter().find(|t| t.tx_type == "transfer_in").unwrap();
-        assert_eq!(transfer_in.counterpart_address.as_deref(), Some(keys_a[0].key_address.as_str()));
+        assert_eq!(transfer_in.counterpart_address.as_deref(), Some(keys_a.iter().find(|k| k.currency == "USD").unwrap().key_address.as_str()));
     }
 
     /// transfer_out transactions include counterpart_address (recipient's public key).
@@ -941,11 +980,11 @@ mod tests {
         ws.credit(p_a.id, "USD", 3000, "seed").await.unwrap();
 
         let keys_b = ws.get_keys(p_b.id).await.unwrap();
-        ws.transfer_to_address(p_a.id, &keys_b[0].key_address, "USD", 1200).await.unwrap();
+        ws.transfer_to_address(p_a.id, keys_b.iter().find(|k| k.currency == "USD").unwrap().key_address.as_str(), "USD", 1200).await.unwrap();
 
         let txs_a = ws.get_transactions(p_a.id, "all").await.unwrap();
         let transfer_out = txs_a.iter().find(|t| t.tx_type == "transfer_out").unwrap();
-        assert_eq!(transfer_out.counterpart_address.as_deref(), Some(keys_b[0].key_address.as_str()));
+        assert_eq!(transfer_out.counterpart_address.as_deref(), Some(keys_b.iter().find(|k| k.currency == "USD").unwrap().key_address.as_str()));
     }
 
     /// Filter "all" returns complete history (no truncation).

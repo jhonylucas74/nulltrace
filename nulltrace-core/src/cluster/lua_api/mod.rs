@@ -1,3 +1,4 @@
+pub mod card_api;
 pub mod context;
 pub mod crypto_api;
 pub mod fs_api;
@@ -10,6 +11,7 @@ pub mod mail_api;
 pub mod net_api;
 pub mod os_api;
 
+use crate::db::card_invoice_service::CardInvoiceService;
 use crate::db::crypto_wallet_service::CryptoWalletService;
 use crate::db::email_account_service::EmailAccountService;
 use crate::db::email_service::EmailService;
@@ -21,7 +23,7 @@ use crate::mailbox_hub;
 use mlua::{Lua, Result};
 use std::sync::Arc;
 
-/// Register all Lua APIs (fs, net, os, io, mail, optionally fkebank, crypto, incoming_money) and safe globals (load).
+/// Register all Lua APIs (fs, net, os, io, mail, optionally fkebank, crypto, incoming_money, card) and safe globals (load).
 pub fn register_all(
     lua: &Lua,
     fs_service: Arc<FsService>,
@@ -32,6 +34,7 @@ pub fn register_all(
     fkebank_service: Option<Arc<FkebankAccountService>>,
     crypto_service: Option<Arc<CryptoWalletService>>,
     incoming_money_listener: Option<Arc<IncomingMoneyListener>>,
+    card_invoice_service: Option<Arc<CardInvoiceService>>,
 ) -> Result<()> {
     fs_api::register(lua, fs_service.clone())?;
     net_api::register(lua)?;
@@ -48,6 +51,9 @@ pub fn register_all(
     }
     if let (Some(ref fkebank), Some(ref listener)) = (fkebank_service.as_ref(), incoming_money_listener.as_ref()) {
         incoming_money_api::register(lua, fs_service.clone(), Arc::clone(fkebank), Arc::clone(listener))?;
+    }
+    if let Some(ref card_invoice) = card_invoice_service {
+        card_api::register(lua, Arc::clone(card_invoice))?;
     }
     // Expose load(source, chunkname?, mode?) so /bin/lua can run user scripts. Sandbox may not expose it.
     let load_fn = lua.create_function(|lua, (source, chunkname, _mode): (String, Option<String>, Option<String>)| {

@@ -136,19 +136,25 @@ Rules:
 
 ### 3.5 Credit Cards
 
+**Account model:** The **limit** and **debt** belong to the **account**, not to individual cards. Cards are just **payment methods** — the medium to make purchases. All cards share the same account limit and the same account debt pool.
+
+Example: 3 cards (A, B, C), account limit $200. A purchase of $100 on card A consumes $100 of the shared limit. The account then has $100 remaining credit; cards A, B, and C all share that $100.
+
 Cards are **virtual Fkebank cards** with weekly billing cycles.
 
 - **Card number:** Visa format (16 digits, starts with `4`), randomly generated.
 - **CVV:** 3 digits, randomly generated.
 - **Expiry:** 3 years from creation date.
-- **Credit limit:** configurable at creation; default $1,000 (100,000 cents).
+- **Credit limit:** at **account level** (`player_credit_accounts`). All cards share the same limit; default $200 (20,000 cents).
+- **Debt:** at **account level**. Stored per card for accounting (which card was used), but conceptually one pool.
+- **Default card:** created automatically when the player's USD wallet is first created (e.g. on first login).
 - **Billing day:** Monday at 12:00 UTC.
 
 #### Purchase
 
-- `current_debt + purchase_amount <= credit_limit` — enforced atomically in a single `UPDATE ... WHERE` clause.
+- `account_total_debt + purchase_amount <= account.credit_limit` — enforced atomically. Total debt includes all cards (active + inactive).
 - If the constraint fails, returns `CardLimitExceeded`.
-- Purchase adds to the current **open statement** totals.
+- Purchase adds to the specific card's `current_debt` and to the current **open statement** totals.
 
 #### Statement Lifecycle
 
@@ -158,16 +164,25 @@ Cards are **virtual Fkebank cards** with weekly billing cycles.
 
 #### Bill Payment
 
-1. Acquires a `SELECT FOR UPDATE` lock on the card row (prevents race conditions).
+There is **one account bill** — debt belongs to the account, not to individual cards. Whether you have 1 or 5 cards, you pay the same account bill.
+
+**Pay account bill**: Pays the full account debt in one call. Debits USD, zeros debt on all cards, marks statements paid.
+
+1. Acquires `SELECT FOR UPDATE` lock on relevant rows.
 2. Reads the player's Fkebank USD account.
-3. Atomically debits USD equal to `current_debt`.
-4. Zeroes `current_debt` on the card.
-5. Marks the current statement as **paid**.
+3. Atomically debits USD equal to debt.
+4. Zeroes `current_debt` on the affected card(s).
+5. Marks the current statement(s) as **paid**.
 6. If USD balance < debt, the entire transaction is rolled back — debt remains, nothing is charged.
 
 #### Deletion
 
-Soft delete only (`is_active = FALSE`). Historical transactions are preserved.
+Soft delete only (`is_active = FALSE`). Deleted cards cannot be used for new purchases (filtered by `is_active = TRUE`). Historical transactions are preserved.
+
+#### Transaction history
+
+- Card transactions always include `card_id`, `card_label`, and `card_last4` so the extrato shows which card was used.
+- Main wallet extrato (bill payment debits) includes card info in the description (e.g. `Credit card bill payment (Card ***1234)`).
 
 ### 3.6 Incoming Money Listener
 
@@ -189,7 +204,7 @@ Soft delete only (`is_active = FALSE`). Historical transactions are preserved.
 | Convert between currencies | Player (gRPC) | Subject to rate and minimum |
 | Create virtual credit cards | Player | No limit on number of cards |
 | Make purchases via card | Player, Lua | Up to credit limit |
-| Pay credit card bill | Player | Must have USD balance >= debt |
+| Pay account bill | Player | Must have USD balance >= account debt |
 | Delete a card (soft) | Player | Historical records preserved |
 | View full transaction history | Player (own), Lua VM (with token) | Filters: today / 7d / 30d / all |
 | View crypto history | Anyone with the address | No auth required |

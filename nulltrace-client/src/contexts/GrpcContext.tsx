@@ -69,19 +69,41 @@ export interface GrpcWalletKey {
 export interface GrpcWalletCard {
   id: string;
   label: string;
-  number_full: string;
+  number_full?: string;
+  numberFull?: string;
   last4: string;
-  expiry_month: number;
-  expiry_year: number;
+  expiry_month?: number;
+  expiryMonth?: number;
+  expiry_year?: number;
+  expiryYear?: number;
   cvv: string;
-  holder_name: string;
-  credit_limit: number; // DB-cents
-  current_debt: number; // DB-cents
-  is_virtual: boolean;
+  holder_name?: string;
+  holderName?: string;
+  credit_limit?: number;
+  creditLimit?: number;
+  current_debt?: number;
+  currentDebt?: number;
+  is_virtual?: boolean;
+  isVirtual?: boolean;
+  is_active?: boolean;
+  isActive?: boolean;
+}
+
+/** Get credit_limit from card (handles snake_case and camelCase from Tauri). */
+export function cardCreditLimit(card: GrpcWalletCard): number {
+  return card.credit_limit ?? card.creditLimit ?? 0;
+}
+
+/** Get current_debt from card (handles snake_case and camelCase from Tauri). */
+export function cardCurrentDebt(card: GrpcWalletCard): number {
+  return card.current_debt ?? card.currentDebt ?? 0;
 }
 
 export interface GrpcCardTransaction {
   id: string;
+  card_id: string;
+  card_label: string;
+  card_last4: string;
   tx_type: string; // purchase | payment | refund
   amount: number; // DB-cents
   description: string;
@@ -130,12 +152,13 @@ export interface GrpcContextValue {
   transferFunds: (token: string, targetAddress: string, currency: string, amount: number) => Promise<{ success: boolean; error_message: string }>;
   resolveTransferKey: (token: string, key: string) => Promise<{ is_valid: boolean; is_usd: boolean; account_holder_name: string; target_currency: string }>;
   convertFunds: (token: string, fromCurrency: string, toCurrency: string, amount: number) => Promise<{ success: boolean; converted_amount: number; error_message: string }>;
-  getWalletCards: (token: string) => Promise<{ cards: GrpcWalletCard[]; error_message: string }>;
+  getWalletCards: (token: string) => Promise<{ cards: GrpcWalletCard[]; account_credit_limit: number; account_total_debt: number; error_message: string }>;
   createWalletCard: (token: string, label: string, creditLimit: number) => Promise<{ card: GrpcWalletCard | null; error_message: string }>;
   deleteWalletCard: (token: string, cardId: string) => Promise<{ success: boolean; error_message: string }>;
   getCardTransactions: (token: string, cardId: string, filter: string) => Promise<{ transactions: GrpcCardTransaction[]; error_message: string }>;
   getCardStatement: (token: string, cardId: string) => Promise<{ statement: GrpcCardStatement | null; error_message: string }>;
   payCardBill: (token: string, cardId: string) => Promise<{ success: boolean; amount_paid: number; error_message: string }>;
+  payAccountBill: (token: string) => Promise<{ success: boolean; amount_paid: number; error_message: string }>;
 }
 
 const GrpcContext = createContext<GrpcContextValue | null>(null);
@@ -231,7 +254,7 @@ export function GrpcProvider({ children }: { children: React.ReactNode }) {
       convertFunds: (token: string, fromCurrency: string, toCurrency: string, amount: number) =>
         invoke<{ success: boolean; converted_amount: number; error_message: string }>("grpc_convert_funds", { token, fromCurrency, toCurrency, amount }),
       getWalletCards: (token: string) =>
-        invoke<{ cards: GrpcWalletCard[]; error_message: string }>("grpc_get_wallet_cards", { token }),
+        invoke<{ cards: GrpcWalletCard[]; account_credit_limit: number; account_total_debt: number; error_message: string }>("grpc_get_wallet_cards", { token }),
       createWalletCard: (token: string, label: string, creditLimit: number) =>
         invoke<{ card: GrpcWalletCard | null; error_message: string }>("grpc_create_wallet_card", { token, label, creditLimit }),
       deleteWalletCard: (token: string, cardId: string) =>
@@ -242,6 +265,8 @@ export function GrpcProvider({ children }: { children: React.ReactNode }) {
         invoke<{ statement: GrpcCardStatement | null; error_message: string }>("grpc_get_card_statement", { token, cardId }),
       payCardBill: (token: string, cardId: string) =>
         invoke<{ success: boolean; amount_paid: number; error_message: string }>("grpc_pay_card_bill", { token, cardId }),
+      payAccountBill: (token: string) =>
+        invoke<{ success: boolean; amount_paid: number; error_message: string }>("grpc_pay_account_bill", { token }),
     }),
     []
   );

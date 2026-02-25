@@ -11,6 +11,7 @@ pub mod fkebank_account_service;
 pub mod crypto_wallet_service;
 pub mod wallet_service;
 pub mod wallet_card_service;
+pub mod card_invoice_service;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -95,6 +96,18 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
     sqlx::raw_sql(include_str!("../../../migrations/023_add_npc_owner_type.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/024_create_card_invoices.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/025_fix_card_limit_zero.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/026_create_player_credit_accounts.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/027_shared_credit_limit.sql"))
         .execute(pool)
         .await?;
     Ok(())

@@ -21,7 +21,7 @@ use game::{
     GetInstalledStoreAppsRequest, InstallStoreAppRequest, UninstallStoreAppRequest,
     GetWalletBalancesRequest, GetWalletTransactionsRequest, GetWalletKeysRequest,
     TransferFundsRequest, ResolveTransferKeyRequest, ConvertFundsRequest, GetWalletCardsRequest, CreateWalletCardRequest,
-    DeleteWalletCardRequest, GetCardTransactionsRequest, GetCardStatementRequest, PayCardBillRequest,
+    DeleteWalletCardRequest, GetCardTransactionsRequest, GetCardStatementRequest,     PayCardBillRequest, PayAccountBillRequest,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -2149,6 +2149,7 @@ pub async fn grpc_convert_funds(
 }
 
 #[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct WalletCardEntry {
     pub id: String,
     pub label: String,
@@ -2161,11 +2162,14 @@ pub struct WalletCardEntry {
     pub credit_limit: i64,
     pub current_debt: i64,
     pub is_virtual: bool,
+    pub is_active: bool,
 }
 
 #[derive(serde::Serialize)]
 pub struct GetWalletCardsCommandResponse {
     pub cards: Vec<WalletCardEntry>,
+    pub account_credit_limit: i64,
+    pub account_total_debt: i64,
     pub error_message: String,
 }
 
@@ -2182,6 +2186,7 @@ fn proto_card_to_entry(c: game::WalletCard) -> WalletCardEntry {
         credit_limit: c.credit_limit,
         current_debt: c.current_debt,
         is_virtual: c.is_virtual,
+        is_active: c.is_active,
     }
 }
 
@@ -2195,6 +2200,8 @@ pub async fn grpc_get_wallet_cards(token: String) -> Result<GetWalletCardsComman
     let res = client.get_wallet_cards(req).await.map_err(map_grpc_err)?.into_inner();
     Ok(GetWalletCardsCommandResponse {
         cards: res.cards.into_iter().map(proto_card_to_entry).collect(),
+        account_credit_limit: res.account_credit_limit,
+        account_total_debt: res.account_total_debt,
         error_message: res.error_message,
     })
 }
@@ -2205,7 +2212,7 @@ pub struct CreateWalletCardCommandResponse {
     pub error_message: String,
 }
 
-/// Tauri command: Create a new virtual credit card. credit_limit=0 uses default ($1,000).
+/// Tauri command: Create a new virtual credit card. credit_limit=0 uses default ($200).
 #[tauri::command]
 pub async fn grpc_create_wallet_card(
     token: String,
@@ -2243,6 +2250,9 @@ pub async fn grpc_delete_wallet_card(token: String, card_id: String) -> Result<D
 #[derive(serde::Serialize)]
 pub struct CardTransactionEntry {
     pub id: String,
+    pub card_id: String,
+    pub card_label: String,
+    pub card_last4: String,
     pub tx_type: String,
     pub amount: i64,
     pub description: String,
@@ -2271,6 +2281,9 @@ pub async fn grpc_get_card_transactions(
     Ok(GetCardTransactionsCommandResponse {
         transactions: res.transactions.into_iter().map(|t| CardTransactionEntry {
             id: t.id,
+            card_id: t.card_id,
+            card_label: t.card_label,
+            card_last4: t.card_last4,
             tx_type: t.tx_type,
             amount: t.amount,
             description: t.description,
@@ -2334,5 +2347,16 @@ pub async fn grpc_pay_card_bill(token: String, card_id: String) -> Result<PayCar
     let mut req = tonic::Request::new(PayCardBillRequest { card_id });
     bearer_auth(&mut req, &token)?;
     let res = client.pay_card_bill(req).await.map_err(map_grpc_err)?.into_inner();
+    Ok(PayCardBillCommandResponse { success: res.success, amount_paid: res.amount_paid, error_message: res.error_message })
+}
+
+/// Tauri command: Pay the full account bill (debits USD, clears all debt). Debt is account-level.
+#[tauri::command]
+pub async fn grpc_pay_account_bill(token: String) -> Result<PayCardBillCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut req = tonic::Request::new(PayAccountBillRequest {});
+    bearer_auth(&mut req, &token)?;
+    let res = client.pay_account_bill(req).await.map_err(map_grpc_err)?.into_inner();
     Ok(PayCardBillCommandResponse { success: res.success, amount_paid: res.amount_paid, error_message: res.error_message })
 }

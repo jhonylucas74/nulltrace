@@ -51,6 +51,7 @@ service GameService {
   rpc GetCardTransactions (GetCardTransactionsRequest) returns (GetCardTransactionsResponse);
   rpc GetCardStatement (GetCardStatementRequest) returns (GetCardStatementResponse);
   rpc PayCardBill (PayCardBillRequest) returns (PayCardBillResponse);
+  rpc PayAccountBill (PayAccountBillRequest) returns (PayAccountBillResponse);
 }
 
 message HelloRequest {
@@ -627,18 +628,21 @@ message WalletCard {
   int64  credit_limit = 9;   // DB-cents
   int64  current_debt = 10;  // DB-cents
   bool   is_virtual   = 11;
+  bool   is_active    = 12;  // false = soft-deleted, cannot make purchases but debt remains
 }
 
 message GetWalletCardsRequest {}
 
 message GetWalletCardsResponse {
-  repeated WalletCard cards         = 1;
-  string              error_message = 2;
+  repeated WalletCard cards               = 1;
+  int64               account_credit_limit = 2;  // DB-cents, shared by all cards (even when cards is empty)
+  int64               account_total_debt   = 4;  // DB-cents, sum across all cards (active + inactive)
+  string              error_message       = 3;
 }
 
 message CreateWalletCardRequest {
   string label        = 1;
-  int64  credit_limit = 2;  // DB-cents (0 = use default 100000)
+  int64  credit_limit = 2;  // DB-cents (0 = use default 20000 = $200)
 }
 
 message CreateWalletCardResponse {
@@ -657,10 +661,13 @@ message DeleteWalletCardResponse {
 
 message CardTransaction {
   string id            = 1;
-  string tx_type       = 2;  // purchase | payment | refund
-  int64  amount        = 3;  // DB-cents
-  string description   = 4;
-  int64  created_at_ms = 5;
+  string card_id       = 2;
+  string card_label    = 3;  // e.g. "Default", "Main"
+  string card_last4    = 4;  // e.g. "1234"
+  string tx_type       = 5;  // purchase | payment | refund
+  int64  amount        = 6;  // DB-cents
+  string description   = 7;
+  int64  created_at_ms = 8;
 }
 
 message GetCardTransactionsRequest {
@@ -699,5 +706,13 @@ message PayCardBillRequest {
 message PayCardBillResponse {
   bool   success       = 1;
   int64  amount_paid   = 2;  // DB-cents actually debited
+  string error_message = 3;
+}
+
+message PayAccountBillRequest {}
+
+message PayAccountBillResponse {
+  bool   success       = 1;
+  int64  amount_paid   = 2;  // DB-cents
   string error_message = 3;
 }
