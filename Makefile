@@ -1,9 +1,10 @@
-.PHONY: dev debug test test-ntml client client-debug core core-debug stress help
+.PHONY: dev debug test test-ntml client client-debug core core-debug stress reset help
 
 help:
 	@echo "Nulltrace - Makefile"
 	@echo ""
 	@echo "Available commands:"
+	@echo "  make reset     - Reset Docker (down -v, up -d) and run make dev"
 	@echo "  make dev       - Run frontend and backend in parallel"
 	@echo "  make debug     - Like make dev but with Tauri DevTools + cluster tick logs"
 	@echo "  make test      - Run all tests (core + ntml)"
@@ -55,3 +56,8 @@ test-ntml:
 stress:
 	@echo "Running stress test (5000 VMs, 20s, release mode)..."
 	@cd nulltrace-core && STRESS_TEST=1 cargo run --release --bin cluster
+
+reset:
+	@echo "Resetting Docker compose (down -v, up -d)..."
+	@cd nulltrace-core && docker compose down -v && docker compose up -d
+	@$(MAKE) dev

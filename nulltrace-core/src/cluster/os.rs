@@ -34,7 +34,7 @@ pub fn create_lua_state() -> Lua {
     const MAX_STACK_LEVEL: usize = 64;
     lua.set_interrupt(move |lua| {
         // Only yield when no C (Rust) frame is on the stack; avoids "yield across C-call boundary".
-        for level in 1..=MAX_STACK_LEVEL {
+        for level in 0..=MAX_STACK_LEVEL {
             if let Some(what) = lua.inspect_stack(level, |debug| debug.source().what) {
                 if what == "C" {
                     return Ok(VmState::Continue);
