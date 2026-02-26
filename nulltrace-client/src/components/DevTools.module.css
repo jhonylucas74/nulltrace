@@ -357,6 +357,24 @@
   color: var(--text-primary);
 }
 
+.networkDetailSection {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.networkDetailSection:last-child {
+  border-bottom: none;
+}
+
+.networkDetailLabel {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .networkDetailBody {
   flex: 1;
   margin: 0;
@@ -498,6 +516,8 @@
   overflow: auto;
   padding: 0.4rem 0;
   user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .consoleLine {
@@ -532,6 +552,8 @@
   white-space: pre-wrap;
   color: var(--text-primary);
   user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .consoleError .consoleMsg {
@@ -546,6 +568,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* ── Console REPL input ── */

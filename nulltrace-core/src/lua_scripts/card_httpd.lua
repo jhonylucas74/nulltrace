@@ -65,35 +65,35 @@ while true do
 
         local dest_ok, dest_key = pcall(fkebank.key, token_path)
         if not dest_ok or not dest_key or dest_key == "" then
-          body = "# Error: no destination key (token file missing or invalid).\n"
+          body = str.serialize_table({ success = false, message = "Error: no destination key (token file missing or invalid)." })
           status = 500
         else
-          local inv_ok, invoice_id = pcall(card.create_invoice, dest_key, AMOUNT_CENTS)
-          if not inv_ok or not invoice_id then
-            body = "# Error creating invoice: " .. tostring(invoice_id or "unknown") .. "\n"
+          local invoice_id, inv_err = card.create_invoice(dest_key, AMOUNT_CENTS)
+          if not invoice_id or invoice_id == "" then
+            body = str.serialize_table({ success = false, message = "Error creating invoice: " .. tostring(inv_err or "unknown") })
             status = 500
           else
-            local pay_ok, pay_err = pcall(card.pay_invoice, invoice_id, card_number, cvv, expiry_month, expiry_year, holder_name)
+            local pay_ok, pay_err = card.pay_invoice(invoice_id, card_number, cvv, expiry_month, expiry_year, holder_name)
             if pay_ok then
               local new_total = 0
-              local ok_t, t = pcall(card.total_collected, dest_key)
-              if ok_t and type(t) == "number" then new_total = t end
-              body = "# Payment successful. $100 charged.\nNEW_TOTAL=" .. format_usd(new_total) .. "\n"
+              local t = card.total_collected(dest_key)
+              if t ~= nil and type(t) == "number" then new_total = t end
+              body = str.serialize_table({ success = true, message = "Payment successful. $100 charged.", new_total = format_usd(new_total) })
               status = 200
             else
-              body = "# Payment failed: " .. tostring(pay_err or "unknown") .. "\n"
+              body = str.serialize_table({ success = false, message = tostring(pay_err or "unknown") })
               status = 400
             end
           end
         end
-        headers = { ["Content-Type"] = "text/plain; charset=utf-8" }
+        headers = { ["Content-Type"] = "application/x-lua-table; charset=utf-8" }
       else
         -- GET /
         local dest_ok, dest_key = pcall(fkebank.key, token_path)
         local total = 0
         if dest_ok and dest_key and dest_key ~= "" then
-          local ok, t = pcall(card.total_collected, dest_key)
-          if ok and type(t) == "number" then total = t end
+          local t = card.total_collected(dest_key)
+          if t ~= nil and type(t) == "number" then total = t end
         end
         local total_str = format_usd(total)
 

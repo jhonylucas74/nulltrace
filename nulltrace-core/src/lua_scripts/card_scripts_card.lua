@@ -49,9 +49,9 @@ function payWithCard(ctx)
     "&expiry_month=" .. url_encode(expiry_month) ..
     "&expiry_year=" .. url_encode(expiry_year) ..
     "&holder_name=" .. url_encode(holder_name)
-  print("[payWithCard] calling http.post card.null/pay")
+  print("[payWithCard] calling http.post card.null/pay (blocking until curl returns)")
   local ok, resp = pcall(http.post, "card.null/pay", body)
-  print("[payWithCard] http.post ok=" .. tostring(ok) .. " resp type=" .. type(resp))
+  print("[payWithCard] http.post returned ok=" .. tostring(ok) .. " resp type=" .. type(resp))
   if not ok then
     print("[payWithCard] http.post FAILED: " .. tostring(resp))
     ui.set_visible("resultArea", true)
@@ -63,23 +63,26 @@ function payWithCard(ctx)
   local resp_body = resp and resp.body or ""
   print("[payWithCard] status=" .. tostring(status) .. " body_len=" .. #resp_body)
   print("[payWithCard] /pay response body:\n" .. resp_body)
-  if status >= 200 and status < 300 then
+  print("[payWithCard] parsing body with str.parse_table")
+  local t = str.parse_table(resp_body or "")
+  print("[payWithCard] parse done, t.success=" .. tostring(t.success) .. " t.message=" .. tostring(t.message))
+  local success = t.success == "true"
+  local message = t.message or ""
+  if success then
     print("[payWithCard] SUCCESS branch - applying patches")
-    local new_total = resp_body:match("NEW_TOTAL=([^\r\n]+)") or "0.00"
+    local new_total = t.new_total or "0.00"
     ui.set_visible("resultArea", true)
     ui.set_text("total", "Total collected: $" .. new_total)
-    ui.set_text("resultMsg", "Payment successful. $100 charged.")
+    ui.set_text("resultMsg", message ~= "" and message or "Payment successful. $100 charged.")
     ui.set_class("resultMsg", "text-green-400 font-medium block")
     ui.set_text("payBtnLabel", "Pay again")
     print("[payWithCard] SUCCESS patches applied")
   else
     print("[payWithCard] FAILURE branch - applying patches")
-    local err_line = resp_body:match("^[^\n]+") or tostring(status)
-    err_line = err_line:gsub("^#%s*", "")
     ui.set_visible("resultArea", true)
-    ui.set_text("resultMsg", err_line ~= "" and err_line or "Payment failed.")
+    ui.set_text("resultMsg", message ~= "" and message or "Payment failed.")
     ui.set_class("resultMsg", "text-red-400 block")
-    print("[payWithCard] FAILURE patches applied err_line=" .. tostring(err_line))
+    print("[payWithCard] FAILURE patches applied message=" .. tostring(message))
   end
   print("[payWithCard] END")
 end

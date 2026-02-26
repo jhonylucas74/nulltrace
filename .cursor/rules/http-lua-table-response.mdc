@@ -1,0 +1,34 @@
+---
+description: HTTP responses can return Lua tables for structured data
+globs: 
+alwaysApply: true
+---
+
+# HTTP Lua table response (application/x-lua-table)
+
+HTTP endpoints (e.g. card.null/pay) can return structured data as a **Lua table** instead of plain text. This allows clients to parse success/error and fields consistently.
+
+## Format
+
+- **Content-Type:** `application/x-lua-table; charset=utf-8`
+- **Body:** Key=value lines (one per line). Example:
+  ```
+  success=true
+  message=Payment successful. $100 charged.
+  new_total=12.50
+  ```
+  For errors:
+  ```
+  success=false
+  message=Card credit limit exceeded
+  ```
+
+## Parsing
+
+- **Lua:** Parse line by line; split on first `=` to get key and value.
+- **TypeScript:** Use `parseLuaTableBody(body)` from `browserVm.ts` when `contentType` is `application/x-lua-table`.
+
+## When to use
+
+- API endpoints that return success/error with structured fields (e.g. payment, form submit).
+- Prefer Lua table over ad-hoc formats (e.g. `# Error: ...` or `NEW_TOTAL=...`) for consistency and easier parsing.

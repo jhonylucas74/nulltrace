@@ -377,8 +377,29 @@ function NetworkPanel({
             <span>Time: <strong>{formatTime(selected.timestamp)}</strong></span>
             <span>Content-Type: <strong>{selected.contentType ?? "—"}</strong></span>
           </div>
+          {selected.requestHeaders && (
+            <div className={styles.networkDetailSection}>
+              <div className={styles.networkDetailLabel}>Request headers</div>
+              <pre className={styles.networkDetailBody}>{selected.requestHeaders}</pre>
+            </div>
+          )}
+          {selected.requestBody && (
+            <div className={styles.networkDetailSection}>
+              <div className={styles.networkDetailLabel}>Request body</div>
+              <pre className={styles.networkDetailBody}>{selected.requestBody.slice(0, 4000)}{selected.requestBody.length > 4000 ? "\n…" : ""}</pre>
+            </div>
+          )}
+          {selected.responseHeaders && (
+            <div className={styles.networkDetailSection}>
+              <div className={styles.networkDetailLabel}>Response headers</div>
+              <pre className={styles.networkDetailBody}>{selected.responseHeaders}</pre>
+            </div>
+          )}
           {selected.response && (
-            <pre className={styles.networkDetailBody}>{selected.response.slice(0, 4000)}{selected.response.length > 4000 ? "\n…" : ""}</pre>
+            <div className={styles.networkDetailSection}>
+              <div className={styles.networkDetailLabel}>Response</div>
+              <pre className={styles.networkDetailBody}>{selected.response.slice(0, 4000)}{selected.response.length > 4000 ? "\n…" : ""}</pre>
+            </div>
           )}
         </div>
       )}
@@ -509,9 +530,7 @@ function ConsolePanel({ entries, endRef, tabId, pushConsole }: ConsolePanelProps
         code,
       });
 
-      if (result.output.length > 0) {
-        pushConsole(result.output, tabId, "log");
-      }
+      // Console output streams via devtools:console; only push errors here
       if (result.error) {
         pushConsole([result.error], tabId, "error");
       }

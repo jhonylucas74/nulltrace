@@ -62,6 +62,8 @@ export interface ParsedHttpResponse {
   location: string | null;
   body: string;
   raw: string;
+  /** Response headers block (status line + all headers, before body). */
+  responseHeaders: string;
 }
 
 /**
@@ -110,7 +112,28 @@ export function parseHttpResponse(raw: string): ParsedHttpResponse | null {
     }
   }
 
-  return { status, contentType, location, body, raw };
+  return { status, contentType, location, body, raw, responseHeaders: head };
+}
+
+/** Content-Type for Lua table responses (key=value lines). */
+export const LUA_TABLE_CONTENT_TYPE = "application/x-lua-table";
+
+/**
+ * Parses application/x-lua-table body (key=value lines) into a Record.
+ * Use when contentType is application/x-lua-table.
+ */
+export function parseLuaTableBody(body: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!body?.trim()) return result;
+  for (const line of body.split(/\r?\n/)) {
+    const idx = line.indexOf("=");
+    if (idx > 0) {
+      const key = line.slice(0, idx).trim();
+      const value = line.slice(idx + 1).trim();
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 /**

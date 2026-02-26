@@ -2,6 +2,7 @@ pub mod card_api;
 pub mod context;
 pub mod crypto_api;
 pub mod fs_api;
+pub mod str_api;
 pub mod fkebank_api;
 pub mod http_api;
 pub mod httpd_api;
@@ -37,6 +38,7 @@ pub fn register_all(
     card_invoice_service: Option<Arc<CardInvoiceService>>,
 ) -> Result<()> {
     fs_api::register(lua, fs_service.clone())?;
+    str_api::register(lua)?;
     net_api::register(lua)?;
     http_api::register(lua)?;
     httpd_api::register(lua, fs_service.clone())?;

@@ -15,6 +15,9 @@ pub const LUA_MEMORY_LIMIT_BYTES: usize = 1024 * 1024;
 /// Handler timeout per spec: 200ms.
 const HANDLER_TIMEOUT_MS: u64 = 200;
 
+/// Max stack levels to inspect for C (Rust) frames; avoids yield across C-call boundary (same as nulltrace-core os.rs).
+const MAX_STACK_LEVEL: usize = 64;
+
 /// UI mutation patches collected during handler execution.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -39,7 +42,7 @@ pub struct TabImport {
     pub content: String,
 }
 
-/// Network entry from Lua http.post, for DevTools Network tab.
+/// Network entry from Lua http.get/post, for DevTools Network tab.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HandlerNetworkEntry {
     pub origin: String,
@@ -50,6 +53,11 @@ pub struct HandlerNetworkEntry {
     pub content_type: Option<String>,
     pub size: Option<usize>,
     pub response: Option<String>,
+    pub request_body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_headers: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_headers: Option<String>,
     pub timestamp: u64,
 }
 
@@ -115,9 +123,16 @@ pub fn new_tab_state_store() -> TabStateStore {
     DashMap::new()
 }
 
-/// Parses raw HTTP response (from curl stdout) into status and body.
-fn parse_http_response(raw: &str) -> (u16, String) {
-    let status = raw
+/// Parses raw HTTP response (from curl stdout) into status, body, and response headers block.
+fn parse_http_response(raw: &str) -> (u16, String, Option<String>) {
+    let (head, body) = if let Some(idx) = raw.find("\r\n\r\n") {
+        (raw[..idx].to_string(), raw[idx + 4..].to_string())
+    } else if let Some(idx) = raw.find("\n\n") {
+        (raw[..idx].to_string(), raw[idx + 2..].to_string())
+    } else {
+        (String::new(), String::new())
+    };
+    let status = head
         .lines()
         .next()
         .and_then(|line| {
@@ -126,13 +141,23 @@ fn parse_http_response(raw: &str) -> (u16, String) {
                 .and_then(|s| s.parse::<u16>().ok())
         })
         .unwrap_or(0);
-    let body = raw
-        .split("\r\n\r\n")
-        .nth(1)
-        .or_else(|| raw.split("\n\n").nth(1))
-        .unwrap_or("")
-        .to_string();
-    (status, body)
+    let response_headers = if head.is_empty() {
+        None
+    } else {
+        Some(head)
+    };
+    (status, body, response_headers)
+}
+
+/// Builds request headers string from method, path, and optional body (for display in DevTools).
+fn build_request_headers_display(method: &str, path: &str, body: Option<&str>) -> String {
+    let mut lines = vec![format!("{} {} HTTP/1.0", method, path)];
+    if let Some(b) = body {
+        if !b.is_empty() {
+            lines.push(format!("Content-Length: {}", b.len()));
+        }
+    }
+    lines.join("\r\n")
 }
 
 /// Extracts Content-Type from raw HTTP response headers.
@@ -176,8 +201,10 @@ fn create_tab_lua(
         )?;
     }
 
-    // Register print() → captured to print_log
+    // Register print() → captured to print_log and emitted for real-time DevTools console
     let pl = print_log.clone();
+    let app_print = app.clone();
+    let tab_id_print = tab_id.clone();
     lua.globals().set(
         "print",
         lua.create_function(move |_, args: mlua::Variadic<mlua::Value>| {
@@ -192,14 +219,29 @@ fn create_tab_lua(
                     _ => format!("{:?}", v),
                 })
                 .collect();
-            pl.lock().unwrap().push(parts.join("\t"));
+            let message = parts.join("\t");
+            pl.lock().unwrap().push(message.clone());
+            let _ = app_print.emit(
+                "devtools:console",
+                serde_json::json!({ "tab_id": tab_id_print, "message": message }),
+            );
             Ok(())
         })?,
     )?;
 
-    // Interrupt: yield every 2 calls (same style as nulltrace-core os.rs)
+    // Interrupt: yield every 2 calls (same style as nulltrace-core os.rs).
+    // Only yield when no C (Rust) frame is on the stack; avoids "yield across C-call boundary".
     let count = AtomicU64::new(0);
-    lua.set_interrupt(move |_| {
+    lua.set_interrupt(move |lua| {
+        for level in 0..=MAX_STACK_LEVEL {
+            if let Some(what) = lua.inspect_stack(level, |debug| debug.source().what) {
+                if what == "C" {
+                    return Ok(VmState::Continue);
+                }
+            } else {
+                break;
+            }
+        }
         if count.fetch_add(1, Ordering::Relaxed) % 2 == 0 {
             return Ok(VmState::Yield);
         }
@@ -372,10 +414,38 @@ fn create_tab_lua(
 
     lua.globals().set("storage", storage)?;
 
+    // Register str table (parse_table for application/x-lua-table responses)
+    let str_tbl = lua.create_table()?;
+    str_tbl.set(
+        "parse_table",
+        lua.create_function(|lua, s: String| {
+            let tbl = lua.create_table()?;
+            if s.is_empty() {
+                return Ok(tbl);
+            }
+            for line in s.lines() {
+                let line = line.trim();
+                if let Some(idx) = line.find('=') {
+                    if idx > 0 {
+                        let key = line[..idx].trim();
+                        let val = line[idx + 1..].trim();
+                        if !key.is_empty() {
+                            tbl.set(key, val)?;
+                        }
+                    }
+                }
+            }
+            Ok(tbl)
+        })?,
+    )?;
+    lua.globals().set("str", str_tbl)?;
+
     // Register http API (post: run curl in VM for in-game URLs)
     let http_tbl = lua.create_table()?;
     let ct = current_token.clone();
     let net_entries = network_entries.clone();
+    let app_http = app.clone();
+    let tab_id_http = tab_id.clone();
     http_tbl.set(
         "post",
         lua.create_function(move |lua, (url, body): (String, Option<String>)| {
@@ -388,10 +458,15 @@ fn create_tab_lua(
                 .replace("http://", "");
             let full_url = format!("http://{}", url_norm);
             let body_str = body.unwrap_or_default();
+            let path = if url_norm.contains('/') {
+                url_norm.splitn(2, '/').nth(1).map(|p| format!("/{}", p)).unwrap_or_else(|| "/".to_string())
+            } else {
+                "/".to_string()
+            };
             let args = if body_str.is_empty() {
                 vec![url_norm]
             } else {
-                vec![url_norm, body_str]
+                vec![url_norm, body_str.clone()]
             };
             let start = std::time::Instant::now();
             let timestamp = std::time::SystemTime::now()
@@ -401,7 +476,7 @@ fn create_tab_lua(
             match crate::grpc::run_process_blocking("curl".to_string(), args, token) {
                 Ok(res) => {
                     let duration_ms = start.elapsed().as_millis() as u64;
-                    let (status, resp_body) = parse_http_response(&res.stdout);
+                    let (status, resp_body, response_headers) = parse_http_response(&res.stdout);
                     let content_type = parse_content_type_from_response(&res.stdout);
                     let size = resp_body.len();
                     let response_preview = if resp_body.len() > 8000 {
@@ -409,7 +484,7 @@ fn create_tab_lua(
                     } else {
                         resp_body.clone()
                     };
-                    net_entries.lock().unwrap().push(HandlerNetworkEntry {
+                    let entry = HandlerNetworkEntry {
                         origin: "lua".to_string(),
                         url: full_url,
                         method: "POST".to_string(),
@@ -418,8 +493,13 @@ fn create_tab_lua(
                         content_type: content_type,
                         size: Some(size),
                         response: Some(response_preview),
+                        request_body: if body_str.is_empty() { None } else { Some(body_str.clone()) },
+                        request_headers: Some(build_request_headers_display("POST", &path, Some(&body_str))),
+                        response_headers,
                         timestamp,
-                    });
+                    };
+                    net_entries.lock().unwrap().push(entry.clone());
+                    let _ = app_http.emit("devtools:network", serde_json::json!({ "tab_id": tab_id_http, "entry": entry }));
                     let tbl = lua.create_table()?;
                     tbl.set("status", status)?;
                     tbl.set("body", resp_body)?;
@@ -427,7 +507,8 @@ fn create_tab_lua(
                 }
                 Err(e) => {
                     let duration_ms = start.elapsed().as_millis() as u64;
-                    net_entries.lock().unwrap().push(HandlerNetworkEntry {
+                    let req_headers = Some(build_request_headers_display("POST", &path, Some(&body_str)));
+                    let entry = HandlerNetworkEntry {
                         origin: "lua".to_string(),
                         url: full_url,
                         method: "POST".to_string(),
@@ -436,9 +517,95 @@ fn create_tab_lua(
                         content_type: None,
                         size: None,
                         response: Some(e.clone()),
+                        request_body: if body_str.is_empty() { None } else { Some(body_str) },
+                        request_headers: req_headers,
+                        response_headers: None,
                         timestamp,
-                    });
+                    };
+                    net_entries.lock().unwrap().push(entry.clone());
+                    let _ = app_http.emit("devtools:network", serde_json::json!({ "tab_id": tab_id_http, "entry": entry }));
                     Err(mlua::Error::RuntimeError(format!("http.post failed: {}", e)))
+                }
+            }
+        })?,
+    )?;
+    let ct_get = current_token.clone();
+    let net_entries_get = network_entries.clone();
+    let app_http_get = app.clone();
+    let tab_id_http_get = tab_id.clone();
+    http_tbl.set(
+        "get",
+        lua.create_function(move |lua, url: String| {
+            let token = ct_get.lock().unwrap().clone().ok_or_else(|| {
+                mlua::Error::RuntimeError("http.get: no auth token (handler not invoked with token)".to_string())
+            })?;
+            let url_norm = url
+                .trim()
+                .replace("https://", "")
+                .replace("http://", "");
+            let full_url = format!("http://{}", url_norm);
+            let path = if url_norm.contains('/') {
+                url_norm.splitn(2, '/').nth(1).map(|p| format!("/{}", p)).unwrap_or_else(|| "/".to_string())
+            } else {
+                "/".to_string()
+            };
+            let args = vec![url_norm];
+            let start = std::time::Instant::now();
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            match crate::grpc::run_process_blocking("curl".to_string(), args, token) {
+                Ok(res) => {
+                    let duration_ms = start.elapsed().as_millis() as u64;
+                    let (status, resp_body, response_headers) = parse_http_response(&res.stdout);
+                    let content_type = parse_content_type_from_response(&res.stdout);
+                    let size = resp_body.len();
+                    let response_preview = if resp_body.len() > 8000 {
+                        resp_body.chars().take(8000).collect::<String>()
+                    } else {
+                        resp_body.clone()
+                    };
+                    let entry = HandlerNetworkEntry {
+                        origin: "lua".to_string(),
+                        url: full_url.clone(),
+                        method: "GET".to_string(),
+                        status: Some(status),
+                        duration_ms: Some(duration_ms),
+                        content_type: content_type,
+                        size: Some(size),
+                        response: Some(response_preview),
+                        request_body: None,
+                        request_headers: Some(build_request_headers_display("GET", &path, None)),
+                        response_headers,
+                        timestamp,
+                    };
+                    net_entries_get.lock().unwrap().push(entry.clone());
+                    let _ = app_http_get.emit("devtools:network", serde_json::json!({ "tab_id": tab_id_http_get, "entry": entry }));
+                    let tbl = lua.create_table()?;
+                    tbl.set("status", status)?;
+                    tbl.set("body", resp_body)?;
+                    Ok(mlua::Value::Table(tbl))
+                }
+                Err(e) => {
+                    let duration_ms = start.elapsed().as_millis() as u64;
+                    let entry = HandlerNetworkEntry {
+                        origin: "lua".to_string(),
+                        url: full_url,
+                        method: "GET".to_string(),
+                        status: None,
+                        duration_ms: Some(duration_ms),
+                        content_type: None,
+                        size: None,
+                        response: Some(e.clone()),
+                        request_body: None,
+                        request_headers: Some(build_request_headers_display("GET", &path, None)),
+                        response_headers: None,
+                        timestamp,
+                    };
+                    net_entries_get.lock().unwrap().push(entry.clone());
+                    let _ = app_http_get.emit("devtools:network", serde_json::json!({ "tab_id": tab_id_http_get, "entry": entry }));
+                    Err(mlua::Error::RuntimeError(format!("http.get failed: {}", e)))
                 }
             }
         })?,
@@ -484,7 +651,7 @@ pub struct ScriptSource {
     pub content: String,
 }
 
-/// Creates and stores a tab state. Loads scripts into Lua. Returns Ok(()) on success.
+/// Creates and stores a tab state. Loads scripts into Lua. Returns network entries captured during script load.
 pub fn create_tab_state(
     store: &TabStateStore,
     tab_id: String,
@@ -497,7 +664,7 @@ pub fn create_tab_state(
     user_id: String,
     card_request_store: CardRequestStore,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<Vec<HandlerNetworkEntry>, String> {
     let patches = Arc::new(Mutex::new(Vec::new()));
     let accumulated_patches = Arc::new(Mutex::new(Vec::new()));
     let form_values = Arc::new(Mutex::new(None));
@@ -537,6 +704,8 @@ pub fn create_tab_state(
             .map_err(|e| format!("Script load error: {}", e))?;
     }
 
+    let network_entries_result = std::mem::take(&mut *network_entries.lock().unwrap());
+
     store.insert(
         tab_id,
         TabLuaState {
@@ -553,7 +722,7 @@ pub fn create_tab_state(
             network_entries,
         },
     );
-    Ok(())
+    Ok(network_entries_result)
 }
 
 /// Renders the tab's document with patches applied. Returns HTML.
@@ -708,10 +877,20 @@ pub fn run_handler(
         .as_millis() as u64;
     let start_atomic = Arc::new(std::sync::atomic::AtomicU64::new(start_epoch));
 
-    // Replace interrupt with one that also checks timeout (200ms per spec)
+    // Replace interrupt with one that also checks timeout (200ms per spec).
+    // Only yield when no C (Rust) frame is on the stack; avoids "yield across C-call boundary".
     let start_check = start_atomic.clone();
     let count = AtomicU64::new(0);
-    state.lua.set_interrupt(move |_| {
+    state.lua.set_interrupt(move |lua| {
+        for level in 0..=MAX_STACK_LEVEL {
+            if let Some(what) = lua.inspect_stack(level, |debug| debug.source().what) {
+                if what == "C" {
+                    return Ok(VmState::Continue);
+                }
+            } else {
+                break;
+            }
+        }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -744,9 +923,18 @@ pub fn run_handler(
         }
     }
 
-    // Restore default interrupt (yield every 2)
+    // Restore default interrupt (yield every 2, skip yield when in C frame)
     let count2 = AtomicU64::new(0);
-    state.lua.set_interrupt(move |_| {
+    state.lua.set_interrupt(move |lua| {
+        for level in 0..=MAX_STACK_LEVEL {
+            if let Some(what) = lua.inspect_stack(level, |debug| debug.source().what) {
+                if what == "C" {
+                    return Ok(VmState::Continue);
+                }
+            } else {
+                break;
+            }
+        }
         if count2.fetch_add(1, Ordering::Relaxed) % 2 == 0 {
             return Ok(VmState::Yield);
         }

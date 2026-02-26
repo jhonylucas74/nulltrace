@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Loader2, Plus, X } from "lucide-react";
+import { Loader2, Plus, RotateCw, X } from "lucide-react";
 import {
   getPageHtml,
   getPageTitle,
@@ -59,6 +59,7 @@ export default function Browser() {
   const tauri = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
   const { open: openWindow, windows, setFocus, getWindowIdsByType } = useWindowManager();
   const { pushNetwork, pushConsole, setSource, setTabUrl, removeTabData } = useDevTools();
+  // pushNetwork used for browser fetch only; Lua http streams via devtools:network
 
   const [tabs, setTabs] = useState<BrowserTab[]>(() => {
     const isVm = isVmUrl(DEFAULT_BROWSER_URL);
@@ -89,6 +90,7 @@ export default function Browser() {
     origin: string;
     callbackAction: string;
   } | null>(null);
+  const [handlerRunning, setHandlerRunning] = useState(false);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const showHistoryPage = activeTab?.url === BROWSER_HISTORY_URL;
@@ -102,31 +104,6 @@ export default function Browser() {
   useEffect(() => {
     if (activeTab) setTabUrl(activeTab.id, activeTab.url);
   }, [activeTab?.id, activeTab?.url, setTabUrl]);
-
-  // F12 → open DevTools for current tab (or focus existing one).
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "F12") {
-        e.preventDefault();
-        if (!activeTabId) return;
-        const devtoolsIds = getWindowIdsByType("devtools");
-        const existing = devtoolsIds.find((wid) => {
-          const w = windows.find((win) => win.id === wid);
-          return w?.metadata?.tabId === activeTabId;
-        });
-        if (existing) {
-          setFocus(existing);
-        } else {
-          openWindow("devtools", {
-            title: `DevTools — ${activeTab?.title || activeTabId}`,
-            metadata: { tabId: activeTabId, url: activeTab?.url ?? "" },
-          });
-        }
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [openWindow, activeTabId, activeTab?.title, activeTab?.url, windows, getWindowIdsByType, setFocus]);
 
   // Resolve [data-lucide] placeholders in NTML-rendered iframe to Lucide SVG icons.
   // Also scroll to hash anchor (e.g. #spacing) when URL has a fragment.
@@ -207,6 +184,7 @@ export default function Browser() {
         console.log("[Browser VM fetch]", { url: curlUrl, exitCode: res.exit_code, parsed });
 
         // Track in DevTools network log (per-tab)
+        const path = curlUrl.includes("/") ? "/" + curlUrl.split("/").slice(1).join("/") : "/";
         pushNetwork({
           origin: "browser",
           url: curlUrl,
@@ -216,6 +194,8 @@ export default function Browser() {
           contentType: parsed?.contentType ?? null,
           size: parsed ? parsed.body.length : null,
           response: parsed ? parsed.body.slice(0, 8000) : null,
+          requestHeaders: `GET ${path} HTTP/1.0`,
+          responseHeaders: parsed?.responseHeaders ?? null,
           timestamp: reqStart,
         }, tabId);
 
@@ -378,6 +358,7 @@ export default function Browser() {
               markdownContents: markdownContents.length > 0 ? markdownContents : undefined,
               userId: playerId ?? "",
             });
+            // Network entries from Lua http stream via devtools:network events
 
             const html = await invoke<string>("ntml_to_html", {
               yaml: parsed.body,
@@ -527,6 +508,39 @@ export default function Browser() {
     [activeTabId, historyIndex, fetchVmUrl, tabs]
   );
 
+  const handleRefresh = useCallback(() => {
+    if (activeTab?.url) navigateTo(activeTab.url, false);
+  }, [activeTab?.url, navigateTo]);
+
+  // F12 → DevTools; F5 / Ctrl+R / Cmd+R → refresh.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "F12") {
+        e.preventDefault();
+        if (!activeTabId) return;
+        const devtoolsIds = getWindowIdsByType("devtools");
+        const existing = devtoolsIds.find((wid) => {
+          const w = windows.find((win) => win.id === wid);
+          return w?.metadata?.tabId === activeTabId;
+        });
+        if (existing) {
+          setFocus(existing);
+        } else {
+          openWindow("devtools", {
+            title: `DevTools — ${activeTab?.title || activeTabId}`,
+            metadata: { tabId: activeTabId, url: activeTab?.url ?? "" },
+          });
+        }
+      }
+      if (e.key === "F5" || ((e.ctrlKey || e.metaKey) && e.key === "r")) {
+        e.preventDefault();
+        handleRefresh();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [openWindow, activeTabId, activeTab?.title, activeTab?.url, handleRefresh, windows, getWindowIdsByType, setFocus]);
+
   // Listen for NTML button actions and Link navigation from iframe (postMessage).
   useEffect(() => {
     if (!tauri) return;
@@ -547,6 +561,7 @@ export default function Browser() {
           });
         }
         const eventData = d.eventData && typeof d.eventData === "object" ? d.eventData : undefined;
+        setHandlerRunning(true);
         invoke<{
           html: string;
           print_output?: string[];
@@ -559,6 +574,7 @@ export default function Browser() {
             content_type: string | null;
             size: number | null;
             response: string | null;
+            request_body?: string | null;
             timestamp: number;
           }>;
         }>("ntml_run_handler", {
@@ -569,34 +585,18 @@ export default function Browser() {
           token: token ?? undefined,
         })
           .then((res) => {
-            if (res.print_output && res.print_output.length > 0) {
-              pushConsole(res.print_output, activeTabId);
-            }
-            if (res.network_entries?.length) {
-              for (const e of res.network_entries) {
-                pushNetwork(
-                  {
-                    origin: (e.origin as "browser" | "lua") || "lua",
-                    url: e.url,
-                    method: e.method,
-                    status: e.status ?? null,
-                    duration: e.duration_ms ?? null,
-                    contentType: e.content_type ?? null,
-                    size: e.size ?? null,
-                    response: e.response ?? null,
-                    timestamp: e.timestamp,
-                  },
-                  activeTabId
-                );
-              }
-            }
+            setHandlerRunning(false);
+            // Network entries from Lua http stream via devtools:network events
             setTabs((prev) =>
               prev.map((t) =>
                 t.id === activeTabId ? { ...t, content: res.html } : t
               )
             );
           })
-          .catch(() => {});
+          .catch((err) => {
+            setHandlerRunning(false);
+            pushConsole([`[Handler error] ${err instanceof Error ? err.message : String(err)}`], activeTabId, "error");
+          });
       } else if (d?.type === "ntml-navigate" && typeof d.url === "string") {
         const url = d.url.trim() || DEFAULT_BROWSER_URL;
         const target = d.target === "new" ? "new" : "same";
@@ -622,7 +622,7 @@ export default function Browser() {
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [tauri, activeTabId, navigateTo, fetchVmUrl, token, pushConsole, pushNetwork]);
+  }, [tauri, activeTabId, navigateTo, fetchVmUrl, token, pushConsole]);
 
   // Listen for ntml:request-card (Lua called browser.request_card)
   useEffect(() => {
@@ -646,7 +646,7 @@ export default function Browser() {
   const handleCardPickerConfirm = useCallback(
     async (card: GrpcWalletCard) => {
       if (!cardRequestModal || !token) return;
-      const { requestId } = cardRequestModal;
+      const { requestId, tabId: modalTabId } = cardRequestModal;
       setCardRequestModal(null);
       try {
         const res = await invoke<{ tab_id: string; callback_action: string }>("ntml_submit_card_selection", {
@@ -661,6 +661,7 @@ export default function Browser() {
           holder_name: card.holder_name ?? card.holderName ?? "",
           last4: card.last4 ?? "",
         };
+        setHandlerRunning(true);
         const handlerRes = await invoke<{
           html: string;
           print_output?: string[];
@@ -673,6 +674,7 @@ export default function Browser() {
             content_type: string | null;
             size: number | null;
             response: string | null;
+            request_body?: string | null;
             timestamp: number;
           }>;
         }>("ntml_run_handler", {
@@ -682,35 +684,18 @@ export default function Browser() {
           eventData,
           token: token ?? undefined,
         });
-        if (handlerRes.print_output && handlerRes.print_output.length > 0) {
-          pushConsole(handlerRes.print_output, res.tab_id);
-        }
-        if (handlerRes.network_entries?.length) {
-          for (const e of handlerRes.network_entries) {
-            pushNetwork(
-              {
-                origin: (e.origin as "browser" | "lua") || "lua",
-                url: e.url,
-                method: e.method,
-                status: e.status ?? null,
-                duration: e.duration_ms ?? null,
-                contentType: e.content_type ?? null,
-                size: e.size ?? null,
-                response: e.response ?? null,
-                timestamp: e.timestamp,
-              },
-              res.tab_id
-            );
-          }
-        }
+        setHandlerRunning(false);
+        // Network entries from Lua http stream via devtools:network events
         setTabs((prev) =>
           prev.map((t) => (t.id === res.tab_id ? { ...t, content: handlerRes.html } : t))
         );
-      } catch {
+      } catch (err) {
+        setHandlerRunning(false);
+        pushConsole([`[Handler error] ${err instanceof Error ? err.message : String(err)}`], modalTabId, "error");
         // Modal already closed; user can retry from the NTML page
       }
     },
-    [cardRequestModal, token, pushConsole, pushNetwork]
+    [cardRequestModal, token, pushConsole]
   );
 
   const goBack = useCallback(() => {
@@ -862,6 +847,16 @@ export default function Browser() {
             >
               <ForwardIcon />
             </button>
+            <button
+              type="button"
+              className={styles.navBtn}
+              onClick={handleRefresh}
+              disabled={!activeTab?.url}
+              aria-label="Refresh"
+              title="Refresh"
+            >
+              <RotateCw size={18} />
+            </button>
           </div>
           <div className={styles.addressWrap}>
             {activeTab?.loading && (
@@ -932,6 +927,12 @@ export default function Browser() {
       </div>
 
       <div className={styles.content}>
+        {handlerRunning && (
+          <div className={styles.handlerOverlay} aria-live="polite">
+            <span>Executing…</span>
+            <Loader2 size={28} className={styles.handlerSpinner} aria-hidden />
+          </div>
+        )}
         {showHistoryPage ? (
           <HistoryPageView
             history={history}

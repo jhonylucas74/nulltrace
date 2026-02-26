@@ -277,7 +277,7 @@ impl WalletCardService {
         .execute(&self.pool)
         .await?;
         if result.rows_affected() == 0 {
-            return Err(WalletError::CardNotFound);
+            return Ok(false);
         }
         Ok(true)
     }
