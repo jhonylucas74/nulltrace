@@ -26,6 +26,7 @@ export default function DiskManagerApp() {
   const [loading, setLoading] = useState(true);
   const [restoring, setRestoring] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [section, setSection] = useState<"storage" | "restore">("storage");
 
   const fetchDiskUsage = useCallback(async () => {
     if (!playerId || !token) {
@@ -104,13 +105,21 @@ export default function DiskManagerApp() {
     <div className={styles.app}>
       <aside className={styles.sidebar}>
         <div className={styles.sidebarTitle}>{t("sidebar_title")}</div>
-        <button type="button" className={`${styles.navItem} ${styles.navItemActive}`}>
+        <button
+          type="button"
+          className={`${styles.navItem} ${section === "storage" ? styles.navItemActive : ""}`}
+          onClick={() => setSection("storage")}
+        >
           <span className={styles.navIcon}>
             <HardDrive size={18} />
           </span>
           {t("nav_storage")}
         </button>
-        <button type="button" className={styles.navItem}>
+        <button
+          type="button"
+          className={`${styles.navItem} ${section === "restore" ? styles.navItemActive : ""}`}
+          onClick={() => setSection("restore")}
+        >
           <span className={styles.navIcon}>
             <RotateCcw size={18} />
           </span>
@@ -119,55 +128,62 @@ export default function DiskManagerApp() {
       </aside>
       <div className={styles.main}>
         <div className={styles.content}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>{t("section_storage")}</h2>
-          </div>
-          <p className={styles.hint}>
-            {t("hint_storage")}
-          </p>
-          <div className={styles.card}>
-            {loading ? (
-              <p className={styles.loading}>{t("loading")}</p>
-            ) : error ? (
-              <p className={styles.error}>{error}</p>
-            ) : usedBytes != null && totalBytes != null ? (
-              <>
-                <div className={styles.storageRow}>
-                  <span className={styles.storageLabel}>{t("label_used")}</span>
-                  <span className={styles.storageValue}>
-                    {formatBytes(usedBytes)} / {formatBytes(totalBytes)}
-                  </span>
-                </div>
-                <div className={styles.progressWrap}>
-                  <div
-                    className={styles.progressBar}
-                    role="progressbar"
-                    aria-valuenow={progressPercent}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-              </>
-            ) : null}
-          </div>
-
-          <div className={styles.sectionHeader} style={{ marginTop: "1.5rem" }}>
-            <h2 className={styles.sectionTitle}>{t("section_restore")}</h2>
-          </div>
-          <p className={styles.hint}>
-            {t("hint_restore")}
-          </p>
-          <div className={styles.card}>
-            <button
-              type="button"
-              className={styles.restoreBtn}
-              disabled={loading || restoring || !playerId}
-              onClick={() => setConfirmOpen(true)}
-            >
-              {restoring ? t("restoring") : t("restore_btn")}
-            </button>
-          </div>
+          {section === "storage" && (
+            <>
+              <div className={styles.sectionHeader}>
+                <h2 className={styles.sectionTitle}>{t("section_storage")}</h2>
+              </div>
+              <p className={styles.hint}>
+                {t("hint_storage")}
+              </p>
+              <div className={`${styles.card} ${styles.cardStorage}`}>
+                {loading ? (
+                  <p className={styles.loading}>{t("loading")}</p>
+                ) : error ? (
+                  <p className={styles.error}>{error}</p>
+                ) : usedBytes != null && totalBytes != null ? (
+                  <>
+                    <div className={styles.storageRow}>
+                      <span className={styles.storageLabel}>{t("label_used")}</span>
+                      <span className={styles.storageValue}>
+                        {formatBytes(usedBytes)} / {formatBytes(totalBytes)}
+                      </span>
+                    </div>
+                    <div className={styles.progressWrap}>
+                      <div
+                        className={styles.progressBar}
+                        role="progressbar"
+                        aria-valuenow={progressPercent}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </>
+          )}
+          {section === "restore" && (
+            <>
+              <div className={styles.sectionHeader}>
+                <h2 className={styles.sectionTitle}>{t("section_restore")}</h2>
+              </div>
+              <p className={styles.hint}>
+                {t("hint_restore")}
+              </p>
+              <div className={styles.card}>
+                <button
+                  type="button"
+                  className={styles.restoreBtn}
+                  disabled={loading || restoring || !playerId}
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  {restoring ? t("restoring") : t("restore_btn")}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

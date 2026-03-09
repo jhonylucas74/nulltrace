@@ -105,11 +105,15 @@
   margin-bottom: 1rem;
 }
 
+/* Storage card: less bottom padding so the box is not overly tall */
+.cardStorage {
+  padding-bottom: 0.5rem;
+}
+
 .storageRow {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.75rem;
 }
 
 .storageLabel {
