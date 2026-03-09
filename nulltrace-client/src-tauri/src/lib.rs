@@ -145,36 +145,27 @@ async fn ntml_run_handler(
     store: tauri::State<'_, std::sync::Arc<ntml_runtime::TabStateStore>>,
     app: tauri::AppHandle,
 ) -> Result<ntml_run_handler_result::NtmlRunHandlerResult, String> {
-    let store_clone = store.inner().clone();
-    let tab_id_clone = tab_id.clone();
-    let action_clone = action.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        ntml_runtime::run_handler(&store_clone, &tab_id_clone, &action_clone, form_values, event_data, token)
-    })
-    .await
-    .map_err(|e| format!("Handler task join error: {}", e));
+    let (patches, print_output, network_entries) = ntml_runtime::run_handler(
+        store.inner().as_ref(),
+        &tab_id,
+        &action,
+        form_values,
+        event_data,
+        token,
+    )
+    .map_err(|e| {
+        let _ = app.emit(
+            "devtools:console",
+            serde_json::json!({ "tab_id": tab_id, "message": format!("[Lua error] {}: {}", action, e), "level": "error" }),
+        );
+        e
+    })?;
 
-    let (patches, print_output, network_entries) = match result {
-        Ok(Ok(t)) => t,
-        Ok(Err(e)) => {
-            let msg = format!("[Lua error] {}: {}", action, e);
-            let _ = app.emit(
-                "devtools:console",
-                serde_json::json!({ "tab_id": tab_id, "message": msg, "level": "error" }),
-            );
-            return Err(e);
-        }
-        Err(e) => {
-            let msg = format!("[Handler task error] {}", e);
-            let _ = app.emit(
-                "devtools:console",
-                serde_json::json!({ "tab_id": tab_id, "message": msg, "level": "error" }),
-            );
-            return Err(e);
-        }
-    };
-
-    let html = ntml_runtime::render_with_accumulated_patches(store.inner().as_ref(), &tab_id, &patches)?;
+    let html = ntml_runtime::render_with_accumulated_patches(
+        store.inner().as_ref(),
+        &tab_id,
+        &patches,
+    )?;
     Ok(ntml_run_handler_result::NtmlRunHandlerResult {
         patches,
         html,
@@ -300,19 +291,13 @@ fn browser_storage_clear(
 }
 
 #[tauri::command]
-async fn ntml_eval_lua(
+fn ntml_eval_lua(
     tab_id: String,
     code: String,
     app: tauri::AppHandle,
 ) -> ntml_runtime::EvalLuaResult {
     let store = app.state::<std::sync::Arc<ntml_runtime::TabStateStore>>().inner().clone();
-    match tokio::task::spawn_blocking(move || ntml_runtime::eval_lua(store.as_ref(), &tab_id, &code)).await {
-        Ok(result) => result,
-        Err(e) => ntml_runtime::EvalLuaResult {
-            output: vec![],
-            error: Some(format!("Eval task join error: {}", e)),
-        },
-    }
+    ntml_runtime::eval_lua(store.as_ref(), &tab_id, &code)
 }
 
 #[tauri::command]

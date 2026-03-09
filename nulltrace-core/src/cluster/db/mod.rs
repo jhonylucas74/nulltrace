@@ -12,6 +12,7 @@ pub mod crypto_wallet_service;
 pub mod wallet_service;
 pub mod wallet_card_service;
 pub mod card_invoice_service;
+pub mod codelab_service;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -108,6 +109,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
     sqlx::raw_sql(include_str!("../../../migrations/027_shared_credit_limit.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/028_create_codelab_progress.sql"))
         .execute(pool)
         .await?;
     Ok(())

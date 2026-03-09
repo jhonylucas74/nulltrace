@@ -34,6 +34,8 @@ use game::{
     GetCardStatementRequest, GetCardStatementResponse,
     PayCardBillRequest, PayCardBillResponse,
     PayAccountBillRequest, PayAccountBillResponse,
+    GetCodelabProgressRequest, GetCodelabProgressResponse,
+    MarkCodelabSolvedRequest, MarkCodelabSolvedResponse,
 };
 use tonic::{Request, Response, Status, transport::Server};
 use tokio_stream::wrappers::ReceiverStream;
@@ -569,6 +571,25 @@ impl GameService for MyGameService {
             success: false,
             amount_paid: 0,
             error_message: "Use the unified cluster binary for wallet".to_string(),
+        }))
+    }
+
+    async fn mark_codelab_solved(
+        &self,
+        _request: Request<MarkCodelabSolvedRequest>,
+    ) -> Result<Response<MarkCodelabSolvedResponse>, Status> {
+        Ok(Response::new(MarkCodelabSolvedResponse {
+            error_message: "Use the unified cluster binary for codelab".to_string(),
+        }))
+    }
+
+    async fn get_codelab_progress(
+        &self,
+        _request: Request<GetCodelabProgressRequest>,
+    ) -> Result<Response<GetCodelabProgressResponse>, Status> {
+        Ok(Response::new(GetCodelabProgressResponse {
+            solved_challenge_ids: vec![],
+            error_message: "Use the unified cluster binary for codelab".to_string(),
         }))
     }
 }

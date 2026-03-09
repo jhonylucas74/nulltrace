@@ -1,6 +1,12 @@
 /**
  * Codelab challenge definitions.
  * Each challenge has 3 test cases; the user must pass all 3 to complete it.
+ *
+ * DIFFICULTY GUIDE:
+ *   easy   — Tutorial mode: teaches one Luau concept per exercise.
+ *            Rich descriptions + commented starter code. For total beginners.
+ *   medium — Algorithmic thinking. Roughly “easy” level on typical coding challenge sites.
+ *   hard   — Real algorithms required. Roughly “medium” level on typical coding challenge sites.
  */
 
 export type Difficulty = "easy" | "medium" | "hard";
@@ -31,198 +37,419 @@ export interface Challenge {
 
 export const CHALLENGES: Challenge[] = [
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  //  EASY  (14 challenges)
+  //  EASY  (14 tutorial challenges — one concept each)
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+  // ── Tutorial 1 of 14: Functions and print() ───────────────────────────────
   {
     id: "hello-world",
-    title: "Hello World",
+    title: "Hello, World!",
     difficulty: "easy",
-    description:
-      'Write a function `hello()` that prints "Hello, World!" to the console.',
-    examples: "-- Expected output:\nHello, World!",
-    starterCode: `function hello()
-  -- your code here
+    description: `Welcome to Codelab! Let's learn Luau step by step.
+
+── What is a Function? ──────────────────────────
+A function is a named block of code you can run whenever you want.
+Define it with the 'function' keyword:
+
+  function myFunction()
+    -- code goes inside here
+  end
+
+Call (run) it by writing its name followed by ():
+
+  myFunction()
+
+── What is print()? ─────────────────────────────
+print() is a built-in function that shows text in the console.
+Text wrapped in quotes is called a "string":
+
+  print("Hello!")    → shows: Hello!
+  print("Luau")      → shows: Luau
+
+── Your Task ────────────────────────────────────
+Complete the hello() function so it prints:
+
+  Hello, World!`,
+    examples: `-- Call it like this:\nhello()\n\n-- Expected output:\nHello, World!`,
+    starterCode: `-- TUTORIAL 1 of 14: Functions and print()
+-- ─────────────────────────────────────────────
+-- A function is defined with 'function' and ends with 'end'.
+-- print() shows text on screen. Text must be inside quotes.
+--
+-- Example:
+--   print("Good morning!")   → Good morning!
+--
+-- YOUR TASK: Make hello() print: Hello, World!
+
+function hello()
+  -- Write your code here:
+
 end`,
     testCases: [
       { id: 1, input: "hello()", expectedOutput: "Hello, World!", setupCode: "hello()" },
-      { id: 2, input: "hello() x2", expectedOutput: "Hello, World!\nHello, World!", setupCode: "hello()\nhello()" },
-      { id: 3, input: "hello() x3", expectedOutput: "Hello, World!\nHello, World!\nHello, World!", setupCode: "hello()\nhello()\nhello()" },
+      { id: 2, input: "hello() × 2", expectedOutput: "Hello, World!\nHello, World!", setupCode: "hello()\nhello()" },
+      { id: 3, input: "hello() × 3", expectedOutput: "Hello, World!\nHello, World!\nHello, World!", setupCode: "hello()\nhello()\nhello()" },
     ],
   },
+
+  // ── Tutorial 2 of 14: Local Variables ────────────────────────────────────
   {
-    id: "sum-two",
-    title: "Sum Two Numbers",
+    id: "store-values",
+    title: "Storing Values",
     difficulty: "easy",
-    description: "Write a function `add(a, b)` that returns the sum of two numbers.",
-    examples: "-- add(2, 3) -> 5\n-- add(-1, 1) -> 0",
-    starterCode: `function add(a, b)
-  -- return the sum
+    description: `── What is a Variable? ──────────────────────────
+A variable is a named container that stores a value.
+In Luau, always use the 'local' keyword when creating variables:
+
+  local age = 25
+  local language = "Luau"
+  local score = 100
+
+After declaring, use the variable anywhere in the function:
+
+  print(age)        → 25
+  print(language)   → Luau
+
+── Why 'local'? ─────────────────────────────────
+'local' keeps the variable inside the current function.
+It's good practice — prevents accidental bugs in other code.
+
+── Two Kinds of Values ──────────────────────────
+  local count = 42         Numbers → no quotes needed
+  local word = "hello"     Strings → must be in quotes
+
+── Your Task ────────────────────────────────────
+Fix the variable values in declareVars() so the output is:
+
+  Name: Luau
+  Version: 6`,
+    examples: `-- Expected output:\nName: Luau\nVersion: 6`,
+    starterCode: `-- TUTORIAL 2 of 14: Local Variables
+-- ─────────────────────────────────────────────
+-- Use 'local' to create variables:
+--   local variableName = value
+--
+-- The print statements are already correct.
+-- FIX THE VALUES so the output matches.
+
+function declareVars()
+  local lang = "???"    -- change "???" to: "Luau"
+  local version = 0     -- change 0 to: 6
+
+  print("Name: " .. lang)
+  print("Version: " .. version)
 end`,
     testCases: [
-      { id: 1, input: "add(2, 3)", expectedOutput: "5", setupCode: "print(add(2, 3))" },
-      { id: 2, input: "add(-1, 1)", expectedOutput: "0", setupCode: "print(add(-1, 1))" },
-      { id: 3, input: "add(100, 250)", expectedOutput: "350", setupCode: "print(add(100, 250))" },
+      { id: 1, input: "declareVars()", expectedOutput: "Name: Luau\nVersion: 6", setupCode: "declareVars()" },
+      { id: 2, input: "declareVars() — run 2", expectedOutput: "Name: Luau\nVersion: 6", setupCode: "declareVars()" },
+      { id: 3, input: "declareVars() — run 3", expectedOutput: "Name: Luau\nVersion: 6", setupCode: "declareVars()" },
     ],
   },
+
+  // ── Tutorial 3 of 14: String Concatenation ───────────────────────────────
   {
-    id: "is-even",
-    title: "Even or Odd",
+    id: "string-join",
+    title: "Joining Strings",
     difficulty: "easy",
-    description: "Write a function `isEven(n)` that returns `true` if the number is even, `false` otherwise.",
-    examples: "-- isEven(4) -> true\n-- isEven(7) -> false",
-    starterCode: `function isEven(n)
-  -- return true or false
+    description: `── String Concatenation ─────────────────────────
+In Luau, join (combine) strings with the .. operator:
+
+  "Hello" .. ", " .. "World"   → "Hello, World"
+  "Hi, " .. name               → "Hi, Alice"  (if name = "Alice")
+  "Score: " .. 99              → "Score: 99"
+
+You can chain as many pieces as you want!
+
+── Parameters ───────────────────────────────────
+When a function is called with a value like greet("Alice"),
+that value is stored in the parameter name:
+
+  function greet(name)    ← name receives "Alice"
+    print(name)           → Alice
+  end
+
+── Your Task ────────────────────────────────────
+Complete greet(name) so it prints:
+
+  Hello, [name]!
+
+Example: greet("Alice") → Hello, Alice!`,
+    examples: `-- greet("Alice") → Hello, Alice!\n-- greet("World") → Hello, World!`,
+    starterCode: `-- TUTORIAL 3 of 14: String Concatenation (..)
+-- ─────────────────────────────────────────────
+-- The .. operator joins strings:
+--   "a" .. "b" .. "c"   → "abc"
+--   "Hi, " .. name      → "Hi, Alice"
+--
+-- FIX THE BUG: Replace each ??? with the correct string.
+-- The output should be: Hello, [name]!
+
+function greet(name)
+  print("???" .. name .. "???")
 end`,
     testCases: [
-      { id: 1, input: "isEven(4)", expectedOutput: "true", setupCode: "print(tostring(isEven(4)))" },
-      { id: 2, input: "isEven(7)", expectedOutput: "false", setupCode: "print(tostring(isEven(7)))" },
-      { id: 3, input: "isEven(0)", expectedOutput: "true", setupCode: "print(tostring(isEven(0)))" },
+      { id: 1, input: 'greet("Alice")', expectedOutput: "Hello, Alice!", setupCode: 'greet("Alice")' },
+      { id: 2, input: 'greet("World")', expectedOutput: "Hello, World!", setupCode: 'greet("World")' },
+      { id: 3, input: 'greet("Luau")', expectedOutput: "Hello, Luau!", setupCode: 'greet("Luau")' },
     ],
   },
+
+  // ── Tutorial 4 of 14: Arithmetic Operators ───────────────────────────────
   {
-    id: "max-of-three",
-    title: "Maximum of Three",
+    id: "arithmetic",
+    title: "Doing Math",
     difficulty: "easy",
-    description: "Write a function `maxOfThree(a, b, c)` that returns the largest of three numbers.",
-    examples: "-- maxOfThree(1, 5, 3) -> 5\n-- maxOfThree(-2, -8, -1) -> -1",
-    starterCode: `function maxOfThree(a, b, c)
-  -- return the largest number
+    description: `── Arithmetic Operators ─────────────────────────
+Luau supports standard math operations:
+
+  +   addition          3 + 4  = 7
+  -   subtraction       10 - 3 = 7
+  *   multiplication    3 * 4  = 12
+  /   division          10 / 2 = 5
+  %   modulo (remainder) 7 % 3  = 1
+
+Store results in local variables, then print them:
+
+  local sum = a + b
+  print(sum)
+
+── Your Task ────────────────────────────────────
+Complete sumAndProduct(a, b) so it prints:
+  Line 1: the sum of a and b
+  Line 2: the product of a and b`,
+    examples: `-- sumAndProduct(3, 4) prints:\n-- 7\n-- 12`,
+    starterCode: `-- TUTORIAL 4 of 14: Arithmetic Operators
+-- ─────────────────────────────────────────────
+-- Math operators: + - * / %
+-- Store results in local variables, then print them.
+--
+-- The sum is done for you. Add the product!
+
+function sumAndProduct(a, b)
+  local sum = a + b
+  print(sum)
+
+  local product = nil  -- FIX: replace nil with a * b
+  print(product)
 end`,
     testCases: [
-      { id: 1, input: "maxOfThree(1, 5, 3)", expectedOutput: "5", setupCode: "print(maxOfThree(1, 5, 3))" },
-      { id: 2, input: "maxOfThree(-2, -8, -1)", expectedOutput: "-1", setupCode: "print(maxOfThree(-2, -8, -1))" },
-      { id: 3, input: "maxOfThree(10, 10, 10)", expectedOutput: "10", setupCode: "print(maxOfThree(10, 10, 10))" },
+      { id: 1, input: "sumAndProduct(3, 4)", expectedOutput: "7\n12", setupCode: "sumAndProduct(3, 4)" },
+      { id: 2, input: "sumAndProduct(10, 5)", expectedOutput: "15\n50", setupCode: "sumAndProduct(10, 5)" },
+      { id: 3, input: "sumAndProduct(0, 8)", expectedOutput: "8\n0", setupCode: "sumAndProduct(0, 8)" },
     ],
   },
+
+  // ── Tutorial 5 of 14: if / then / else ───────────────────────────────────
   {
-    id: "absolute-value",
-    title: "Absolute Value",
+    id: "if-else",
+    title: "Making Decisions",
     difficulty: "easy",
-    description: "Write a function `absolute(n)` that returns the absolute value of a number (without using `math.abs`).",
-    examples: "-- absolute(-5) -> 5\n-- absolute(3) -> 3\n-- absolute(0) -> 0",
-    starterCode: `function absolute(n)
-  -- return the absolute value
+    description: `── The if Statement ─────────────────────────────
+Code can make choices using if:
+
+  if condition then
+    -- runs when condition is true
+  else
+    -- runs when condition is false
+  end
+
+── Booleans: true and false ──────────────────────
+Conditions evaluate to true or false:
+
+  3 > 1    → true
+  5 == 5   → true   (== means "equal to")
+  4 == 5   → false
+
+── The % Operator ────────────────────────────────
+% gives the remainder after division:
+
+  4 % 2 = 0   (divides evenly → even)
+  7 % 2 = 1   (remainder 1 → odd)
+
+So: n % 2 == 0 means n is even.
+
+── Your Task ────────────────────────────────────
+Complete checkEven(n):
+  If n is even → print: [n] is even
+  If n is odd  → print: [n] is odd`,
+    examples: `-- checkEven(4) → 4 is even\n-- checkEven(7) → 7 is odd`,
+    starterCode: `-- TUTORIAL 5 of 14: if / then / else
+-- ─────────────────────────────────────────────
+-- if checks a condition. 'then' block runs if true.
+-- 'else' block runs if false.
+--
+-- n % 2 == 0 means n divides evenly by 2 (it's even).
+--
+-- ADD CODE: Complete the else branch for odd numbers.
+
+function checkEven(n)
+  if n % 2 == 0 then
+    print(n .. " is even")
+  else
+    -- ADD CODE HERE: print "[n] is odd"
+
+  end
 end`,
     testCases: [
-      { id: 1, input: "absolute(-5)", expectedOutput: "5", setupCode: "print(absolute(-5))" },
-      { id: 2, input: "absolute(3)", expectedOutput: "3", setupCode: "print(absolute(3))" },
-      { id: 3, input: "absolute(0)", expectedOutput: "0", setupCode: "print(absolute(0))" },
+      { id: 1, input: "checkEven(4)", expectedOutput: "4 is even", setupCode: "checkEven(4)" },
+      { id: 2, input: "checkEven(7)", expectedOutput: "7 is odd", setupCode: "checkEven(7)" },
+      { id: 3, input: "checkEven(0)", expectedOutput: "0 is even", setupCode: "checkEven(0)" },
     ],
   },
+
+  // ── Tutorial 6 of 14: if / elseif / else ─────────────────────────────────
   {
-    id: "string-length",
-    title: "String Length",
+    id: "elseif",
+    title: "More Choices",
     difficulty: "easy",
-    description: "Write a function `strLen(s)` that returns the length of a string using the `#` operator.",
-    examples: '-- strLen("hello") -> 5\n-- strLen("") -> 0',
-    starterCode: `function strLen(s)
-  -- return the length
+    description: `── elseif: Multiple Branches ─────────────────────
+When you need more than two choices, add elseif:
+
+  if condition1 then
+    -- runs if condition1 is true
+  elseif condition2 then
+    -- runs if condition2 is true (condition1 was false)
+  elseif condition3 then
+    -- runs if condition3 is true
+  else
+    -- runs if NOTHING above was true
+  end
+
+Only ONE branch runs — the first condition that's true.
+
+── Comparison Operators ──────────────────────────
+  score >= 90   true if score is 90 or above
+  score >= 80   true if score is 80 or above
+
+Since these are checked in order, >= 80 only runs
+if >= 90 was already false (so score is 80–89).
+
+── Your Task ────────────────────────────────────
+Complete grade(score) to print the letter grade:
+  90 or above → A
+  80 to 89    → B
+  70 to 79    → C
+  below 70    → F`,
+    examples: `-- grade(95) → A\n-- grade(75) → C\n-- grade(60) → F`,
+    starterCode: `-- TUTORIAL 6 of 14: if / elseif / else
+-- ─────────────────────────────────────────────
+-- Use elseif to handle more than two cases.
+-- Only the FIRST matching condition runs.
+--
+-- ADD CODE: Complete the missing branches for C and F.
+
+function grade(score)
+  if score >= 90 then
+    print("A")
+  elseif score >= 80 then
+    print("B")
+  elseif score >= 70 then
+    -- ADD CODE HERE: print "C"
+
+  else
+    -- ADD CODE HERE: print "F"
+
+  end
 end`,
     testCases: [
-      { id: 1, input: 'strLen("hello")', expectedOutput: "5", setupCode: 'print(strLen("hello"))' },
-      { id: 2, input: 'strLen("")', expectedOutput: "0", setupCode: 'print(strLen(""))' },
-      { id: 3, input: 'strLen("Luau")', expectedOutput: "4", setupCode: 'print(strLen("Luau"))' },
+      { id: 1, input: "grade(95)", expectedOutput: "A", setupCode: "grade(95)" },
+      { id: 2, input: "grade(75)", expectedOutput: "C", setupCode: "grade(75)" },
+      { id: 3, input: "grade(60)", expectedOutput: "F", setupCode: "grade(60)" },
     ],
   },
+
+  // ── Tutorial 7 of 14: return and Comparison Operators ────────────────────
   {
-    id: "multiply",
-    title: "Multiply Two Numbers",
+    id: "return-basics",
+    title: "Returning Values",
     difficulty: "easy",
-    description: "Write a function `multiply(a, b)` that returns the product of two numbers.",
-    examples: "-- multiply(3, 4) -> 12\n-- multiply(-2, 5) -> -10",
-    starterCode: `function multiply(a, b)
-  -- return the product
+    description: `── The return Statement ─────────────────────────
+A function can send a value back with return:
+
+  function square(n)
+    return n * n
+  end
+
+  print(square(4))   → 16
+
+The caller receives whatever was returned.
+
+── Comparison Operators ──────────────────────────
+  a > b    true if a is greater than b
+  a >= b   true if a is greater OR equal to b
+  a < b    true if a is less than b
+  a <= b   true if a is less than OR equal to b
+  a == b   true if a equals b
+  a ~= b   true if a does NOT equal b  (note: ~= not !=)
+
+── Your Task ────────────────────────────────────
+Complete biggerNumber(a, b) to return the larger value.
+If they are equal, return either one.`,
+    examples: `-- print(biggerNumber(3, 7))  → 7\n-- print(biggerNumber(10, -2)) → 10`,
+    starterCode: `-- TUTORIAL 7 of 14: return and Comparison Operators
+-- ─────────────────────────────────────────────
+-- 'return' sends a value back to whoever called the function.
+-- Use comparison operators: > < >= <= == ~=
+--
+-- ADD CODE: Complete the else branch to return the correct value.
+
+function biggerNumber(a, b)
+  if a >= b then
+    return a
+  else
+    -- ADD CODE HERE: return the correct value
+
+  end
 end`,
     testCases: [
-      { id: 1, input: "multiply(3, 4)", expectedOutput: "12", setupCode: "print(multiply(3, 4))" },
-      { id: 2, input: "multiply(-2, 5)", expectedOutput: "-10", setupCode: "print(multiply(-2, 5))" },
-      { id: 3, input: "multiply(0, 100)", expectedOutput: "0", setupCode: "print(multiply(0, 100))" },
+      { id: 1, input: "biggerNumber(3, 7)", expectedOutput: "7", setupCode: "print(biggerNumber(3, 7))" },
+      { id: 2, input: "biggerNumber(10, -2)", expectedOutput: "10", setupCode: "print(biggerNumber(10, -2))" },
+      { id: 3, input: "biggerNumber(5, 5)", expectedOutput: "5", setupCode: "print(biggerNumber(5, 5))" },
     ],
   },
+
+  // ── Tutorial 8 of 14: The while Loop ─────────────────────────────────────
   {
-    id: "is-positive",
-    title: "Is Positive",
+    id: "while-loop",
+    title: "Repeating with While",
     difficulty: "easy",
-    description: "Write a function `isPositive(n)` that returns `true` if n > 0, `false` otherwise.",
-    examples: "-- isPositive(5) -> true\n-- isPositive(-3) -> false\n-- isPositive(0) -> false",
-    starterCode: `function isPositive(n)
-  -- return true or false
-end`,
-    testCases: [
-      { id: 1, input: "isPositive(5)", expectedOutput: "true", setupCode: "print(tostring(isPositive(5)))" },
-      { id: 2, input: "isPositive(-3)", expectedOutput: "false", setupCode: "print(tostring(isPositive(-3)))" },
-      { id: 3, input: "isPositive(0)", expectedOutput: "false", setupCode: "print(tostring(isPositive(0)))" },
-    ],
-  },
-  {
-    id: "last-element",
-    title: "Last Element",
-    difficulty: "easy",
-    description: "Write a function `lastElement(t)` that returns the last element of a table (array).",
-    examples: "-- lastElement({1, 2, 3}) -> 3\n-- lastElement({10}) -> 10",
-    starterCode: `function lastElement(t)
-  -- return the last element
-end`,
-    testCases: [
-      { id: 1, input: "lastElement({1, 2, 3})", expectedOutput: "3", setupCode: "print(lastElement({1, 2, 3}))" },
-      { id: 2, input: "lastElement({10})", expectedOutput: "10", setupCode: "print(lastElement({10}))" },
-      { id: 3, input: "lastElement({5, 8, 2, 7})", expectedOutput: "7", setupCode: "print(lastElement({5, 8, 2, 7}))" },
-    ],
-  },
-  {
-    id: "greet",
-    title: "Greet by Name",
-    difficulty: "easy",
-    description: 'Write a function `greet(name)` that returns the string "Hello, " followed by the name and "!".',
-    examples: '-- greet("Alice") -> "Hello, Alice!"',
-    starterCode: `function greet(name)
-  -- return greeting string
-end`,
-    testCases: [
-      { id: 1, input: 'greet("Alice")', expectedOutput: "Hello, Alice!", setupCode: 'print(greet("Alice"))' },
-      { id: 2, input: 'greet("World")', expectedOutput: "Hello, World!", setupCode: 'print(greet("World"))' },
-      { id: 3, input: 'greet("Luau")', expectedOutput: "Hello, Luau!", setupCode: 'print(greet("Luau"))' },
-    ],
-  },
-  {
-    id: "celsius-to-fahrenheit",
-    title: "Celsius to Fahrenheit",
-    difficulty: "easy",
-    description: "Write a function `toFahrenheit(c)` that converts Celsius to Fahrenheit.\nFormula: F = C * 9/5 + 32",
-    examples: "-- toFahrenheit(0) -> 32\n-- toFahrenheit(100) -> 212",
-    starterCode: `function toFahrenheit(c)
-  -- convert and return
-end`,
-    testCases: [
-      { id: 1, input: "toFahrenheit(0)", expectedOutput: "32", setupCode: "print(toFahrenheit(0))" },
-      { id: 2, input: "toFahrenheit(100)", expectedOutput: "212", setupCode: "print(toFahrenheit(100))" },
-      { id: 3, input: "toFahrenheit(37)", expectedOutput: "98.6", setupCode: "print(toFahrenheit(37))" },
-    ],
-  },
-  {
-    id: "is-adult",
-    title: "Age Check",
-    difficulty: "easy",
-    description: 'Write a function `isAdult(age)` that returns "adult" if age >= 18, "minor" otherwise.',
-    examples: '-- isAdult(21) -> "adult"\n-- isAdult(15) -> "minor"',
-    starterCode: `function isAdult(age)
-  -- return "adult" or "minor"
-end`,
-    testCases: [
-      { id: 1, input: "isAdult(21)", expectedOutput: "adult", setupCode: "print(isAdult(21))" },
-      { id: 2, input: "isAdult(15)", expectedOutput: "minor", setupCode: "print(isAdult(15))" },
-      { id: 3, input: "isAdult(18)", expectedOutput: "adult", setupCode: "print(isAdult(18))" },
-    ],
-  },
-  {
-    id: "countdown",
-    title: "Countdown",
-    difficulty: "easy",
-    description: "Write a function `countdown(n)` that prints numbers from n down to 1, one per line.",
-    examples: "-- countdown(3) prints:\n-- 3\n-- 2\n-- 1",
-    starterCode: `function countdown(n)
-  -- print n down to 1
+    description: `── The while Loop ───────────────────────────────
+A while loop repeats code while a condition is true:
+
+  while condition do
+    -- runs over and over until condition is false
+  end
+
+Always update a variable inside, or the loop runs forever!
+
+Example — count from 1 to 3:
+
+  local i = 1
+  while i <= 3 do
+    print(i)       → 1, 2, 3
+    i = i + 1      -- increase i each time (essential!)
+  end
+
+── Your Task ────────────────────────────────────
+Fix the bug in countdown(n) so it prints from n down to 1.
+
+Hint: the condition is wrong — it stops one number too early!`,
+    examples: `-- countdown(3) prints:\n-- 3\n-- 2\n-- 1`,
+    starterCode: `-- TUTORIAL 8 of 14: The while Loop
+-- ─────────────────────────────────────────────
+-- while loops repeat until the condition becomes false.
+-- Update the variable each loop to avoid an infinite loop!
+--
+-- FIX THE BUG: The condition stops too early.
+-- Change the condition so it includes 1 as well.
+
+function countdown(n)
+  local current = n
+
+  while current > 1 do    -- BUG: should be >= 1, not > 1
+    print(current)
+    current = current - 1
+  end
 end`,
     testCases: [
       { id: 1, input: "countdown(3)", expectedOutput: "3\n2\n1", setupCode: "countdown(3)" },
@@ -230,24 +457,314 @@ end`,
       { id: 3, input: "countdown(1)", expectedOutput: "1", setupCode: "countdown(1)" },
     ],
   },
+
+  // ── Tutorial 9 of 14: The Numeric for Loop ───────────────────────────────
   {
-    id: "min-of-two",
-    title: "Minimum of Two",
+    id: "for-loop",
+    title: "Counting with For",
     difficulty: "easy",
-    description: "Write a function `minOfTwo(a, b)` that returns the smaller of two numbers.",
-    examples: "-- minOfTwo(3, 7) -> 3\n-- minOfTwo(-1, -5) -> -5",
-    starterCode: `function minOfTwo(a, b)
-  -- return the smaller number
+    description: `── The Numeric for Loop ─────────────────────────
+The for loop counts automatically — no manual updates needed:
+
+  for i = 1, 5 do
+    print(i)   → 1, 2, 3, 4, 5
+  end
+
+i starts at 1, goes up to 5, increasing by 1 each time.
+
+You can also specify a custom step (third number):
+
+  for i = 0, 10, 2 do
+    print(i)   → 0, 2, 4, 6, 8, 10
+  end
+
+── Your Task ────────────────────────────────────
+Complete printNumbers(n) to print all numbers from 1 to n,
+one per line.`,
+    examples: `-- printNumbers(4) prints:\n-- 1\n-- 2\n-- 3\n-- 4`,
+    starterCode: `-- TUTORIAL 9 of 14: The Numeric for Loop
+-- ─────────────────────────────────────────────
+-- for i = start, finish do ... end
+-- i automatically counts from start to finish.
+-- No need to write i = i + 1 yourself!
+--
+-- ADD CODE: Print the value of i inside the loop.
+
+function printNumbers(n)
+  for i = 1, n do
+    -- ADD CODE HERE: print the value of i
+
+  end
 end`,
     testCases: [
-      { id: 1, input: "minOfTwo(3, 7)", expectedOutput: "3", setupCode: "print(minOfTwo(3, 7))" },
-      { id: 2, input: "minOfTwo(-1, -5)", expectedOutput: "-5", setupCode: "print(minOfTwo(-1, -5))" },
-      { id: 3, input: "minOfTwo(4, 4)", expectedOutput: "4", setupCode: "print(minOfTwo(4, 4))" },
+      { id: 1, input: "printNumbers(4)", expectedOutput: "1\n2\n3\n4", setupCode: "printNumbers(4)" },
+      { id: 2, input: "printNumbers(1)", expectedOutput: "1", setupCode: "printNumbers(1)" },
+      { id: 3, input: "printNumbers(6)", expectedOutput: "1\n2\n3\n4\n5\n6", setupCode: "printNumbers(6)" },
+    ],
+  },
+
+  // ── Tutorial 10 of 14: Tables ────────────────────────────────────────────
+  {
+    id: "tables",
+    title: "Your First Table",
+    difficulty: "easy",
+    description: `── Tables: Lists in Luau ─────────────────────────
+A table holds multiple values in order. Create one with {}:
+
+  local colors = {"red", "green", "blue"}
+
+Access items by position (index). Tables start at 1, not 0!
+
+  colors[1]   → "red"
+  colors[2]   → "green"
+  colors[3]   → "blue"
+
+Get the number of items with #:
+
+  #colors   → 3
+
+The last item is always at index #t:
+
+  colors[#colors]   → "blue"
+
+── Your Task ────────────────────────────────────
+Read and run tableInfo(t). It's already complete!
+Make all 3 tests pass by understanding the code.`,
+    examples: `-- tableInfo({10, 20, 30}) prints:\n-- 10\n-- 30\n-- 3`,
+    starterCode: `-- TUTORIAL 10 of 14: Tables (Lists)
+-- ─────────────────────────────────────────────
+-- Tables store multiple values in order.
+-- Index starts at 1, not 0!
+--
+--   t[1]   → first element
+--   t[#t]  → last element  (#t is the length)
+--   #t     → total number of elements
+--
+-- This code is complete! Read it, run it, understand it.
+
+function tableInfo(t)
+  print(t[1])    -- first element
+  print(t[#t])   -- last element
+  print(#t)      -- total count
+end`,
+    testCases: [
+      { id: 1, input: "tableInfo({10, 20, 30})", expectedOutput: "10\n30\n3", setupCode: "tableInfo({10, 20, 30})" },
+      { id: 2, input: "tableInfo({99})", expectedOutput: "99\n99\n1", setupCode: "tableInfo({99})" },
+      { id: 3, input: "tableInfo({1, 2, 3, 4, 5})", expectedOutput: "1\n5\n5", setupCode: "tableInfo({1, 2, 3, 4, 5})" },
+    ],
+  },
+
+  // ── Tutorial 11 of 14: ipairs ────────────────────────────────────────────
+  {
+    id: "ipairs",
+    title: "Looping Over Tables",
+    difficulty: "easy",
+    description: `── Iterating Tables with ipairs ─────────────────
+Use ipairs() to loop over every element of a table:
+
+  local nums = {10, 20, 30}
+
+  for i, value in ipairs(nums) do
+    print(i, value)
+  end
+
+  → 1  10
+  → 2  20
+  → 3  30
+
+i is the position (1, 2, 3...) and value is the element.
+
+If you only need the value, use _ for the index (a convention
+meaning "I don't need this"):
+
+  for _, value in ipairs(nums) do
+    print(value)   → 10, 20, 30
+  end
+
+── Your Task ────────────────────────────────────
+Read and run printAll(t). It's already complete!
+Make all 3 tests pass by understanding the code.`,
+    examples: `-- printAll({1, 2, 3}) prints:\n-- 1\n-- 2\n-- 3`,
+    starterCode: `-- TUTORIAL 11 of 14: Iterating Tables with ipairs
+-- ─────────────────────────────────────────────
+-- ipairs(t) gives you each element in order.
+-- Use _ for the index when you don't need it.
+--
+-- This code is complete! Read and understand the pattern.
+
+function printAll(t)
+  for _, value in ipairs(t) do
+    print(value)
+  end
+end`,
+    testCases: [
+      { id: 1, input: "printAll({1, 2, 3})", expectedOutput: "1\n2\n3", setupCode: "printAll({1, 2, 3})" },
+      { id: 2, input: 'printAll({"hello", "world"})', expectedOutput: "hello\nworld", setupCode: 'printAll({"hello", "world"})' },
+      { id: 3, input: "printAll({42})", expectedOutput: "42", setupCode: "printAll({42})" },
+    ],
+  },
+
+  // ── Tutorial 12 of 14: Accumulator Pattern ───────────────────────────────
+  {
+    id: "accumulator",
+    title: "Adding It All Up",
+    difficulty: "easy",
+    description: `── The Accumulator Pattern ───────────────────────
+A very common pattern: start at 0, then add each item in a loop.
+
+  local total = 0
+
+  for _, v in ipairs(numbers) do
+    total = total + v   -- add each element
+  end
+
+  return total          -- send the final sum back
+
+This collects (accumulates) a result across all items.
+
+── return Reminder ───────────────────────────────
+return sends a value back to the caller:
+
+  function double(n)
+    return n * 2
+  end
+
+  print(double(5))   → 10
+
+── Your Task ────────────────────────────────────
+Complete addAll(t) to return the sum of all numbers in the table.`,
+    examples: `-- print(addAll({1, 2, 3})) → 6\n-- print(addAll({10, -5, 3})) → 8`,
+    starterCode: `-- TUTORIAL 12 of 14: Accumulators and return
+-- ─────────────────────────────────────────────
+-- Start with total = 0.
+-- Loop through each element and add it to total.
+-- Return the final total.
+--
+-- FIX: Replace 0 (the second one) with the correct variable.
+
+function addAll(t)
+  local total = 0
+
+  for _, value in ipairs(t) do
+    total = total + 0   -- FIX: replace this 0 with 'value'
+  end
+
+  return total
+end`,
+    testCases: [
+      { id: 1, input: "addAll({1, 2, 3})", expectedOutput: "6", setupCode: "print(addAll({1, 2, 3}))" },
+      { id: 2, input: "addAll({10, -5, 3})", expectedOutput: "8", setupCode: "print(addAll({10, -5, 3}))" },
+      { id: 3, input: "addAll({})", expectedOutput: "0", setupCode: "print(addAll({}))" },
+    ],
+  },
+
+  // ── Tutorial 13 of 14: String Functions ──────────────────────────────────
+  {
+    id: "string-ops",
+    title: "Working with Text",
+    difficulty: "easy",
+    description: `── String Functions ─────────────────────────────
+Luau has built-in functions for working with text:
+
+  string.upper("hello")      → "HELLO"
+  string.lower("WORLD")      → "world"
+  string.len("hello")        → 5    (same as #"hello")
+  string.sub("hello", 1, 3)  → "hel"  (characters 1 to 3)
+
+You can also call them directly on a string variable:
+
+  local s = "Hello"
+  s:upper()          → "HELLO"
+  s:lower()          → "hello"
+  s:sub(1, 3)        → "Hel"
+  #s                 → 5
+
+── Your Task ────────────────────────────────────
+Read and run textInfo(s). It's already complete!
+Make all 3 tests pass by understanding the code.`,
+    examples: `-- textInfo("Hello") prints:\n-- HELLO\n-- hello\n-- 5`,
+    starterCode: `-- TUTORIAL 13 of 14: String Functions
+-- ─────────────────────────────────────────────
+-- string.upper() → ALL CAPS
+-- string.lower() → all lowercase
+-- #s             → number of characters
+--
+-- This code is complete! Read and understand it.
+-- Try modifying the function to experiment!
+
+function textInfo(s)
+  print(string.upper(s))  -- uppercase version
+  print(string.lower(s))  -- lowercase version
+  print(#s)               -- number of characters
+end`,
+    testCases: [
+      { id: 1, input: 'textInfo("Hello")', expectedOutput: "HELLO\nhello\n5", setupCode: 'textInfo("Hello")' },
+      { id: 2, input: 'textInfo("Luau")', expectedOutput: "LUAU\nluau\n4", setupCode: 'textInfo("Luau")' },
+      { id: 3, input: 'textInfo("ABC")', expectedOutput: "ABC\nabc\n3", setupCode: 'textInfo("ABC")' },
+    ],
+  },
+
+  // ── Tutorial 14 of 14: Combining Everything ──────────────────────────────
+  {
+    id: "combining",
+    title: "Putting It Together",
+    difficulty: "easy",
+    description: `── You've Learned All the Basics! ───────────────
+So far you've covered:
+
+  ✓ print() and strings
+  ✓ local variables
+  ✓ string concatenation (..)
+  ✓ arithmetic operators
+  ✓ if / elseif / else
+  ✓ while and for loops
+  ✓ tables, #, and ipairs
+  ✓ return values
+
+Now combine them in one final challenge!
+
+── Your Task ────────────────────────────────────
+Complete buildReport(names) to print a team report:
+
+  Team size: [count]
+  Members:
+  - [name1]
+  - [name2]
+  ...
+
+Example with {"Alice", "Bob"}:
+
+  Team size: 2
+  Members:
+  - Alice
+  - Bob`,
+    examples: `-- buildReport({"Alice", "Bob"}) prints:\n-- Team size: 2\n-- Members:\n-- - Alice\n-- - Bob`,
+    starterCode: `-- TUTORIAL 14 of 14: Combining Everything
+-- ─────────────────────────────────────────────
+-- Use all your skills:
+--   tables (#, ipairs), for loops, .. concatenation, print
+--
+-- ADD CODE: Complete the loop body.
+-- Each name should print as "- [name]"
+
+function buildReport(names)
+  print("Team size: " .. #names)
+  print("Members:")
+
+  for _, name in ipairs(names) do
+    -- ADD CODE HERE: print "- " followed by the name
+
+  end
+end`,
+    testCases: [
+      { id: 1, input: 'buildReport({"Alice", "Bob"})', expectedOutput: "Team size: 2\nMembers:\n- Alice\n- Bob", setupCode: 'buildReport({"Alice", "Bob"})' },
+      { id: 2, input: 'buildReport({"Max"})', expectedOutput: "Team size: 1\nMembers:\n- Max", setupCode: 'buildReport({"Max"})' },
+      { id: 3, input: 'buildReport({"X", "Y", "Z"})', expectedOutput: "Team size: 3\nMembers:\n- X\n- Y\n- Z", setupCode: 'buildReport({"X", "Y", "Z"})' },
     ],
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  //  MEDIUM  (15 challenges, including doubleEach)
+  //  MEDIUM  (15 challenges — easy LeetCode level)
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   {
@@ -255,7 +772,7 @@ end`,
     title: "FizzBuzz",
     difficulty: "medium",
     description:
-      'Write a function `fizzbuzz(n)` that prints numbers from 1 to n.\nFor multiples of 3 print "Fizz", for multiples of 5 print "Buzz", and for multiples of both print "FizzBuzz".',
+      'Hint: Use a for loop (Tutorial 9) with if/elseif (Tutorial 6) and the % operator (Tutorial 4).\n\nWrite a function `fizzbuzz(n)` that prints numbers from 1 to n.\nFor multiples of 3 print "Fizz", for multiples of 5 print "Buzz", and for multiples of both print "FizzBuzz".',
     examples: "-- fizzbuzz(5) prints:\n-- 1\n-- 2\n-- Fizz\n-- 4\n-- Buzz",
     starterCode: `function fizzbuzz(n)
   for i = 1, n do
@@ -272,7 +789,7 @@ end`,
     id: "reverse-string",
     title: "Reverse a String",
     difficulty: "medium",
-    description: "Write a function `reverseStr(s)` that returns the reversed version of the input string.",
+    description: "Hint: Use string.sub (Tutorial 13) and a for loop counting backwards (Tutorial 9).\n\nWrite a function `reverseStr(s)` that returns the reversed version of the input string.",
     examples: '-- reverseStr("hello") -> "olleh"\n-- reverseStr("abc") -> "cba"',
     starterCode: `function reverseStr(s)
   -- return the reversed string
@@ -287,7 +804,7 @@ end`,
     id: "count-vowels",
     title: "Count Vowels",
     difficulty: "medium",
-    description: "Write a function `countVowels(s)` that returns the number of vowels (a, e, i, o, u) in the string. Case-insensitive.",
+    description: "Hint: Loop through each character using string.sub (Tutorial 13), compare with if (Tutorial 5), and count with an accumulator (Tutorial 12).\n\nWrite a function `countVowels(s)` that returns the number of vowels (a, e, i, o, u) in the string. Case-insensitive.",
     examples: '-- countVowels("hello") -> 2\n-- countVowels("AEIOU") -> 5',
     starterCode: `function countVowels(s)
   local count = 0
@@ -304,7 +821,7 @@ end`,
     id: "sum-table",
     title: "Sum of Table",
     difficulty: "medium",
-    description: "Write a function `sumTable(t)` that returns the sum of all numeric values in a table (array).",
+    description: "Hint: Use the accumulator pattern with ipairs (Tutorials 11–12). This time, figure it out on your own!\n\nWrite a function `sumTable(t)` that returns the sum of all numeric values in a table (array).",
     examples: "-- sumTable({1, 2, 3}) -> 6\n-- sumTable({10, -5, 3}) -> 8",
     starterCode: `function sumTable(t)
   local total = 0
@@ -321,7 +838,7 @@ end`,
     id: "factorial",
     title: "Factorial",
     difficulty: "medium",
-    description: "Write a function `factorial(n)` that returns n! (n factorial).\n0! = 1, 1! = 1, 5! = 120.",
+    description: "Hint: Start with result = 1 and multiply by each number from 1 to n using a for loop (Tutorial 9). 0! = 1 by definition.\n\nWrite a function `factorial(n)` that returns n! (n factorial).\n0! = 1, 1! = 1, 5! = 120.",
     examples: "-- factorial(5) -> 120\n-- factorial(0) -> 1",
     starterCode: `function factorial(n)
   -- return n!
@@ -336,7 +853,7 @@ end`,
     id: "power",
     title: "Power Function",
     difficulty: "medium",
-    description: "Write a function `power(base, exp)` that returns base raised to the power of exp (without using `math.pow` or `^`). Assume exp >= 0.",
+    description: "Hint: Similar to factorial — multiply base by itself, exp times, using a for loop (Tutorial 9).\n\nWrite a function `power(base, exp)` that returns base raised to the power of exp (without using `math.pow` or `^`). Assume exp >= 0.",
     examples: "-- power(2, 3) -> 8\n-- power(5, 0) -> 1",
     starterCode: `function power(base, exp)
   -- calculate base^exp manually
@@ -351,7 +868,7 @@ end`,
     id: "find-min",
     title: "Find Minimum in Table",
     difficulty: "medium",
-    description: "Write a function `findMin(t)` that returns the smallest number in a table (array). Assume the table has at least one element.",
+    description: "Hint: Start with min = t[1] (Tutorial 10), then compare each element with if (Tutorial 5). Update min when you find something smaller.\n\nWrite a function `findMin(t)` that returns the smallest number in a table (array). Assume the table has at least one element.",
     examples: "-- findMin({3, 1, 4, 1, 5}) -> 1\n-- findMin({-2, -8, -1}) -> -8",
     starterCode: `function findMin(t)
   -- find and return the minimum
@@ -366,7 +883,7 @@ end`,
     id: "count-char",
     title: "Count Character",
     difficulty: "medium",
-    description: "Write a function `countChar(s, ch)` that returns how many times the character `ch` appears in string `s`.",
+    description: "Hint: Loop through each character using string.sub (Tutorial 13) and an accumulator (Tutorial 12). Compare with == (Tutorial 7).\n\nWrite a function `countChar(s, ch)` that returns how many times the character `ch` appears in string `s`.",
     examples: '-- countChar("banana", "a") -> 3\n-- countChar("hello", "z") -> 0',
     starterCode: `function countChar(s, ch)
   local count = 0
@@ -383,7 +900,7 @@ end`,
     id: "is-prime",
     title: "Is Prime",
     difficulty: "medium",
-    description: "Write a function `isPrime(n)` that returns `true` if n is a prime number, `false` otherwise. Assume n >= 1.",
+    description: "Hint: A number is prime if no integer from 2 to n-1 divides it evenly (% operator from Tutorial 4). Use a for loop (Tutorial 9) and return false as soon as you find a divisor.\n\nWrite a function `isPrime(n)` that returns `true` if n is a prime number, `false` otherwise. Assume n >= 1.",
     examples: "-- isPrime(7) -> true\n-- isPrime(4) -> false\n-- isPrime(1) -> false",
     starterCode: `function isPrime(n)
   -- check if n is prime
@@ -398,7 +915,7 @@ end`,
     id: "title-case",
     title: "Title Case",
     difficulty: "medium",
-    description: 'Write a function `titleCase(s)` that capitalizes the first letter of each word in a string. Words are separated by spaces.',
+    description: 'Hint: Use string.upper for the first character and string.sub for the rest (Tutorial 13). Split words by looping through the string.\n\nWrite a function `titleCase(s)` that capitalizes the first letter of each word in a string. Words are separated by spaces.',
     examples: '-- titleCase("hello world") -> "Hello World"\n-- titleCase("luau is fun") -> "Luau Is Fun"',
     starterCode: `function titleCase(s)
   -- capitalize first letter of each word
@@ -413,7 +930,7 @@ end`,
     id: "repeat-string",
     title: "Repeat String",
     difficulty: "medium",
-    description: "Write a function `repeatStr(s, n)` that returns the string `s` repeated `n` times concatenated together.",
+    description: "Hint: Use string concatenation (..) inside a for loop (Tutorials 3 and 9). Start with an empty string and append s each iteration.\n\nWrite a function `repeatStr(s, n)` that returns the string `s` repeated `n` times concatenated together.",
     examples: '-- repeatStr("ab", 3) -> "ababab"\n-- repeatStr("x", 5) -> "xxxxx"',
     starterCode: `function repeatStr(s, n)
   -- return s repeated n times
@@ -428,7 +945,7 @@ end`,
     id: "find-index",
     title: "Find Index",
     difficulty: "medium",
-    description: "Write a function `findIndex(t, value)` that returns the index of `value` in the table, or -1 if not found. Tables are 1-indexed in Luau.",
+    description: "Hint: Use ipairs (Tutorial 11) — this time you need the index i too (not just value). Return i when value matches, or -1 if not found.\n\nWrite a function `findIndex(t, value)` that returns the index of `value` in the table, or -1 if not found. Tables are 1-indexed in Luau.",
     examples: "-- findIndex({10, 20, 30}, 20) -> 2\n-- findIndex({1, 2, 3}, 5) -> -1",
     starterCode: `function findIndex(t, value)
   -- return index or -1
@@ -443,7 +960,7 @@ end`,
     id: "join-strings",
     title: "Join Table",
     difficulty: "medium",
-    description: 'Write a function `joinTable(t, sep)` that joins all elements of a string table with the separator `sep`.',
+    description: 'Hint: Use ipairs (Tutorial 11) and .. concatenation (Tutorial 3). Be careful not to add the separator after the last element.\n\nWrite a function `joinTable(t, sep)` that joins all elements of a string table with the separator `sep`.',
     examples: '-- joinTable({"a", "b", "c"}, "-") -> "a-b-c"\n-- joinTable({"hello", "world"}, " ") -> "hello world"',
     starterCode: `function joinTable(t, sep)
   -- join elements with separator
@@ -458,7 +975,7 @@ end`,
     id: "double-each",
     title: "Double Each Element",
     difficulty: "medium",
-    description: "Write a function `doubleEach(t)` that prints each element of the table multiplied by 2, one per line.",
+    description: "Hint: Use ipairs (Tutorial 11) and multiply each value by 2 (Tutorial 4). Print each result.\n\nWrite a function `doubleEach(t)` that prints each element of the table multiplied by 2, one per line.",
     examples: "-- doubleEach({1, 2, 3}) prints:\n-- 2\n-- 4\n-- 6",
     starterCode: `function doubleEach(t)
   -- print each element * 2
@@ -469,12 +986,11 @@ end`,
       { id: 3, input: "doubleEach({7})", expectedOutput: "14", setupCode: "doubleEach({7})" },
     ],
   },
-
   {
     id: "sum-digits",
     title: "Sum of Digits",
     difficulty: "medium",
-    description: "Write a function `sumDigits(n)` that returns the sum of all digits of a positive integer.",
+    description: "Hint: Use % 10 to extract the last digit, then divide by 10 (with math.floor) to remove it. Repeat with a while loop (Tutorial 8) until n reaches 0.\n\nWrite a function `sumDigits(n)` that returns the sum of all digits of a positive integer.",
     examples: "-- sumDigits(123) -> 6   (1+2+3)\n-- sumDigits(9) -> 9",
     starterCode: `function sumDigits(n)
   -- sum each digit of n
@@ -487,7 +1003,7 @@ end`,
   },
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  //  HARD  (11 challenges)
+  //  HARD  (11 challenges — medium LeetCode level)
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   {

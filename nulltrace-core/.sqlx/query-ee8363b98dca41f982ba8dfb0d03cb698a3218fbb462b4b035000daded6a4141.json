@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO codelab_progress (player_id, challenge_id)\n             VALUES ($1, $2)\n             ON CONFLICT (player_id, challenge_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ee8363b98dca41f982ba8dfb0d03cb698a3218fbb462b4b035000daded6a4141"
+}

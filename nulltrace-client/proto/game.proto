@@ -52,6 +52,10 @@ service GameService {
   rpc GetCardStatement (GetCardStatementRequest) returns (GetCardStatementResponse);
   rpc PayCardBill (PayCardBillRequest) returns (PayCardBillResponse);
   rpc PayAccountBill (PayAccountBillRequest) returns (PayAccountBillResponse);
+
+  // ── Codelab ───────────────────────────────────────────────────────────────
+  rpc MarkCodelabSolved (MarkCodelabSolvedRequest) returns (MarkCodelabSolvedResponse);
+  rpc GetCodelabProgress (GetCodelabProgressRequest) returns (GetCodelabProgressResponse);
 }
 
 message HelloRequest {
@@ -715,4 +719,21 @@ message PayAccountBillResponse {
   bool   success       = 1;
   int64  amount_paid   = 2;  // DB-cents
   string error_message = 3;
+}
+
+// ── Codelab ────────────────────────────────────────────────────────────────
+
+message MarkCodelabSolvedRequest {
+  string challenge_id = 1;
+}
+
+message MarkCodelabSolvedResponse {
+  string error_message = 1;
+}
+
+message GetCodelabProgressRequest {}
+
+message GetCodelabProgressResponse {
+  repeated string solved_challenge_ids = 1;
+  string          error_message        = 2;
 }

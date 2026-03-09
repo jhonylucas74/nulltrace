@@ -11,6 +11,7 @@ use super::db::shortcuts_service::ShortcutsService;
 use super::db::user_service::{UserService, VmUser};
 use super::db::vm_service::VmService;
 use super::db::wallet_service::{WalletError, WalletService};
+use super::db::codelab_service::CodelabService;
 use super::db::wallet_card_service::WalletCardService;
 use super::mailbox_hub::{MailboxHub, MailboxEvent};
 use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
@@ -73,6 +74,9 @@ use game::{
     GetCardStatementRequest, GetCardStatementResponse, CardStatement as GrpcCardStatement,
     PayCardBillRequest, PayCardBillResponse,
     PayAccountBillRequest, PayAccountBillResponse,
+    // Codelab
+    GetCodelabProgressRequest, GetCodelabProgressResponse,
+    MarkCodelabSolvedRequest, MarkCodelabSolvedResponse,
 };
 
 pub struct ClusterGameService {
@@ -86,6 +90,7 @@ pub struct ClusterGameService {
     email_account_service: Arc<EmailAccountService>,
     wallet_service: Arc<WalletService>,
     wallet_card_service: Arc<WalletCardService>,
+    codelab_service: Arc<CodelabService>,
     mailbox_hub: MailboxHub,
     terminal_hub: Arc<TerminalHub>,
     process_spy_hub: Arc<ProcessSpyHub>,
@@ -106,6 +111,7 @@ impl ClusterGameService {
         email_account_service: Arc<EmailAccountService>,
         wallet_service: Arc<WalletService>,
         wallet_card_service: Arc<WalletCardService>,
+        codelab_service: Arc<CodelabService>,
         mailbox_hub: MailboxHub,
         terminal_hub: Arc<TerminalHub>,
         process_spy_hub: Arc<ProcessSpyHub>,
@@ -124,6 +130,7 @@ impl ClusterGameService {
             email_account_service,
             wallet_service,
             wallet_card_service,
+            codelab_service,
             mailbox_hub,
             terminal_hub,
             process_spy_hub,
@@ -2374,6 +2381,46 @@ impl GameService for ClusterGameService {
             error_message: String::new(),
         }))
     }
+
+    async fn mark_codelab_solved(
+        &self,
+        request: Request<MarkCodelabSolvedRequest>,
+    ) -> Result<Response<MarkCodelabSolvedResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let challenge_id = request.into_inner().challenge_id.trim().to_string();
+        if challenge_id.is_empty() {
+            return Ok(Response::new(MarkCodelabSolvedResponse {
+                error_message: "challenge_id is required".to_string(),
+            }));
+        }
+        self.codelab_service
+            .mark_solved(player_id, &challenge_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(MarkCodelabSolvedResponse {
+            error_message: String::new(),
+        }))
+    }
+
+    async fn get_codelab_progress(
+        &self,
+        request: Request<GetCodelabProgressRequest>,
+    ) -> Result<Response<GetCodelabProgressResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let solved_ids = self
+            .codelab_service
+            .get_solved_ids(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(GetCodelabProgressResponse {
+            solved_challenge_ids: solved_ids,
+            error_message: String::new(),
+        }))
+    }
 }
 
 fn wallet_error_to_status(e: WalletError) -> Status {
@@ -2468,8 +2515,8 @@ async fn vm_and_owner(
 #[cfg(test)]
 mod tests {
     use super::super::db::{
-        self, email_account_service::EmailAccountService, email_service::EmailService,
-        faction_service::FactionService, fs_service::FsService,
+        self, codelab_service::CodelabService, email_account_service::EmailAccountService,
+        email_service::EmailService, faction_service::FactionService, fs_service::FsService,
         player_service::PlayerService, shortcuts_service::ShortcutsService, user_service::UserService,
         vm_service::{VmConfig, VmService},
         wallet_service::WalletService, wallet_card_service::WalletCardService,
@@ -2497,6 +2544,7 @@ mod tests {
             Arc::new(EmailAccountService::new(pool.clone())),
             Arc::new(WalletService::new(pool.clone())),
             Arc::new(WalletCardService::new(pool.clone())),
+            Arc::new(CodelabService::new(pool.clone())),
             mailbox_hub::new_hub(),
             new_hub(),
             new_process_spy_hub(),
@@ -2521,6 +2569,7 @@ mod tests {
             Arc::new(EmailAccountService::new(pool.clone())),
             Arc::new(WalletService::new(pool.clone())),
             Arc::new(WalletCardService::new(pool.clone())),
+            Arc::new(CodelabService::new(pool.clone())),
             mailbox_hub::new_hub(),
             new_hub(),
             new_process_spy_hub(),

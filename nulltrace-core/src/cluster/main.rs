@@ -32,6 +32,7 @@ use db::vm_service::VmService;
 use db::wallet_service::WalletService;
 use db::wallet_card_service::WalletCardService;
 use db::card_invoice_service::CardInvoiceService;
+use db::codelab_service::CodelabService;
 use grpc::game::game_service_server::GameServiceServer;
 use grpc::ClusterGameService;
 use process_run_hub::new_hub as new_process_run_hub;
@@ -116,6 +117,7 @@ async fn main() {
         wallet_service.fkebank_service(),
         wallet_card_service.clone(),
     ));
+    let codelab_service = Arc::new(CodelabService::new(pool.clone()));
     let mailbox_hub = mailbox_hub::new_hub();
 
     // ── Seed default player (Haru) if not present ──
@@ -224,6 +226,7 @@ async fn main() {
         email_account_service.clone(),
         wallet_service.clone(),
         wallet_card_service.clone(),
+        codelab_service.clone(),
         mailbox_hub.clone(),
         terminal_hub.clone(),
         process_spy_hub.clone(),
