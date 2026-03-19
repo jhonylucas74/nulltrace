@@ -1,6 +1,6 @@
 import React from "react";
 import type { TFunction } from "i18next";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Package, GraduationCap, HardDrive } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Package, GraduationCap, HardDrive, Monitor } from "lucide-react";
 import type { WindowType } from "../contexts/WindowManagerContext";
 
 /** Maps WindowType to apps.json label key (e.g. explorer -> "files"). */
@@ -16,6 +16,7 @@ export const APP_LABEL_KEY: Record<WindowType, string> = {
   shortcuts: "shortcuts",
   sysmon: "system_monitor",
   nullcloud: "nullcloud",
+  my_computer: "my_computer",
   hackerboard: "hackerboard",
   startup: "startup",
   wallpaper: "background",
@@ -142,6 +143,10 @@ function NullCloudIcon() {
   return <Cloud size={24} />;
 }
 
+function MyComputerIcon() {
+  return <Monitor size={24} />;
+}
+
 function HackerboardIcon() {
   return <Trophy size={24} />;
 }
@@ -179,6 +184,7 @@ export const LAUNCHABLE_APPS: LaunchableApp[] = [
   { type: "shortcuts", label: "Shortcuts", labelKey: "shortcuts", icon: <ShortcutsIcon /> },
   { type: "sysmon", label: "System Monitor", labelKey: "system_monitor", icon: <SysmonIcon /> },
   { type: "nullcloud", label: "NullCloud", labelKey: "nullcloud", icon: <NullCloudIcon /> },
+  { type: "my_computer", label: "My Computer", labelKey: "my_computer", icon: <MyComputerIcon /> },
   { type: "hackerboard", label: "Hackerboard", labelKey: "hackerboard", icon: <HackerboardIcon /> },
   { type: "startup", label: "Startup", labelKey: "startup", icon: <StartupIcon /> },
   { type: "wallpaper", label: "Background", labelKey: "background", icon: <BackgroundIcon /> },
@@ -216,6 +222,7 @@ export function getAppTitle(type: WindowType, username?: string | null, t?: TFun
       shortcuts: "Shortcuts",
       sysmon: "System Monitor",
       nullcloud: "NullCloud",
+      my_computer: "My Computer",
       hackerboard: "Hackerboard",
       startup: "Startup",
       wallpaper: "Background",

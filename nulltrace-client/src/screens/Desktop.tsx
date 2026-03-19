@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Grid3X3, Package, GraduationCap, HardDrive } from "lucide-react";
+import { Palette, Cpu, Keyboard, Activity, Cloud, Trophy, Rocket, Image, Settings, Wallet, Route, ShoppingBag, Grid3X3, Package, GraduationCap, HardDrive, Monitor } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { WalletProvider } from "../contexts/WalletContext";
 import { WindowManagerProvider, useWindowManager, getDefaultSizeForType } from "../contexts/WindowManagerContext";
@@ -36,6 +36,7 @@ import { PaymentFeedbackProvider } from "../contexts/PaymentFeedbackContext";
 import { HackerboardProvider } from "../contexts/HackerboardContext";
 import { WallpaperProvider, useWallpaper } from "../contexts/WallpaperContext";
 import NullCloudApp from "../components/NullCloudApp";
+import MyComputerApp from "../components/MyComputerApp";
 import HackerboardApp from "../components/HackerboardApp";
 import StartupSettingsApp from "../components/StartupSettingsApp";
 import BackgroundApp from "../components/BackgroundApp";
@@ -167,6 +168,10 @@ function NullCloudIcon() {
   return <Cloud size={12} />;
 }
 
+function MyComputerIcon() {
+  return <Monitor size={12} />;
+}
+
 function HackerboardIcon() {
   return <Trophy size={12} />;
 }
@@ -191,6 +196,7 @@ const WINDOW_ICONS: Record<WindowType, React.ReactNode> = {
   shortcuts: <ShortcutsIcon />,
   sysmon: <SysmonIcon />,
   nullcloud: <NullCloudIcon />,
+  my_computer: <MyComputerIcon />,
   hackerboard: <HackerboardIcon />,
   startup: <Rocket size={12} />,
   wallpaper: <WallpaperIcon />,
@@ -543,6 +549,9 @@ function DesktopContent() {
     }
     if (win.type === "nullcloud") {
       return <NullCloudApp />;
+    }
+    if (win.type === "my_computer") {
+      return <MyComputerApp />;
     }
     if (win.type === "hackerboard") {
       return <HackerboardApp />;

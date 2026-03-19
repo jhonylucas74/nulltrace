@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback } from "react";
 
-export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "hackerboard" | "startup" | "wallpaper" | "settings" | "traceroute" | "store" | "minesweeper" | "packet" | "codelab" | "diskmanager" | "pspy" | "devtools";
+export type WindowType = "terminal" | "explorer" | "browser" | "apps" | "editor" | "theme" | "sound" | "network" | "email" | "wallet" | "pixelart" | "sysinfo" | "shortcuts" | "sysmon" | "nullcloud" | "my_computer" | "hackerboard" | "startup" | "wallpaper" | "settings" | "traceroute" | "store" | "minesweeper" | "packet" | "codelab" | "diskmanager" | "pspy" | "devtools";
 
 export interface WindowPosition {
   x: number;
@@ -90,6 +90,9 @@ const SYSMON_WINDOW_SIZE: WindowSize = { width: 520, height: 480 };
 /** NullCloud app: machine upgrades and VPS. */
 const NULLCLOUD_WINDOW_SIZE: WindowSize = { width: 560, height: 640 };
 
+/** My Computer app: local machine config and upgrade UI. */
+const MY_COMPUTER_WINDOW_SIZE: WindowSize = { width: 560, height: 640 };
+
 /** Hackerboard app: feed and rankings. */
 const HACKERBOARD_WINDOW_SIZE: WindowSize = { width: 600, height: 700 };
 
@@ -137,6 +140,7 @@ export function getDefaultSizeForType(type: WindowType): WindowSize {
   if (type === "shortcuts") return SHORTCUTS_WINDOW_SIZE;
   if (type === "sysmon") return SYSMON_WINDOW_SIZE;
   if (type === "nullcloud") return NULLCLOUD_WINDOW_SIZE;
+  if (type === "my_computer") return MY_COMPUTER_WINDOW_SIZE;
   if (type === "hackerboard") return HACKERBOARD_WINDOW_SIZE;
   if (type === "startup") return STARTUP_WINDOW_SIZE;
   if (type === "wallpaper") return WALLPAPER_WINDOW_SIZE;
@@ -312,6 +316,7 @@ export function WindowManagerProvider({ children }: { children: React.ReactNode 
         shortcuts: "Shortcuts",
         sysmon: "System Monitor",
         nullcloud: "NullCloud",
+        my_computer: "My Computer",
         hackerboard: "Hackerboard",
         startup: "Startup",
         wallpaper: "Background",
