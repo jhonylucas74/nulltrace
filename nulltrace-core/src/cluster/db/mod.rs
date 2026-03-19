@@ -114,6 +114,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(include_str!("../../../migrations/028_create_codelab_progress.sql"))
         .execute(pool)
         .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/029_add_vm_internet_plan.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

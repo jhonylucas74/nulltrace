@@ -806,6 +806,8 @@ impl GameService for ClusterGameService {
             cpu_cores: vm.cpu_cores as i32,
             memory_mb: vm.memory_mb,
             disk_mb: vm.disk_mb,
+            internet_plan_id: vm.internet_plan_id.clone(),
+            internet_plan_next_billing_ms: vm.internet_plan_next_billing_ms.unwrap_or(0),
             error_message: String::new(),
         }))
     }

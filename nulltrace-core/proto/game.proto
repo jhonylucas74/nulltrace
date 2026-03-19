@@ -269,7 +269,9 @@ message GetSysinfoResponse {
   int32 cpu_cores = 1;
   int32 memory_mb = 2;
   int32 disk_mb = 3;
-  string error_message = 4;
+  string internet_plan_id = 4;
+  int64 internet_plan_next_billing_ms = 5;
+  string error_message = 6;
 }
 
 message RestoreDiskRequest {}

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
 import {
   LayoutDashboard,
   Cpu,
@@ -7,11 +8,22 @@ import {
   HardDrive,
   Wifi,
   Monitor,
+  Loader2,
 } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
 import { useNullCloud } from "../contexts/NullCloudContext";
 import styles from "./MyComputerApp.module.css";
 
 type NavSection = "config" | "cpu" | "ram" | "storage" | "internet";
+
+/** Server-provided machine config (Current configuration section only). */
+interface ServerMachineConfig {
+  cpuCores: number;
+  ramGib: number;
+  diskTotalGib: number;
+  internetPlanId: string;
+  internetPlanNextBilling: number | null;
+}
 
 function formatBillingDate(ts: number): string {
   return new Date(ts).toLocaleDateString("en-US", {
@@ -23,9 +35,60 @@ function formatBillingDate(ts: number): string {
 
 export default function MyComputerApp() {
   const { t } = useTranslation("my_computer");
+  const { token } = useAuth();
   const cloud = useNullCloud();
   const [section, setSection] = useState<NavSection>("config");
   const machine = cloud.localMachine;
+
+  const [serverConfig, setServerConfig] = useState<ServerMachineConfig | null>(null);
+  const [configLoading, setConfigLoading] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  const fetchServerConfig = useCallback(async () => {
+    if (!token) {
+      setServerConfig(null);
+      setConfigLoading(false);
+      setConfigError(null);
+      return;
+    }
+    setConfigLoading(true);
+    setConfigError(null);
+    try {
+      const res = await invoke<{
+        cpu_cores: number;
+        memory_mb: number;
+        disk_mb: number;
+        internet_plan_id?: string;
+        internet_plan_next_billing_ms?: number;
+        error_message: string;
+      }>("grpc_sysinfo", { token });
+      if (res.error_message) {
+        setConfigError(res.error_message);
+        setServerConfig(null);
+      } else {
+        setServerConfig({
+          cpuCores: res.cpu_cores,
+          ramGib: Math.round((res.memory_mb / 1024) * 10) / 10,
+          diskTotalGib: Math.round((res.disk_mb / 1024) * 10) / 10,
+          internetPlanId: res.internet_plan_id ?? "basic",
+          internetPlanNextBilling:
+            res.internet_plan_next_billing_ms != null && res.internet_plan_next_billing_ms > 0
+              ? res.internet_plan_next_billing_ms
+              : null,
+        });
+        setConfigError(null);
+      }
+    } catch (e) {
+      setConfigError(e instanceof Error ? e.message : String(e));
+      setServerConfig(null);
+    } finally {
+      setConfigLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchServerConfig();
+  }, [fetchServerConfig]);
 
   return (
     <div className={styles.appWithSidebar}>
@@ -87,81 +150,95 @@ export default function MyComputerApp() {
           <>
             <h2 className={styles.mainTitle}>{t("title_current_config")}</h2>
             <p className={styles.mainSubtitle}>{t("subtitle_current_config")}</p>
-            <div className={styles.card}>
-              <div className={styles.cardTitleRow}>
-                <Monitor size={20} className={styles.cardTitleIcon} />
-                <span className={styles.cardTitle}>{t("card_your_machine")}</span>
+            {configLoading && (
+              <div className={styles.configLoading}>
+                <p className={styles.configLoadingText}>{t("config_loading")}</p>
+                <Loader2 size={28} className={styles.configLoadingSpinner} aria-hidden />
               </div>
-              <p className={styles.cardDesc}>{t("card_desc")}</p>
-              <div className={styles.overviewSpecGrid}>
-                <button
-                  type="button"
-                  className={`${styles.overviewSpecItem} ${styles.overviewSpecItemClickable}`}
-                  onClick={() => setSection("cpu")}
-                >
-                  <div className={styles.overviewSpecIconWrap}>
-                    <Cpu size={22} className={styles.overviewSpecIconCpu} />
-                  </div>
-                  <div className={styles.overviewSpecLabel}>{t("label_cpu")}</div>
-                  <div className={styles.overviewSpecValue}>
-                    {t("value_cores", { count: machine.cpuCores })}
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.overviewSpecItem} ${styles.overviewSpecItemClickable}`}
-                  onClick={() => setSection("ram")}
-                >
-                  <div className={styles.overviewSpecIconWrap}>
-                    <MemoryStick size={22} className={styles.overviewSpecIconRam} />
-                  </div>
-                  <div className={styles.overviewSpecLabel}>{t("label_memory")}</div>
-                  <div className={styles.overviewSpecValue}>
-                    {t("value_gib_ram", { count: machine.ramGib })}
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.overviewSpecItem} ${styles.overviewSpecItemClickable}`}
-                  onClick={() => setSection("storage")}
-                >
-                  <div className={styles.overviewSpecIconWrap}>
-                    <HardDrive size={22} className={styles.overviewSpecIconDisk} />
-                  </div>
-                  <div className={styles.overviewSpecLabel}>{t("label_storage")}</div>
-                  <div className={styles.overviewSpecValue}>
-                    {t("value_gib_storage", { count: machine.diskTotalGib })}
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.overviewSpecItem} ${styles.overviewSpecItemClickable}`}
-                  onClick={() => setSection("internet")}
-                >
-                  <div className={styles.overviewSpecIconWrap}>
-                    <Wifi size={22} className={styles.overviewSpecIconInternet} />
-                  </div>
-                  <div className={styles.overviewSpecLabel}>{t("label_internet")}</div>
-                  <div className={styles.overviewSpecValue}>
-                    {(() => {
-                      const plan = cloud.getInternetPlanById(
-                        machine.internetPlanId ?? "basic"
-                      );
-                      return plan
-                        ? `${plan.name} · ${plan.speedMbps} Mbps`
-                        : "—";
-                    })()}
-                  </div>
-                  {machine.internetPlanNextBilling != null && (
-                    <div className={styles.overviewSpecMeta}>
-                      {t("next_billing", {
-                        date: formatBillingDate(machine.internetPlanNextBilling),
-                      })}
+            )}
+            {!configLoading && !token && (
+              <p className={styles.configError}>{t("config_login_required")}</p>
+            )}
+            {!configLoading && token && configError && (
+              <p className={styles.configError}>{t("config_error")}</p>
+            )}
+            {!configLoading && serverConfig != null && (
+              <div className={styles.card}>
+                <div className={styles.cardTitleRow}>
+                  <Monitor size={20} className={styles.cardTitleIcon} />
+                  <span className={styles.cardTitle}>{t("card_your_machine")}</span>
+                </div>
+                <p className={styles.cardDesc}>{t("card_desc")}</p>
+                <div className={styles.overviewSpecGrid}>
+                  <button
+                    type="button"
+                    className={`${styles.overviewSpecItem} ${styles.overviewSpecItemClickable}`}
+                    onClick={() => setSection("cpu")}
+                  >
+                    <div className={styles.overviewSpecIconWrap}>
+                      <Cpu size={22} className={styles.overviewSpecIconCpu} />
                     </div>
-                  )}
-                </button>
+                    <div className={styles.overviewSpecLabel}>{t("label_cpu")}</div>
+                    <div className={styles.overviewSpecValue}>
+                      {t("value_cores", { count: serverConfig.cpuCores })}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.overviewSpecItem} ${styles.overviewSpecItemClickable}`}
+                    onClick={() => setSection("ram")}
+                  >
+                    <div className={styles.overviewSpecIconWrap}>
+                      <MemoryStick size={22} className={styles.overviewSpecIconRam} />
+                    </div>
+                    <div className={styles.overviewSpecLabel}>{t("label_memory")}</div>
+                    <div className={styles.overviewSpecValue}>
+                      {t("value_gib_ram", { count: serverConfig.ramGib })}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.overviewSpecItem} ${styles.overviewSpecItemClickable}`}
+                    onClick={() => setSection("storage")}
+                  >
+                    <div className={styles.overviewSpecIconWrap}>
+                      <HardDrive size={22} className={styles.overviewSpecIconDisk} />
+                    </div>
+                    <div className={styles.overviewSpecLabel}>{t("label_storage")}</div>
+                    <div className={styles.overviewSpecValue}>
+                      {t("value_gib_storage", { count: serverConfig.diskTotalGib })}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.overviewSpecItem} ${styles.overviewSpecItemClickable}`}
+                    onClick={() => setSection("internet")}
+                  >
+                    <div className={styles.overviewSpecIconWrap}>
+                      <Wifi size={22} className={styles.overviewSpecIconInternet} />
+                    </div>
+                    <div className={styles.overviewSpecLabel}>{t("label_internet")}</div>
+                    <div className={styles.overviewSpecValue}>
+                      {(() => {
+                        const plan = cloud.getInternetPlanById(
+                          serverConfig.internetPlanId || "basic"
+                        );
+                        return plan
+                          ? `${plan.name} · ${plan.speedMbps} Mbps`
+                          : "—";
+                      })()}
+                    </div>
+                    {serverConfig.internetPlanNextBilling != null && (
+                      <div className={styles.overviewSpecMeta}>
+                        {t("next_billing", {
+                          date: formatBillingDate(serverConfig.internetPlanNextBilling),
+                        })}
+                      </div>
+                    )}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </>
         )}
 

@@ -32,5 +32,8 @@
   "current": "Current",
   "lower_tier": "Lower tier",
   "weekly_billing": "Weekly billing",
-  "current_plan": "Current plan"
+  "current_plan": "Current plan",
+  "config_loading": "Loading configuration…",
+  "config_error": "Unable to load configuration.",
+  "config_login_required": "Log in to view your machine configuration."
 }

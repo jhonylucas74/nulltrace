@@ -228,6 +228,10 @@ pub struct SysinfoResponse {
     pub cpu_cores: i32,
     pub memory_mb: i32,
     pub disk_mb: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub internet_plan_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub internet_plan_next_billing_ms: Option<i64>,
     pub error_message: String,
 }
 
@@ -259,6 +263,16 @@ pub async fn grpc_sysinfo(token: String) -> Result<SysinfoResponse, String> {
         cpu_cores: response.cpu_cores,
         memory_mb: response.memory_mb,
         disk_mb: response.disk_mb,
+        internet_plan_id: if response.internet_plan_id.is_empty() {
+            None
+        } else {
+            Some(response.internet_plan_id)
+        },
+        internet_plan_next_billing_ms: if response.internet_plan_next_billing_ms == 0 {
+            None
+        } else {
+            Some(response.internet_plan_next_billing_ms)
+        },
         error_message: response.error_message,
     })
 }

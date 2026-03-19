@@ -32,5 +32,8 @@
   "current": "Atual",
   "lower_tier": "Tier inferior",
   "weekly_billing": "Cobrança semanal",
-  "current_plan": "Plano atual"
+  "current_plan": "Plano atual",
+  "config_loading": "Carregando configuração…",
+  "config_error": "Não foi possível carregar a configuração.",
+  "config_login_required": "Faça login para ver a configuração da sua máquina."
 }

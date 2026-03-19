@@ -20,6 +20,10 @@ pub struct VmRecord {
     pub owner_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Internet plan id for My Computer (e.g. "basic"). Default from DB.
+    pub internet_plan_id: String,
+    /// Next billing timestamp in ms for internet plan (optional).
+    pub internet_plan_next_billing_ms: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -58,7 +62,8 @@ impl VmService {
             INSERT INTO vms (id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status, ip, subnet, gateway, mac, owner_id)
             VALUES ($1, $2, $3, $4, $5, $6, 'running', $7, $8, $9, $10, $11)
             RETURNING id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
-                      ip, subnet, gateway, mac, owner_id, created_at, updated_at
+                      ip, subnet, gateway, mac, owner_id, created_at, updated_at,
+                      internet_plan_id, internet_plan_next_billing_ms
             "#,
         )
         .bind(id)
@@ -82,7 +87,8 @@ impl VmService {
         let rec = sqlx::query_as::<_, VmRecord>(
             r#"
             SELECT id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
-                   ip, subnet, gateway, mac, owner_id, created_at, updated_at
+                   ip, subnet, gateway, mac, owner_id, created_at, updated_at,
+                   internet_plan_id, internet_plan_next_billing_ms
             FROM vms WHERE id = $1
             "#,
         )
@@ -97,7 +103,8 @@ impl VmService {
         let recs = sqlx::query_as::<_, VmRecord>(
             r#"
             SELECT id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
-                   ip, subnet, gateway, mac, owner_id, created_at, updated_at
+                   ip, subnet, gateway, mac, owner_id, created_at, updated_at,
+                   internet_plan_id, internet_plan_next_billing_ms
             FROM vms WHERE status IN ('running', 'crashed')
             ORDER BY created_at
             "#,
@@ -114,7 +121,8 @@ impl VmService {
         let recs = sqlx::query_as::<_, VmRecord>(
             r#"
             SELECT id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
-                   ip, subnet, gateway, mac, owner_id, created_at, updated_at
+                   ip, subnet, gateway, mac, owner_id, created_at, updated_at,
+                   internet_plan_id, internet_plan_next_billing_ms
             FROM vms
             WHERE status IN ('running', 'crashed')
               AND owner_id IS NOT NULL
@@ -150,7 +158,8 @@ impl VmService {
         let recs = sqlx::query_as::<_, VmRecord>(
             r#"
             SELECT id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
-                   ip, subnet, gateway, mac, owner_id, created_at, updated_at
+                   ip, subnet, gateway, mac, owner_id, created_at, updated_at,
+                   internet_plan_id, internet_plan_next_billing_ms
             FROM vms ORDER BY created_at
             "#,
         )
@@ -165,7 +174,8 @@ impl VmService {
         let rec = sqlx::query_as::<_, VmRecord>(
             r#"
             SELECT id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
-                   ip, subnet, gateway, mac, owner_id, created_at, updated_at
+                   ip, subnet, gateway, mac, owner_id, created_at, updated_at,
+                   internet_plan_id, internet_plan_next_billing_ms
             FROM vms WHERE owner_id = $1
             LIMIT 1
             "#,
@@ -182,7 +192,8 @@ impl VmService {
         let recs = sqlx::query_as::<_, VmRecord>(
             r#"
             SELECT id, hostname, dns_name, cpu_cores, memory_mb, disk_mb, status,
-                   ip, subnet, gateway, mac, owner_id, created_at, updated_at
+                   ip, subnet, gateway, mac, owner_id, created_at, updated_at,
+                   internet_plan_id, internet_plan_next_billing_ms
             FROM vms WHERE owner_id = $1
             ORDER BY created_at
             "#,

@@ -318,6 +318,8 @@ impl GameService for MyGameService {
             cpu_cores: 0,
             memory_mb: 0,
             disk_mb: 0,
+            internet_plan_id: String::new(),
+            internet_plan_next_billing_ms: 0,
             error_message: "Use the unified cluster binary for sysinfo".to_string(),
         }))
     }
