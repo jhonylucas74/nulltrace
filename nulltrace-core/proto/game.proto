@@ -11,6 +11,7 @@ service GameService {
   rpc GetDiskUsage (GetDiskUsageRequest) returns (GetDiskUsageResponse);
   rpc GetProcessList (GetProcessListRequest) returns (GetProcessListResponse);
   rpc GetSysinfo (GetSysinfoRequest) returns (GetSysinfoResponse);
+  rpc UpgradeVm (UpgradeVmRequest) returns (UpgradeVmResponse);
   rpc RestoreDisk (RestoreDiskRequest) returns (RestoreDiskResponse);
   rpc GetHomePath (GetHomePathRequest) returns (GetHomePathResponse);
   rpc ListFs (ListFsRequest) returns (ListFsResponse);
@@ -272,6 +273,16 @@ message GetSysinfoResponse {
   string internet_plan_id = 4;
   int64 internet_plan_next_billing_ms = 5;
   string error_message = 6;
+}
+
+message UpgradeVmRequest {
+  string upgrade_type = 1;  // "cpu" | "ram" | "disk"
+  int32 new_value = 2;       // cores for cpu, GiB for ram and disk
+}
+
+message UpgradeVmResponse {
+  bool success = 1;
+  string error_message = 2;
 }
 
 message RestoreDiskRequest {}

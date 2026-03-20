@@ -159,6 +159,8 @@ export interface GrpcContextValue {
   getCardStatement: (token: string, cardId: string) => Promise<{ statement: GrpcCardStatement | null; error_message: string }>;
   payCardBill: (token: string, cardId: string) => Promise<{ success: boolean; amount_paid: number; error_message: string }>;
   payAccountBill: (token: string) => Promise<{ success: boolean; amount_paid: number; error_message: string }>;
+  /** Upgrade VM CPU, RAM, or disk tier (debits USD). upgradeType: "cpu" | "ram" | "disk"; newValue: cores or GiB. */
+  upgradeVm: (token: string, upgradeType: string, newValue: number) => Promise<{ success: boolean; error_message: string }>;
 }
 
 const GrpcContext = createContext<GrpcContextValue | null>(null);
@@ -267,6 +269,10 @@ export function GrpcProvider({ children }: { children: React.ReactNode }) {
         invoke<{ success: boolean; amount_paid: number; error_message: string }>("grpc_pay_card_bill", { token, cardId }),
       payAccountBill: (token: string) =>
         invoke<{ success: boolean; amount_paid: number; error_message: string }>("grpc_pay_account_bill", { token }),
+      upgradeVm: (token: string, upgradeType: string, newValue: number) =>
+        invoke<{ success: boolean; error_message: string }>("grpc_upgrade_vm", {
+          args: { token, upgradeType, newValue },
+        }),
     }),
     []
   );

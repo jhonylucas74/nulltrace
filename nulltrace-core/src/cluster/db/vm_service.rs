@@ -145,6 +145,34 @@ impl VmService {
         Ok(())
     }
 
+    /// Update VM hardware spec (CPU, RAM, disk). Only non-None fields are changed.
+    pub async fn update_spec(
+        &self,
+        vm_id: Uuid,
+        cpu_cores: Option<i16>,
+        memory_mb: Option<i32>,
+        disk_mb: Option<i32>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE vms SET
+                cpu_cores = COALESCE($1, cpu_cores),
+                memory_mb = COALESCE($2, memory_mb),
+                disk_mb = COALESCE($3, disk_mb),
+                updated_at = now()
+            WHERE id = $4
+            "#,
+        )
+        .bind(cpu_cores)
+        .bind(memory_mb)
+        .bind(disk_mb)
+        .bind(vm_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn delete_vm(&self, vm_id: Uuid) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM vms WHERE id = $1")
             .bind(vm_id)

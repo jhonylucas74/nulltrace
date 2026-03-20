@@ -336,6 +336,7 @@ pub fn run() {
             grpc::grpc_get_process_list,
             grpc::grpc_sysinfo,
             grpc::grpc_restore_disk,
+            grpc::grpc_upgrade_vm,
             grpc::grpc_get_ranking,
             grpc::grpc_get_player_profile,
             grpc::grpc_set_preferred_theme,

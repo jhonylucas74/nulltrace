@@ -11,7 +11,11 @@ import {
   Loader2,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { useGrpc } from "../contexts/GrpcContext";
 import { useNullCloud } from "../contexts/NullCloudContext";
+import { usePaymentFeedback } from "../contexts/PaymentFeedbackContext";
+import { useWallet } from "../contexts/WalletContext";
+import Modal from "./Modal";
 import styles from "./MyComputerApp.module.css";
 
 type NavSection = "config" | "cpu" | "ram" | "storage" | "internet";
@@ -35,14 +39,22 @@ function formatBillingDate(ts: number): string {
 
 export default function MyComputerApp() {
   const { t } = useTranslation("my_computer");
+  const { t: tCommon } = useTranslation("common");
   const { token } = useAuth();
   const cloud = useNullCloud();
+  const grpc = useGrpc();
+  const wallet = useWallet();
+  const { triggerFlyToWallet } = usePaymentFeedback();
   const [section, setSection] = useState<NavSection>("config");
   const machine = cloud.localMachine;
 
   const [serverConfig, setServerConfig] = useState<ServerMachineConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [insufficientBalanceModalOpen, setInsufficientBalanceModalOpen] = useState(false);
+  const [upgradeErrorModalOpen, setUpgradeErrorModalOpen] = useState(false);
+  const [upgradeErrorMessage, setUpgradeErrorMessage] = useState("");
+  const [upgradingKey, setUpgradingKey] = useState<string | null>(null);
 
   const fetchServerConfig = useCallback(async () => {
     if (!token) {
@@ -89,6 +101,43 @@ export default function MyComputerApp() {
   useEffect(() => {
     fetchServerConfig();
   }, [fetchServerConfig]);
+
+  const currentCpu = serverConfig?.cpuCores ?? machine.cpuCores;
+  const currentRam = serverConfig?.ramGib ?? machine.ramGib;
+  const currentDisk = serverConfig?.diskTotalGib ?? machine.diskTotalGib;
+
+  async function handleUpgradeClick(
+    event: React.MouseEvent,
+    upgradeType: "cpu" | "ram" | "disk",
+    newValue: number,
+    priceUsd: number
+  ) {
+    if (!token) return;
+    const priceCents = priceUsd * 100;
+    const usdBalanceCents = wallet.balances["USD"] ?? 0;
+    if (usdBalanceCents < priceCents) {
+      setInsufficientBalanceModalOpen(true);
+      return;
+    }
+    const key = `${upgradeType}-${newValue}`;
+    setUpgradingKey(key);
+    try {
+      const res = await grpc.upgradeVm(token, upgradeType, newValue);
+      if (res.success) {
+        await fetchServerConfig();
+        triggerFlyToWallet(event.clientX, event.clientY);
+        wallet.refreshBalances();
+      } else {
+        setUpgradeErrorMessage(res.error_message || t("upgrade_error"));
+        setUpgradeErrorModalOpen(true);
+      }
+    } catch (e) {
+      setUpgradeErrorMessage(e instanceof Error ? e.message : String(e));
+      setUpgradeErrorModalOpen(true);
+    } finally {
+      setUpgradingKey(null);
+    }
+  }
 
   return (
     <div className={styles.appWithSidebar}>
@@ -257,11 +306,12 @@ export default function MyComputerApp() {
                 </div>
               </div>
               <div className={styles.currentSpec}>
-                {t("current_spec")}: {machine.cpuCores} vCPU
+                {t("current_spec")}: {currentCpu} vCPU
               </div>
               <div className={styles.productGrid}>
                 {cloud.cpuUpgrades.map((o) => {
-                  const isInferior = o.value <= machine.cpuCores;
+                  const isInferior = o.value <= currentCpu;
+                  const upgrading = upgradingKey === `cpu-${o.value}`;
                   return (
                     <div
                       key={o.value}
@@ -273,7 +323,7 @@ export default function MyComputerApp() {
                       <div className={styles.productCardSpecs}>
                         {isInferior
                           ? `${o.value} vCPU`
-                          : `${machine.cpuCores} → ${o.value} vCPU`}
+                          : `${currentCpu} → ${o.value} vCPU`}
                       </div>
                       <div className={styles.productCardPrice}>
                         {o.priceUsd === 0 ? t("free") : `$${o.priceUsd}`}
@@ -281,17 +331,22 @@ export default function MyComputerApp() {
                       <div className={styles.productCardMeta}>{t("one_time")}</div>
                       {isInferior ? (
                         <span className={styles.productCardPriceMuted}>
-                          {o.value === machine.cpuCores
+                          {o.value === currentCpu
                             ? t("current")
                             : t("lower_tier")}
                         </span>
                       ) : (
                         <button
                           type="button"
-                          className={styles.btnUpgradeDisabled}
-                          disabled
+                          className={styles.btnUpgrade}
+                          disabled={!!upgrading}
+                          onClick={(e) => handleUpgradeClick(e, "cpu", o.value, o.priceUsd)}
                         >
-                          {t("upgrade_coming_soon")}
+                          {upgrading ? (
+                            <Loader2 size={16} className={styles.btnUpgradeSpinner} aria-hidden />
+                          ) : (
+                            t("add_upgrade")
+                          )}
                         </button>
                       )}
                     </div>
@@ -317,11 +372,12 @@ export default function MyComputerApp() {
                 </div>
               </div>
               <div className={styles.currentSpec}>
-                {t("current_spec")}: {machine.ramGib} GiB RAM
+                {t("current_spec")}: {currentRam} GiB RAM
               </div>
               <div className={styles.productGrid}>
                 {cloud.ramUpgrades.map((o) => {
-                  const isInferior = o.value <= machine.ramGib;
+                  const isInferior = o.value <= currentRam;
+                  const upgrading = upgradingKey === `ram-${o.value}`;
                   return (
                     <div
                       key={o.value}
@@ -333,7 +389,7 @@ export default function MyComputerApp() {
                       <div className={styles.productCardSpecs}>
                         {isInferior
                           ? `${o.value} GiB RAM`
-                          : `${machine.ramGib} → ${o.value} GiB RAM`}
+                          : `${currentRam} → ${o.value} GiB RAM`}
                       </div>
                       <div className={styles.productCardPrice}>
                         {o.priceUsd === 0 ? t("free") : `$${o.priceUsd}`}
@@ -341,17 +397,22 @@ export default function MyComputerApp() {
                       <div className={styles.productCardMeta}>{t("one_time")}</div>
                       {isInferior ? (
                         <span className={styles.productCardPriceMuted}>
-                          {o.value === machine.ramGib
+                          {o.value === currentRam
                             ? t("current")
                             : t("lower_tier")}
                         </span>
                       ) : (
                         <button
                           type="button"
-                          className={styles.btnUpgradeDisabled}
-                          disabled
+                          className={styles.btnUpgrade}
+                          disabled={!!upgrading}
+                          onClick={(e) => handleUpgradeClick(e, "ram", o.value, o.priceUsd)}
                         >
-                          {t("upgrade_coming_soon")}
+                          {upgrading ? (
+                            <Loader2 size={16} className={styles.btnUpgradeSpinner} aria-hidden />
+                          ) : (
+                            t("add_upgrade")
+                          )}
                         </button>
                       )}
                     </div>
@@ -377,11 +438,12 @@ export default function MyComputerApp() {
                 </div>
               </div>
               <div className={styles.currentSpec}>
-                {t("current_spec")}: {machine.diskTotalGib} GiB
+                {t("current_spec")}: {currentDisk} GiB
               </div>
               <div className={styles.productGrid}>
                 {cloud.diskUpgrades.map((o) => {
-                  const isInferior = o.value <= machine.diskTotalGib;
+                  const isInferior = o.value <= currentDisk;
+                  const upgrading = upgradingKey === `disk-${o.value}`;
                   return (
                     <div
                       key={o.value}
@@ -393,7 +455,7 @@ export default function MyComputerApp() {
                       <div className={styles.productCardSpecs}>
                         {isInferior
                           ? `${o.value} GiB`
-                          : `${machine.diskTotalGib} → ${o.value} GiB`}
+                          : `${currentDisk} → ${o.value} GiB`}
                       </div>
                       <div className={styles.productCardPrice}>
                         {o.priceUsd === 0 ? t("free") : `$${o.priceUsd}`}
@@ -401,17 +463,22 @@ export default function MyComputerApp() {
                       <div className={styles.productCardMeta}>{t("one_time")}</div>
                       {isInferior ? (
                         <span className={styles.productCardPriceMuted}>
-                          {o.value === machine.diskTotalGib
+                          {o.value === currentDisk
                             ? t("current")
                             : t("lower_tier")}
                         </span>
                       ) : (
                         <button
                           type="button"
-                          className={styles.btnUpgradeDisabled}
-                          disabled
+                          className={styles.btnUpgrade}
+                          disabled={!!upgrading}
+                          onClick={(e) => handleUpgradeClick(e, "disk", o.value, o.priceUsd)}
                         >
-                          {t("upgrade_coming_soon")}
+                          {upgrading ? (
+                            <Loader2 size={16} className={styles.btnUpgradeSpinner} aria-hidden />
+                          ) : (
+                            t("add_upgrade")
+                          )}
                         </button>
                       )}
                     </div>
@@ -494,6 +561,23 @@ export default function MyComputerApp() {
           </>
         )}
       </main>
+
+      <Modal
+        open={insufficientBalanceModalOpen}
+        onClose={() => setInsufficientBalanceModalOpen(false)}
+        title={t("insufficient_usd_balance")}
+        primaryButton={{ label: tCommon("ok"), onClick: () => setInsufficientBalanceModalOpen(false) }}
+      >
+        <p className={styles.modalMessage}>{t("insufficient_usd_balance")}</p>
+      </Modal>
+      <Modal
+        open={upgradeErrorModalOpen}
+        onClose={() => setUpgradeErrorModalOpen(false)}
+        title={t("upgrade_error")}
+        primaryButton={{ label: tCommon("ok"), onClick: () => setUpgradeErrorModalOpen(false) }}
+      >
+        <p className={styles.modalMessage}>{upgradeErrorMessage}</p>
+      </Modal>
     </div>
   );
 }

@@ -3,7 +3,8 @@ use game::{
     CopyPathRequest, CopyPathResponse, CreateFolderRequest, CreateFolderResponse, CreateFactionRequest, CreateFactionResponse,
     GetDiskUsageRequest, GetDiskUsageResponse, GetHomePathRequest, GetHomePathResponse,
     GetPlayerProfileRequest, GetPlayerProfileResponse, GetProcessListRequest, GetProcessListResponse,
-    GetRankingRequest, GetRankingResponse, HelloRequest, HelloResponse, LeaveFactionRequest,
+    GetRankingRequest, GetRankingResponse, GetSysinfoRequest, GetSysinfoResponse,
+    UpgradeVmRequest, UpgradeVmResponse, HelloRequest, HelloResponse, LeaveFactionRequest,
     LeaveFactionResponse, ListFsRequest, ListFsResponse, LoginRequest, LoginResponse,
     MovePathRequest, MovePathResponse, PingRequest, PingResponse, ProcessSpyClientMessage,
     ProcessSpyServerMessage,     RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest,
@@ -312,15 +313,25 @@ impl GameService for MyGameService {
 
     async fn get_sysinfo(
         &self,
-        _request: Request<game::GetSysinfoRequest>,
-    ) -> Result<Response<game::GetSysinfoResponse>, Status> {
-        Ok(Response::new(game::GetSysinfoResponse {
+        _request: Request<GetSysinfoRequest>,
+    ) -> Result<Response<GetSysinfoResponse>, Status> {
+        Ok(Response::new(GetSysinfoResponse {
             cpu_cores: 0,
             memory_mb: 0,
             disk_mb: 0,
             internet_plan_id: String::new(),
             internet_plan_next_billing_ms: 0,
             error_message: "Use the unified cluster binary for sysinfo".to_string(),
+        }))
+    }
+
+    async fn upgrade_vm(
+        &self,
+        _request: Request<UpgradeVmRequest>,
+    ) -> Result<Response<UpgradeVmResponse>, Status> {
+        Ok(Response::new(UpgradeVmResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for VM upgrade".to_string(),
         }))
     }
 

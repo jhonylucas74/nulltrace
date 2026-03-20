@@ -35,5 +35,8 @@
   "current_plan": "Current plan",
   "config_loading": "Loading configuration…",
   "config_error": "Unable to load configuration.",
-  "config_login_required": "Log in to view your machine configuration."
+  "config_login_required": "Log in to view your machine configuration.",
+  "insufficient_usd_balance": "Insufficient USD balance. Add funds in the Wallet.",
+  "upgrade_error": "Upgrade failed. Please try again.",
+  "add_upgrade": "Upgrade"
 }

@@ -12,6 +12,7 @@ mod os;
 mod net;
 mod db;
 mod grpc;
+mod vm_upgrade_catalog;
 mod lua_api;
 mod process_run_hub;
 mod process_spy_hub;
@@ -448,6 +449,16 @@ async fn load_game_vms(
         };
         manager.create_vm(config).await.expect("Failed to create Haru's VM");
         println!("[cluster] ✓ Haru's VM created");
+
+        // Credit $100 USD to Haru by default when VM is created for the first time
+        if let Err(e) = wallet_service
+            .credit(haru.id, "USD", 10000, "Initial balance (VM created)")
+            .await
+        {
+            println!("[cluster] Warning: Could not credit $100 to Haru: {}", e);
+        } else {
+            println!("[cluster] Haru credited $100 USD (VM created)");
+        }
 
         // Clear active_vms to avoid duplication when restore_vms() runs
         manager.clear_active_vms();

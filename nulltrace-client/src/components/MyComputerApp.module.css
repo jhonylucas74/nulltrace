@@ -378,6 +378,47 @@
   cursor: not-allowed;
 }
 
+.btnUpgrade {
+  margin-top: auto;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 2rem;
+}
+
+.btnUpgrade:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btnUpgrade:disabled {
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+
+.btnUpgradeSpinner {
+  animation: loadingSpin 1s linear infinite;
+}
+
+@keyframes loadingSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.modalMessage {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
 .productCardBadge {
   position: absolute;
   top: 0.5rem;

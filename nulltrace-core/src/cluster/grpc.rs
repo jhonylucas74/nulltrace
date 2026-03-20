@@ -38,7 +38,8 @@ use game::{
     CopyPathRequest, CopyPathResponse, CreateFactionRequest, CreateFactionResponse, FsEntry,
     GetDiskUsageRequest, GetDiskUsageResponse, GetHomePathRequest, GetHomePathResponse,
     GetPlayerProfileRequest, GetPlayerProfileResponse, GetProcessListRequest, GetProcessListResponse,
-    GetRankingRequest, GetRankingResponse, GetSysinfoRequest, GetSysinfoResponse, HelloRequest,
+    GetRankingRequest, GetRankingResponse, GetSysinfoRequest, GetSysinfoResponse,
+    UpgradeVmRequest, UpgradeVmResponse, HelloRequest,
     HelloResponse, LeaveFactionRequest, LeaveFactionResponse, ListFsRequest, ListFsResponse,
     InjectStdin, LoginRequest, LoginResponse, MovePathRequest, MovePathResponse,
     OpenCodeRun, OpenTerminal, PingRequest, PingResponse, ProcessEntry, ProcessGone, ProcessListSnapshot,
@@ -808,6 +809,98 @@ impl GameService for ClusterGameService {
             disk_mb: vm.disk_mb,
             internet_plan_id: vm.internet_plan_id.clone(),
             internet_plan_next_billing_ms: vm.internet_plan_next_billing_ms.unwrap_or(0),
+            error_message: String::new(),
+        }))
+    }
+
+    async fn upgrade_vm(
+        &self,
+        request: Request<UpgradeVmRequest>,
+    ) -> Result<Response<UpgradeVmResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let req = request.into_inner();
+
+        let upgrade_type = super::vm_upgrade_catalog::UpgradeType::from_str(&req.upgrade_type)
+            .ok_or_else(|| Status::invalid_argument("Invalid upgrade_type; use cpu, ram, or disk"))?;
+
+        let vm = self
+            .vm_service
+            .get_vm_by_owner_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("No VM found for this player"))?;
+
+        let (current_value, is_upgrade) = match upgrade_type {
+            super::vm_upgrade_catalog::UpgradeType::Cpu => {
+                let current = vm.cpu_cores as i32;
+                (current, req.new_value > current)
+            }
+            super::vm_upgrade_catalog::UpgradeType::Ram => {
+                let current = vm.memory_mb / 1024;
+                (current, req.new_value > current)
+            }
+            super::vm_upgrade_catalog::UpgradeType::Disk => {
+                let current = vm.disk_mb / 1024;
+                (current, req.new_value > current)
+            }
+        };
+
+        if !is_upgrade {
+            return Ok(Response::new(UpgradeVmResponse {
+                success: false,
+                error_message: format!(
+                    "New value {} must be greater than current {}",
+                    req.new_value, current_value
+                ),
+            }));
+        }
+
+        let price_cents = super::vm_upgrade_catalog::get_price_cents(upgrade_type, req.new_value)
+            .ok_or_else(|| Status::invalid_argument("Invalid tier for this upgrade type"))?;
+
+        if price_cents > 0 {
+            let desc = match upgrade_type {
+                super::vm_upgrade_catalog::UpgradeType::Cpu => "My Computer: CPU upgrade",
+                super::vm_upgrade_catalog::UpgradeType::Ram => "My Computer: RAM upgrade",
+                super::vm_upgrade_catalog::UpgradeType::Disk => "My Computer: Storage upgrade",
+            };
+            if let Err(e) = self
+                .wallet_service
+                .debit(player_id, "USD", price_cents, desc)
+                .await
+            {
+                let msg = match &e {
+                    WalletError::InsufficientBalance => "Insufficient balance".to_string(),
+                    _ => e.to_string(),
+                };
+                return Ok(Response::new(UpgradeVmResponse {
+                    success: false,
+                    error_message: msg,
+                }));
+            }
+        }
+
+        let (cpu_cores, memory_mb, disk_mb) = match upgrade_type {
+            super::vm_upgrade_catalog::UpgradeType::Cpu => {
+                (Some(req.new_value as i16), None, None)
+            }
+            super::vm_upgrade_catalog::UpgradeType::Ram => {
+                (None, Some(req.new_value * 1024), None)
+            }
+            super::vm_upgrade_catalog::UpgradeType::Disk => {
+                (None, None, Some(req.new_value * 1024))
+            }
+        };
+
+        self.vm_service
+            .update_spec(vm.id, cpu_cores, memory_mb, disk_mb)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(UpgradeVmResponse {
+            success: true,
             error_message: String::new(),
         }))
     }

@@ -13,7 +13,7 @@ use game::run_process_response::Msg as RunProcessResponseMsg;
 use game::{
     CopyPathRequest, CreateFolderRequest, CreateFactionRequest, GetDiskUsageRequest, GetHomePathRequest,
     GetPlayerProfileRequest, GetProcessListRequest, GetRankingRequest, GetSysinfoRequest,
-    InjectStdin, Interrupt, KillProcess, LeaveFactionRequest, ListFsRequest, LoginRequest,
+    UpgradeVmRequest, InjectStdin, Interrupt, KillProcess, LeaveFactionRequest, ListFsRequest, LoginRequest,
     MovePathRequest, OpenCodeRun, OpenTerminal, PingRequest, ProcessListSnapshot, ProcessSpyClientMessage,
     ProcessSpyOpened, RenamePathRequest, RestoreDiskRequest, RunProcessRequest, SetPreferredThemeRequest,
     SetShortcutsRequest, SpawnLuaScript, StdinData, SubscribePid, TerminalClientMessage,
@@ -309,6 +309,61 @@ pub async fn grpc_restore_disk(token: String) -> Result<RestoreDiskCommandRespon
         })?
         .into_inner();
     Ok(RestoreDiskCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+/// Response for grpc_upgrade_vm command.
+#[derive(serde::Serialize)]
+pub struct UpgradeVmCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Arguments for grpc_upgrade_vm (camelCase from frontend invoke).
+#[derive(serde::Deserialize)]
+pub struct UpgradeVmArgs {
+    pub token: String,
+    #[serde(rename = "upgradeType")]
+    pub upgrade_type: String,
+    #[serde(rename = "newValue")]
+    pub new_value: i32,
+}
+
+/// Tauri command: Upgrade VM CPU, RAM, or disk tier (authenticated; debits USD).
+#[tauri::command]
+pub async fn grpc_upgrade_vm(args: UpgradeVmArgs) -> Result<UpgradeVmCommandResponse, String> {
+    let UpgradeVmArgs {
+        token,
+        upgrade_type,
+        new_value,
+    } = args;
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(UpgradeVmRequest {
+        upgrade_type,
+        new_value,
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .upgrade_vm(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(UpgradeVmCommandResponse {
         success: response.success,
         error_message: response.error_message,
     })
