@@ -25,16 +25,13 @@ const RAM_TIERS: &[(i32, i64)] = &[
     (256, 57900),
 ];
 
-/// (value, price_cents). Disk: value = GiB.
+/// (value, price_cents). Disk: value = GiB. 50 GiB is default for every VM.
 const DISK_TIERS: &[(i32, i64)] = &[
-    (100, 0),
+    (50, 0),
+    (100, 1900),
     (250, 2900),
     (500, 5900),
-    (1000, 9900),
-    (1500, 13900),
-    (2000, 17900),
-    (3000, 24900),
-    (4000, 31900),
+    (1024, 9900),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

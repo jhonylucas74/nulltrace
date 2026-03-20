@@ -39,7 +39,7 @@ export interface LocalMachineSpec {
 export const DEFAULT_LOCAL_MACHINE: LocalMachineSpec = {
   cpuCores: 2,
   ramGib: 8,
-  diskTotalGib: 100,
+  diskTotalGib: 50,
   internetPlanId: "basic",
   internetPlanNextBilling: undefined,
 };
@@ -75,16 +75,13 @@ export const RAM_UPGRADES: LocalUpgradeOption[] = [
   { value: 256, label: "256 GiB", priceUsd: 579 },
 ];
 
-/** Catalog: Disk tiers (one-time purchase). */
+/** Catalog: Disk tiers (one-time purchase). 50 GiB is default for every VM. */
 export const DISK_UPGRADES: LocalUpgradeOption[] = [
-  { value: 100, label: "100 GiB", priceUsd: 0 },
+  { value: 50, label: "50 GiB", priceUsd: 0 },
+  { value: 100, label: "100 GiB", priceUsd: 19 },
   { value: 250, label: "250 GiB", priceUsd: 29 },
   { value: 500, label: "500 GiB", priceUsd: 59 },
-  { value: 1000, label: "1 TiB", priceUsd: 99 },
-  { value: 1500, label: "1.5 TiB", priceUsd: 139 },
-  { value: 2000, label: "2 TiB", priceUsd: 179 },
-  { value: 3000, label: "3 TiB", priceUsd: 249 },
-  { value: 4000, label: "4 TiB", priceUsd: 319 },
+  { value: 1024, label: "1 TiB", priceUsd: 99 },
 ];
 
 /** VPS plan (weekly subscription). Instance types inspired by cloud provider tiers. */

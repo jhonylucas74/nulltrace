@@ -439,7 +439,7 @@ async fn load_game_vms(
             dns_name: Some("haru.local".to_string()),
             cpu_cores: 2,
             memory_mb: 2048,
-            disk_mb: 20480,
+            disk_mb: 50 * 1024, // 50 GiB default for every new VM
             ip: None,
             subnet: None,
             gateway: None,
