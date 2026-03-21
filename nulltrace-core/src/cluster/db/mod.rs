@@ -1,3 +1,4 @@
+pub mod admin_service;
 pub mod vm_service;
 pub mod fs_service;
 pub mod user_service;
@@ -115,6 +116,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
     sqlx::raw_sql(include_str!("../../../migrations/029_add_vm_internet_plan.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/030_create_admins.sql"))
         .execute(pool)
         .await?;
     Ok(())

@@ -19,6 +19,7 @@ use super::mailbox_hub;
 use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
 use super::process_spy_hub::{PendingKill, PendingLuaSpawn, ProcessSpyDownstreamMsg, ProcessSpyHub, ProcessSpySubscription};
 use super::terminal_hub::{SessionReady, TerminalHub, TerminalSession};
+use super::cluster_snapshot;
 use super::vm::VirtualMachine;
 use super::vm_worker::{VmWorker, WorkerResult};
 use dashmap::DashMap;
@@ -555,6 +556,7 @@ impl VmManager {
         process_run_hub: Arc<ProcessRunHub>,
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
         vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
+        cluster_snapshot: std::sync::Arc<std::sync::RwLock<cluster_snapshot::ClusterSnapshot>>,
         pool: &PgPool,
         stress_mode: bool,
     ) {
@@ -574,7 +576,14 @@ impl VmManager {
         let start = Instant::now();
         let mut last_budget_reset = Instant::now();
         let mut last_process_snapshot_time = Instant::now();
+        let mut last_cluster_snapshot_time = Instant::now();
         let mut last_tick_log_secs: u64 = 0;
+
+        // Initial cluster snapshot (empty)
+        {
+            let mut snap = cluster_snapshot.write().unwrap();
+            *snap = cluster_snapshot::ClusterSnapshot::empty(start);
+        }
 
         // Executable VM indices (those with budget remaining). Rebuilt every second; shrinks as VMs exhaust budget.
         let mut executable_vm_indices: Vec<usize> = Vec::new();
@@ -1389,6 +1398,24 @@ impl VmManager {
             self.network_tick(vms);
 
             tick_count += 1;
+
+            // Cluster snapshot for admin API every 2 seconds (wall-clock)
+            if tick_start.duration_since(last_cluster_snapshot_time) >= Duration::from_secs(2) {
+                last_cluster_snapshot_time = tick_start;
+                let snapshot = cluster_snapshot::build_snapshot(
+                    vms,
+                    self.get_active_vms(),
+                    &vm_lua_memory_store,
+                    &self.vm_service,
+                    &self.fs_service,
+                    tick_count,
+                    start,
+                )
+                .await;
+                if let Ok(mut snap) = cluster_snapshot.write() {
+                    *snap = snapshot;
+                }
+            }
 
             // Snapshot process list for player-owned VMs every SNAPSHOT_INTERVAL (0.5 s wall-clock)
             if tick_start.duration_since(last_process_snapshot_time) >= SNAPSHOT_INTERVAL {

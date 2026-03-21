@@ -1,4 +1,7 @@
+mod admin_auth;
+mod admin_grpc;
 mod auth;
+mod cluster_snapshot;
 mod bench_scripts;
 mod bin_programs;
 mod file_search;
@@ -33,6 +36,10 @@ use db::user_service::UserService;
 use db::vm_service::VmService;
 use db::wallet_service::WalletService;
 use db::wallet_card_service::WalletCardService;
+use admin_grpc::admin::admin_service_server::AdminServiceServer;
+use admin_grpc::ClusterAdminService;
+use cluster_snapshot::ClusterSnapshot;
+use db::admin_service::AdminService as AdminDbService;
 use db::card_invoice_service::CardInvoiceService;
 use db::codelab_service::CodelabService;
 use grpc::game::game_service_server::GameServiceServer;
@@ -108,6 +115,13 @@ async fn main() {
         .await
         .expect("Failed to run migrations");
     println!("[cluster] Migrations applied");
+
+    let admin_service = Arc::new(AdminDbService::new(pool.clone()));
+    admin_service
+        .ensure_seed_admin_from_env()
+        .await
+        .expect("Failed to ensure seed admin");
+    println!("[cluster] Seed admin ready");
 
     let vm_service = Arc::new(VmService::new(pool.clone()));
     let fs_service = Arc::new(FsService::new(pool.clone()));
@@ -219,6 +233,9 @@ async fn main() {
     let process_snapshot_store: Arc<DashMap<uuid::Uuid, Vec<ProcessSnapshot>>> =
         Arc::new(DashMap::new());
     let vm_lua_memory_store: Arc<DashMap<uuid::Uuid, u64>> = Arc::new(DashMap::new());
+    let cluster_snapshot: Arc<std::sync::RwLock<ClusterSnapshot>> = Arc::new(std::sync::RwLock::new(
+        ClusterSnapshot::empty(std::time::Instant::now()),
+    ));
 
     // ── gRPC server (runs in background task) ──
     let grpc_addr = GRPC_ADDR.parse().expect("Invalid gRPC address");
@@ -242,11 +259,14 @@ async fn main() {
         vm_lua_memory_store.clone(),
     );
     let game_server = GameServiceServer::new(game_svc);
+    let admin_svc = ClusterAdminService::new(admin_service, cluster_snapshot.clone());
+    let admin_server = AdminServiceServer::new(admin_svc);
     tokio::spawn(async move {
         Server::builder()
             .accept_http1(true)
             .layer(GrpcWebLayer::new())
             .add_service(game_server)
+            .add_service(admin_server)
             .serve(grpc_addr)
             .await
             .expect("gRPC server failed");
@@ -255,7 +275,17 @@ async fn main() {
 
     // ── Game loop (main task) ──
     manager
-        .run_loop(&mut vms, terminal_hub, process_spy_hub, process_run_hub, process_snapshot_store, vm_lua_memory_store, &pool, stress_mode)
+        .run_loop(
+            &mut vms,
+            terminal_hub,
+            process_spy_hub,
+            process_run_hub,
+            process_snapshot_store,
+            vm_lua_memory_store,
+            cluster_snapshot,
+            &pool,
+            stress_mode,
+        )
         .await;
 }
 

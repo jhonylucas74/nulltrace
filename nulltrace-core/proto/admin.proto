@@ -1,0 +1,79 @@
+syntax = "proto3";
+package admin;
+
+service AdminService {
+  rpc AdminLogin (AdminLoginRequest) returns (AdminLoginResponse);
+  rpc ListVms (ListVmsRequest) returns (ListVmsResponse);
+  rpc GetClusterStats (GetClusterStatsRequest) returns (GetClusterStatsResponse);
+  rpc GetNetworkTopology (GetNetworkTopologyRequest) returns (GetNetworkTopologyResponse);
+}
+
+message AdminLoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message AdminLoginResponse {
+  bool success = 1;
+  string token = 2;
+  string error_message = 3;
+}
+
+message ListVmsRequest {
+  int32 placeholder = 1;
+}
+
+message VmInfo {
+  string id = 1;
+  string hostname = 2;
+  string dns_name = 3;
+  string ip = 4;
+  string subnet = 5;
+  string gateway = 6;
+  int32 cpu_cores = 7;
+  int32 memory_mb = 8;
+  int32 disk_mb = 9;
+  string owner_id = 10;
+  uint64 real_memory_bytes = 11;
+  int64 disk_used_bytes = 12;
+  uint32 ticks_per_second = 13;
+  uint32 remaining_ticks = 14;
+}
+
+message ListVmsResponse {
+  repeated VmInfo vms = 1;
+}
+
+message GetClusterStatsRequest {
+  int32 placeholder = 1;
+}
+
+message GetClusterStatsResponse {
+  uint64 vm_count = 1;
+  uint64 tick_count = 2;
+  double uptime_secs = 3;
+  double effective_tps = 4;
+}
+
+message GetNetworkTopologyRequest {
+  int32 placeholder = 1;
+}
+
+message NetworkNode {
+  string id = 1;
+  string label = 2;
+  string ip = 3;
+  string subnet = 4;
+  string node_type = 5;
+}
+
+message NetworkEdge {
+  string source_id = 1;
+  string target_id = 2;
+  bool same_subnet = 3;
+}
+
+message GetNetworkTopologyResponse {
+  repeated NetworkNode nodes = 1;
+  repeated NetworkEdge edges = 2;
+}

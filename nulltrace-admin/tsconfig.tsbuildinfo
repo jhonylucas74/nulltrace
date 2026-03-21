@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/DashboardOverview.tsx","./src/components/NetworkTopology.tsx","./src/components/VmTable.tsx","./src/contexts/AuthContext.tsx","./src/screens/Dashboard.tsx","./src/screens/Login.tsx"],"version":"5.6.3"}

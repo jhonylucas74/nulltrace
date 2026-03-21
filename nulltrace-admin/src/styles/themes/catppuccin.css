@@ -1,0 +1,49 @@
+/**
+ * Catppuccin theme – Mocha (default) and Frappé for admin dashboard.
+ * Default = Mocha (dark).
+ */
+
+:root,
+[data-theme="mocha"] {
+  --bg-primary: #1e1e2e;
+  --bg-secondary: #181825;
+  --bg-tertiary: #313244;
+  --bg-surface: rgba(49, 50, 68, 0.85);
+  --accent: #89b4fa;
+  --accent-dim: #74a5eb;
+  --accent-muted: rgba(137, 180, 250, 0.4);
+  --text-primary: #cdd6f4;
+  --text-secondary: #bac2de;
+  --text-muted: #6c7086;
+  --text-accent: var(--accent);
+  --term-green: #a6e3a1;
+  --term-red: #f38ba8;
+  --term-yellow: #f9e2af;
+  --term-blue: #74c7ec;
+  --border-color: rgba(108, 112, 134, 0.25);
+  --overlay-subtle: rgba(137, 180, 250, 0.06);
+  --accent-secondary: #cba6f7;
+  --accent-secondary-muted: rgba(203, 166, 247, 0.12);
+}
+
+[data-theme="frappe"] {
+  --bg-primary: #303446;
+  --bg-secondary: #292c3c;
+  --bg-tertiary: #414559;
+  --bg-surface: rgba(65, 69, 89, 0.9);
+  --accent: #8caaee;
+  --accent-dim: #7b9de0;
+  --accent-muted: rgba(140, 170, 238, 0.4);
+  --text-primary: #c6d0f5;
+  --text-secondary: #b5bfe2;
+  --text-muted: #737994;
+  --text-accent: var(--accent);
+  --term-green: #a6d189;
+  --term-red: #e78284;
+  --term-yellow: #e5c890;
+  --term-blue: #85c1dc;
+  --border-color: rgba(115, 121, 148, 0.3);
+  --overlay-subtle: rgba(140, 170, 238, 0.06);
+  --accent-secondary: #ca9ee6;
+  --accent-secondary-muted: rgba(202, 158, 230, 0.12);
+}

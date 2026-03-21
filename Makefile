@@ -1,4 +1,4 @@
-.PHONY: dev debug test test-ntml client client-debug core core-debug stress reset help
+.PHONY: dev debug test test-ntml client client-debug core core-debug stress reset admin admin-debug help
 
 help:
 	@echo "Nulltrace - Makefile"
@@ -10,6 +10,8 @@ help:
 	@echo "  make test      - Run all tests (core + ntml)"
 	@echo "  make test-ntml - Run NTML parser tests only"
 	@echo "  make client    - Run frontend only"
+	@echo "  make admin     - Run admin dashboard (nulltrace-admin)"
+	@echo "  make admin-debug - Run admin with Tauri DevTools"
 	@echo "  make core      - Run backend only (no tick spam)"
 	@echo "  make core-debug - Run backend with CLUSTER_DEBUG=1 (tick logs)"
 	@echo "  make stress    - Run stress test with 5k VMs (release mode)"
@@ -29,6 +31,14 @@ client:
 client-debug:
 	@echo "Starting frontend with DevTools (nulltrace-client)..."
 	@cd nulltrace-client && TAURI_OPEN_DEVTOOLS=1 npm run tauri dev
+
+admin:
+	@echo "Starting admin dashboard (nulltrace-admin)..."
+	@cd nulltrace-admin && npm run tauri dev
+
+admin-debug:
+	@echo "Starting admin dashboard with DevTools (nulltrace-admin)..."
+	@cd nulltrace-admin && TAURI_OPEN_DEVTOOLS=1 npm run tauri dev
 
 core:
 	@echo "Starting backend (nulltrace-core) in GAME MODE..."

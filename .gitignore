@@ -3,3 +3,7 @@
 
 # Rust / Cargo
 **/target
+
+# Node / frontend
+**/node_modules
+**/dist
