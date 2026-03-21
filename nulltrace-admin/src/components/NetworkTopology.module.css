@@ -18,12 +18,20 @@
   color: var(--text-muted);
 }
 
-.flowContainer {
+.graphContainer {
   flex: 1;
   min-height: 400px;
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
   background: var(--bg-secondary);
+  position: relative;
+  overflow: hidden;
+}
+
+.graphContainer canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .loading {

@@ -72,12 +72,13 @@ impl ClusterSnapshot {
         self.tick_count as f64 / self.uptime_secs
     }
 
-    /// Build network topology: nodes (VMs + routers) and edges (VM-to-gateway only).
-    /// No VM-to-VM edges; this is a network map showing VMs connected to their routers.
+    /// Build network topology: nodes (VMs + routers + subnets) and edges.
+    /// Edges: VM→router, VM→subnet, router→subnet. No VM-to-VM edges.
     pub fn build_network_topology(&self) -> (Vec<TopologyNode>, Vec<TopologyEdge>) {
-        let mut nodes = Vec::with_capacity(self.vms.len() + 1);
+        let mut nodes = Vec::new();
         let mut edges = Vec::new();
         let mut gateway_ids: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut subnet_ids: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
         for v in &self.vms {
             let id = v.id.to_string();
@@ -94,9 +95,10 @@ impl ClusterSnapshot {
                 node_type: "vm".to_string(),
             });
 
+            // VM → router (gateway)
             if !gateway.is_empty() {
-                let gw_id = if let Some(existing) = gateway_ids.get(&gateway) {
-                    existing.clone()
+                let (gw_id, is_new_router) = if let Some(existing) = gateway_ids.get(&gateway) {
+                    (existing.clone(), false)
                 } else {
                     let gw_node_id = format!("router-{}", gateway.replace('.', "-"));
                     gateway_ids.insert(gateway.clone(), gw_node_id.clone());
@@ -107,11 +109,57 @@ impl ClusterSnapshot {
                         subnet: subnet.clone(),
                         node_type: "router".to_string(),
                     });
-                    gw_node_id
+                    (gw_node_id, true)
                 };
                 edges.push(TopologyEdge {
                     source_id: id.clone(),
-                    target_id: gw_id,
+                    target_id: gw_id.clone(),
+                    same_subnet: true,
+                });
+
+                // Router → subnet (only when we just created the router, to avoid duplicates)
+                if is_new_router && !subnet.is_empty() {
+                    let subnet_id = if let Some(existing) = subnet_ids.get(&subnet) {
+                        existing.clone()
+                    } else {
+                        let subnet_node_id = format!("subnet-{}", subnet.replace(['.', '/'], "-"));
+                        subnet_ids.insert(subnet.clone(), subnet_node_id.clone());
+                        nodes.push(TopologyNode {
+                            id: subnet_node_id.clone(),
+                            label: subnet.clone(),
+                            ip: String::new(),
+                            subnet: subnet.clone(),
+                            node_type: "subnet".to_string(),
+                        });
+                        subnet_node_id
+                    };
+                    edges.push(TopologyEdge {
+                        source_id: gw_id,
+                        target_id: subnet_id,
+                        same_subnet: true,
+                    });
+                }
+            }
+
+            // VM → subnet (VM belongs to subnet)
+            if !subnet.is_empty() {
+                let subnet_id = if let Some(existing) = subnet_ids.get(&subnet) {
+                    existing.clone()
+                } else {
+                    let subnet_node_id = format!("subnet-{}", subnet.replace(['.', '/'], "-"));
+                    subnet_ids.insert(subnet.clone(), subnet_node_id.clone());
+                    nodes.push(TopologyNode {
+                        id: subnet_node_id.clone(),
+                        label: subnet.clone(),
+                        ip: String::new(),
+                        subnet: subnet.clone(),
+                        node_type: "subnet".to_string(),
+                    });
+                    subnet_node_id
+                };
+                edges.push(TopologyEdge {
+                    source_id: id,
+                    target_id: subnet_id,
                     same_subnet: true,
                 });
             }
