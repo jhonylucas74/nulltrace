@@ -3,7 +3,34 @@
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
+use std::fmt;
 use uuid::Uuid;
+
+use crate::resource_limits;
+
+/// Errors from FsService operations.
+#[derive(Debug)]
+pub enum FsError {
+    Db(sqlx::Error),
+    DiskQuotaExceeded,
+}
+
+impl fmt::Display for FsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FsError::Db(e) => write!(f, "{}", e),
+            FsError::DiskQuotaExceeded => write!(f, "Disk quota exceeded"),
+        }
+    }
+}
+
+impl std::error::Error for FsError {}
+
+impl From<sqlx::Error> for FsError {
+    fn from(e: sqlx::Error) -> Self {
+        FsError::Db(e)
+    }
+}
 
 /// Full stat for a path (used by find and fs.stat Lua API).
 #[derive(Debug, Clone, FromRow)]
@@ -222,6 +249,7 @@ impl FsService {
 
     /// Write a file. Creates the file if it doesn't exist, updates content if it does.
     /// Parent directories must already exist.
+    /// Returns Err(FsError::DiskQuotaExceeded) when the write would exceed the real disk limit.
     pub async fn write_file(
         &self,
         vm_id: Uuid,
@@ -229,17 +257,17 @@ impl FsService {
         data: &[u8],
         mime_type: Option<&str>,
         owner: &str,
-    ) -> Result<Uuid, sqlx::Error> {
+    ) -> Result<Uuid, FsError> {
         let (parent_path, file_name) = split_path(path);
 
         let parent_id = match self.resolve_path(vm_id, parent_path).await? {
             Some(id) => id,
-            None => return Err(sqlx::Error::RowNotFound),
+            None => return Err(sqlx::Error::RowNotFound.into()),
         };
 
-        // Check if file already exists
-        let existing: Option<Uuid> = sqlx::query_scalar(
-            "SELECT id FROM fs_nodes WHERE vm_id = $1 AND parent_id = $2 AND name = $3",
+        // Check if file already exists (for overwrite delta)
+        let existing: Option<(Uuid, i64)> = sqlx::query_as(
+            "SELECT id, size_bytes FROM fs_nodes WHERE vm_id = $1 AND parent_id = $2 AND name = $3",
         )
         .bind(vm_id)
         .bind(parent_id)
@@ -248,6 +276,23 @@ impl FsService {
         .await?;
 
         let size = data.len() as i64;
+
+        // Enforce real disk quota (nominal→real mapping)
+        let disk_mb: i32 = sqlx::query_scalar("SELECT disk_mb FROM vms WHERE id = $1")
+            .bind(vm_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .unwrap_or(10240);
+        let real_limit = resource_limits::nominal_disk_mb_to_real_bytes(disk_mb);
+        let used = self.disk_usage_bytes(vm_id).await?;
+        let delta = match &existing {
+            Some((_, old_size)) => size - old_size,
+            None => size,
+        };
+        if used + delta > real_limit {
+            return Err(FsError::DiskQuotaExceeded);
+        }
+
         let hash = hash_content(data);
 
         // Ensure blob exists (insert if not already present)
@@ -260,7 +305,7 @@ impl FsService {
         .await?;
 
         match existing {
-            Some(node_id) => {
+            Some((node_id, _)) => {
                 // Update existing file — point to new blob (copy-on-write: old blob untouched)
                 sqlx::query(
                     "UPDATE fs_nodes SET size_bytes = $1, mime_type = $2, updated_at = now() WHERE id = $3",
@@ -346,7 +391,7 @@ impl FsService {
         vm_id: Uuid,
         documents_path: &str,
         owner: &str,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), FsError> {
         let files: &[(&str, &[u8], Option<&str>)] = &[
             ("README.md", DEFAULT_README_MD, Some("text/markdown")),
             ("notes.txt", DEFAULT_NOTES_TXT, Some("text/plain")),
@@ -582,7 +627,7 @@ impl FsService {
         src_path: &str,
         dest_path: &str,
         owner: &str,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), FsError> {
         let node_type = self
             .node_type_at(vm_id, src_path)
             .await?
@@ -1235,5 +1280,56 @@ mod tests {
         assert_eq!(entries[0].owner, "alice"); // owner stays as original creator
 
         cleanup(&vm_svc, vm_id).await;
+    }
+
+    /// Disk quota: write_file rejects when real usage would exceed nominal→real limit.
+    #[tokio::test]
+    async fn test_write_file_disk_quota_exceeded() {
+        let pool = super::super::test_pool().await;
+        let vm_service = super::super::vm_service::VmService::new(pool.clone());
+        let fs_service = FsService::new(pool.clone());
+        let vm_id = Uuid::new_v4();
+
+        // Create VM with tiny nominal disk: 1 GiB nominal → 1 MB real (ratio 1024)
+        vm_service
+            .create_vm(
+                vm_id,
+                super::super::vm_service::VmConfig {
+                    hostname: format!("quota-test-{}", &vm_id.to_string()[..8]),
+                    dns_name: None,
+                    cpu_cores: 1,
+                    memory_mb: 512,
+                    disk_mb: 1024, // 1 GiB nominal → 1 MB real
+                    ip: None,
+                    subnet: None,
+                    gateway: None,
+                    mac: None,
+                    owner_id: None,
+                    create_email_account: false,
+                },
+            )
+            .await
+            .unwrap();
+        fs_service.bootstrap_fs(vm_id).await.unwrap();
+
+        // Write 512 KB — should succeed
+        let small: Vec<u8> = vec![0; 512 * 1024];
+        fs_service
+            .write_file(vm_id, "/tmp/small.bin", &small, None, "root")
+            .await
+            .unwrap();
+
+        // Write another 600 KB — total ~1.1 MB, exceeds 1 MB real limit
+        let large: Vec<u8> = vec![0; 600 * 1024];
+        let result = fs_service
+            .write_file(vm_id, "/tmp/large.bin", &large, None, "root")
+            .await;
+        assert!(
+            matches!(result, Err(FsError::DiskQuotaExceeded)),
+            "expected DiskQuotaExceeded, got {:?}",
+            result
+        );
+
+        vm_service.delete_vm(vm_id).await.unwrap();
     }
 }

@@ -20,6 +20,8 @@ pub struct VirtualMachine {
     pub remaining_ticks: u32,
     /// Max process ticks per second (derived from cpu_cores).
     pub ticks_per_second: u32,
+    /// Nominal RAM in MB (for Lua heap limit via nominal→real mapping when resetting).
+    pub memory_mb: i32,
     pub lua: Lua,
 }
 
@@ -31,18 +33,24 @@ pub fn ticks_per_second_from_cpu(cpu_cores: i16) -> u32 {
 }
 
 impl VirtualMachine {
-    /// Create a VM with default cpu_cores=1 (e.g. stress test).
+    /// Create a VM with default cpu_cores=1 (e.g. stress test). Uses 512 MB nominal RAM.
     pub fn new(lua: Lua) -> Self {
-        Self::with_id_and_cpu(lua, Uuid::new_v4(), 1)
+        Self::with_id_cpu_memory(lua, Uuid::new_v4(), 1, 512)
     }
 
-    /// Create a VM with a specific ID (for restoring from DB). Uses cpu_cores=1.
+    /// Create a VM with a specific ID (for restoring from DB). Uses cpu_cores=1, memory_mb=512.
     pub fn with_id(lua: Lua, id: Uuid) -> Self {
         Self::with_id_and_cpu(lua, id, 1)
     }
 
     /// Create a VM with a specific ID and CPU cores (for restoring from DB with processor info).
+    /// Uses memory_mb=512. For production restore, use with_id_cpu_memory.
     pub fn with_id_and_cpu(lua: Lua, id: Uuid, cpu_cores: i16) -> Self {
+        Self::with_id_cpu_memory(lua, id, cpu_cores, 512)
+    }
+
+    /// Create a VM with ID, CPU cores, and nominal RAM (for restoring from DB).
+    pub fn with_id_cpu_memory(lua: Lua, id: Uuid, cpu_cores: i16, memory_mb: i32) -> Self {
         let ticks_per_second = ticks_per_second_from_cpu(cpu_cores);
         Self {
             id,
@@ -53,6 +61,7 @@ impl VirtualMachine {
             cpu_cores,
             remaining_ticks: ticks_per_second,
             ticks_per_second,
+            memory_mb,
             lua,
         }
     }

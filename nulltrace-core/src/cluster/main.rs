@@ -12,6 +12,7 @@ mod os;
 mod net;
 mod db;
 mod grpc;
+mod resource_limits;
 mod vm_upgrade_catalog;
 mod lua_api;
 mod process_run_hub;
@@ -53,7 +54,8 @@ use uuid::Uuid;
 /// Creates a fully configured Lua state for a VM: sandbox, APIs, VmContext, memory limit.
 /// When fkebank_service and crypto_service are Some, the fkebank, crypto, and incoming_money Lua APIs are registered (for NPC VMs like money.null).
 /// When card_invoice_service is Some, the card API is registered (for NPC VMs like card.null).
-fn create_vm_lua_state(
+/// memory_mb: nominal RAM in MB (from VM record). When Some, uses nominal→real mapping for Lua heap limit. When None, uses fixed default.
+pub fn create_vm_lua_state(
     pool: sqlx::PgPool,
     fs_service: Arc<FsService>,
     user_service: Arc<UserService>,
@@ -64,6 +66,7 @@ fn create_vm_lua_state(
     crypto_service: Option<Arc<db::crypto_wallet_service::CryptoWalletService>>,
     incoming_money_listener: Option<Arc<incoming_money_listener::IncomingMoneyListener>>,
     card_invoice_service: Option<Arc<CardInvoiceService>>,
+    memory_mb: Option<i32>,
 ) -> Result<mlua::Lua, mlua::Error> {
     let lua = os::create_lua_state();
     lua.set_app_data(VmContext::new(pool));
@@ -79,7 +82,10 @@ fn create_vm_lua_state(
         incoming_money_listener,
         card_invoice_service,
     )?;
-    lua.set_memory_limit(os::LUA_MEMORY_LIMIT_BYTES)?;
+    let limit_bytes = memory_mb
+        .map(resource_limits::nominal_ram_mb_to_real_bytes)
+        .unwrap_or(os::LUA_MEMORY_LIMIT_BYTES);
+    lua.set_memory_limit(limit_bytes)?;
     Ok(lua)
 }
 
@@ -290,6 +296,7 @@ fn create_stress_vms(
             email_service.clone(),
             email_account_service.clone(),
             mailbox_hub.clone(),
+            None,
             None,
             None,
             None,
@@ -767,6 +774,10 @@ async fn load_game_vms(
             .get_active_vm(vm_id)
             .map(|a| a.cpu_cores)
             .unwrap_or(1);
+        let memory_mb = manager
+            .get_active_vm(vm_id)
+            .map(|a| a.memory_mb)
+            .unwrap_or(512);
         let is_card_null = manager
             .get_active_vm(vm_id)
             .map(|v| v.dns_name.as_deref() == Some("card.null"))
@@ -787,9 +798,10 @@ async fn load_game_vms(
             Some(wallet_service.crypto_service()),
             incoming_money_listener.clone(),
             card_svc,
+            Some(memory_mb),
         )
         .expect("Failed to create VM Lua state");
-        let mut vm = VirtualMachine::with_id_and_cpu(lua, vm_id, cpu_cores);
+        let mut vm = VirtualMachine::with_id_cpu_memory(lua, vm_id, cpu_cores, memory_mb);
 
         // Attach NIC if the VM has an IP assigned
         if let Some(active_vm) = manager.get_active_vm(vm_id) {
