@@ -1,0 +1,6 @@
+{"data":{"token_len":252,"url":"http://127.0.0.1:50051"},"location":"grpc.rs:get_cluster_stats","message":"invoke start","sessionId":"6a2d8a","timestamp":1774269105044}
+{"data":{"token_len":252,"url":"http://127.0.0.1:50051"},"location":"grpc.rs:get_cluster_stats","message":"invoke start","sessionId":"6a2d8a","timestamp":1774269105044}
+{"data":{"token_len":252,"url":"http://127.0.0.1:50051"},"location":"grpc.rs:get_cluster_stats","message":"invoke start","sessionId":"6a2d8a","timestamp":1774269107049}
+{"data":{"token_len":252,"url":"http://127.0.0.1:50051"},"location":"grpc.rs:get_cluster_stats","message":"invoke start","sessionId":"6a2d8a","timestamp":1774269120875}
+{"data":{"token_len":252,"url":"http://127.0.0.1:50051"},"location":"grpc.rs:get_cluster_stats","message":"invoke start","sessionId":"6a2d8a","timestamp":1774269120876}
+{"data":{"token_len":252,"url":"http://127.0.0.1:50051"},"location":"grpc.rs:get_cluster_stats","message":"invoke start","sessionId":"6a2d8a","timestamp":1774269122878}

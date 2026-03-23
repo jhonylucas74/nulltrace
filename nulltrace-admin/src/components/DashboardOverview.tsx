@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { Server, Activity, Clock, Zap } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
+import { getAdminApiErrorMessage, isSessionExpiredError } from "../utils/adminApiError";
 import styles from "./DashboardOverview.module.css";
 
 interface ClusterStats {
@@ -11,6 +14,8 @@ interface ClusterStats {
 }
 
 export default function DashboardOverview({ token }: { token: string }) {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState<ClusterStats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,7 +26,16 @@ export default function DashboardOverview({ token }: { token: string }) {
         const res = await invoke<ClusterStats>("get_cluster_stats", { token });
         if (!cancelled) setStats(res);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to fetch");
+        if (!cancelled) {
+          const msg = getAdminApiErrorMessage(err);
+          if (isSessionExpiredError(msg)) {
+            logout();
+            navigate("/login", { replace: true, state: { sessionExpired: true } });
+            setError("Session expired. Please sign in again.");
+          } else {
+            setError(msg);
+          }
+        }
       }
     }
     fetchStats();
@@ -30,7 +44,7 @@ export default function DashboardOverview({ token }: { token: string }) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [token]);
+  }, [token, logout, navigate]);
 
   if (error) {
     return <p className={styles.error}>{error}</p>;

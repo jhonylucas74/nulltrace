@@ -17,7 +17,7 @@ pub struct AdminClaims {
     pub nbf: i64,
 }
 
-/// Generate an admin JWT token with 24-hour expiry.
+/// Generate an admin JWT token with 7-day expiry.
 pub fn generate_admin_token(
     admin_id: Uuid,
     email: &str,
@@ -28,7 +28,7 @@ pub fn generate_admin_token(
         .expect("Time went backwards")
         .as_secs() as i64;
 
-    let expiry = now + (24 * 60 * 60); // 24 hours
+    let expiry = now + (7 * 24 * 60 * 60); // 7 days
 
     let claims = AdminClaims {
         sub: admin_id.to_string(),

@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { Loader2 } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
+import { getAdminApiErrorMessage, isSessionExpiredError } from "../utils/adminApiError";
 import styles from "./VmTable.module.css";
 
 interface VmInfo {
@@ -27,6 +30,8 @@ function formatBytes(bytes: number): string {
 }
 
 export default function VmTable({ token }: { token: string }) {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
   const [vms, setVms] = useState<VmInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,7 +43,16 @@ export default function VmTable({ token }: { token: string }) {
         const res = await invoke<{ vms: VmInfo[] }>("list_vms", { token });
         if (!cancelled) setVms(res.vms);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to fetch");
+        if (!cancelled) {
+          const msg = getAdminApiErrorMessage(err);
+          if (isSessionExpiredError(msg)) {
+            logout();
+            navigate("/login", { replace: true, state: { sessionExpired: true } });
+            setError("Session expired. Please sign in again.");
+          } else {
+            setError(msg);
+          }
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -49,7 +63,7 @@ export default function VmTable({ token }: { token: string }) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [token]);
+  }, [token, logout, navigate]);
 
   if (loading) {
     return (

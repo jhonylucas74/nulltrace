@@ -1,5 +1,5 @@
 import { useState, FormEvent, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { Shield } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
@@ -12,10 +12,14 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
-    console.log("[admin_login] Login screen mounted");
-  }, []);
+    const state = location.state as { sessionExpired?: boolean } | null;
+    if (state?.sessionExpired) {
+      setError("Session expired. Please sign in again.");
+    }
+  }, [location.state]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();

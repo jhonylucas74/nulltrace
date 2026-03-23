@@ -1,7 +1,10 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import ForceGraph2D from "react-force-graph-2d";
 import { Loader2 } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
+import { getAdminApiErrorMessage, isSessionExpiredError } from "../utils/adminApiError";
 import styles from "./NetworkTopology.module.css";
 
 interface NetworkNode {
@@ -106,8 +109,16 @@ export default function NetworkTopology({ token }: { token: string }) {
         setEdges(res.edges);
         setError(null);
       } catch (err) {
-        if (!cancelled)
-          setError(err instanceof Error ? err.message : "Failed to fetch");
+        if (!cancelled) {
+          const msg = getAdminApiErrorMessage(err);
+          if (isSessionExpiredError(msg)) {
+            logout();
+            navigate("/login", { replace: true, state: { sessionExpired: true } });
+            setError("Session expired. Please sign in again.");
+          } else {
+            setError(msg);
+          }
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -118,7 +129,7 @@ export default function NetworkTopology({ token }: { token: string }) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [token]);
+  }, [token, logout, navigate]);
 
   const graphData = useMemo(() => {
     const graphNodes: GraphNode[] = nodes.map((n) => ({
