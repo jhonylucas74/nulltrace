@@ -7,7 +7,6 @@
   "label_cpu": "CPU",
   "label_memory": "Memory",
   "label_disk": "Disk",
-  "label_vm_lua_memory": "VM Lua Memory",
   "title_processes": "Processes",
   "subtitle_loaded": "VM processes (refreshed every few seconds).",
   "subtitle_loading": "Loading…",

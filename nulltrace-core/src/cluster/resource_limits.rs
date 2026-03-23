@@ -32,6 +32,12 @@ pub fn nominal_disk_mb_to_real_bytes(nominal_mb: i32) -> i64 {
     bytes.max(MIN_REAL_DISK_BYTES)
 }
 
+/// Converts real disk bytes (actual storage) to nominal bytes for player-facing display.
+/// Inverse of the nominal→real ratio: 1 real byte → 1024 nominal bytes.
+pub fn real_disk_bytes_to_nominal_bytes(real_bytes: i64) -> i64 {
+    real_bytes.saturating_mul(DISK_NOMINAL_TO_REAL_RATIO as i64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,5 +73,13 @@ mod tests {
     fn test_nominal_disk_small_uses_minimum() {
         let bytes = nominal_disk_mb_to_real_bytes(512);
         assert_eq!(bytes, MIN_REAL_DISK_BYTES);
+    }
+
+    #[test]
+    fn test_real_disk_bytes_to_nominal() {
+        // 50 MB real → 50 * 1024 = 51200 MB nominal in bytes
+        let real_50_mb = 50 * 1024 * 1024;
+        let nominal = real_disk_bytes_to_nominal_bytes(real_50_mb);
+        assert_eq!(nominal, 50 * 1024 * 1024 * 1024); // 50 GiB nominal in bytes
     }
 }

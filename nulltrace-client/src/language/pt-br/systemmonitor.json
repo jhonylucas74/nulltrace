@@ -7,7 +7,6 @@
   "label_cpu": "CPU",
   "label_memory": "Memória",
   "label_disk": "Disco",
-  "label_vm_lua_memory": "Memória Lua da VM",
   "title_processes": "Processos",
   "subtitle_loaded": "Processos da VM (atualizados a cada poucos segundos).",
   "subtitle_loading": "Carregando…",

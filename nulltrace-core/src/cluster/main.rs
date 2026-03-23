@@ -233,6 +233,7 @@ async fn main() {
     let process_snapshot_store: Arc<DashMap<uuid::Uuid, Vec<ProcessSnapshot>>> =
         Arc::new(DashMap::new());
     let vm_lua_memory_store: Arc<DashMap<uuid::Uuid, u64>> = Arc::new(DashMap::new());
+    let vm_cpu_utilization_store: Arc<DashMap<uuid::Uuid, u8>> = Arc::new(DashMap::new());
     let cluster_snapshot: Arc<std::sync::RwLock<ClusterSnapshot>> = Arc::new(std::sync::RwLock::new(
         ClusterSnapshot::empty(std::time::Instant::now()),
     ));
@@ -257,6 +258,7 @@ async fn main() {
         process_run_hub.clone(),
         process_snapshot_store.clone(),
         vm_lua_memory_store.clone(),
+        vm_cpu_utilization_store.clone(),
     );
     let game_server = GameServiceServer::new(game_svc);
     let admin_svc = ClusterAdminService::new(admin_service, cluster_snapshot.clone());
@@ -282,6 +284,7 @@ async fn main() {
             process_run_hub,
             process_snapshot_store,
             vm_lua_memory_store,
+            vm_cpu_utilization_store,
             cluster_snapshot,
             &pool,
             stress_mode,

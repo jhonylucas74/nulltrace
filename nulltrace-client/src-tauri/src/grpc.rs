@@ -158,6 +158,7 @@ pub async fn grpc_disk_usage(token: String) -> Result<DiskUsageResponse, String>
 
 /// One process entry for grpc_get_process_list response.
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProcessListEntry {
     pub pid: u64,
     pub name: String,
@@ -166,23 +167,42 @@ pub struct ProcessListEntry {
     pub memory_bytes: u64,
 }
 
+/// Arguments for `grpc_get_process_list`.
+#[derive(serde::Deserialize)]
+pub struct GetProcessListArgs {
+    pub token: String,
+    /// When true, server omits CPU/memory utilization (Processes tab).
+    #[serde(rename = "omitResourceMetrics")]
+    pub omit_resource_metrics: bool,
+}
+
 /// Response for grpc_get_process_list command (processes + disk in one call).
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetProcessListResponse {
     pub processes: Vec<ProcessListEntry>,
     pub disk_used_bytes: i64,
     pub disk_total_bytes: i64,
     pub error_message: String,
     pub vm_lua_memory_bytes: u64,
+    pub cpu_utilization_percent: u32,
+    pub memory_utilization_percent: u32,
 }
 
 /// Tauri command: Get process list and disk usage for the player's VM (single round-trip for System Monitor).
+/// When `omit_resource_metrics` is true, server returns zeros for CPU/memory utilization fields (Processes tab).
 #[tauri::command]
-pub async fn grpc_get_process_list(token: String) -> Result<GetProcessListResponse, String> {
+pub async fn grpc_get_process_list(args: GetProcessListArgs) -> Result<GetProcessListResponse, String> {
+    let GetProcessListArgs {
+        token,
+        omit_resource_metrics,
+    } = args;
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
 
-    let mut request = tonic::Request::new(GetProcessListRequest {});
+    let mut request = tonic::Request::new(GetProcessListRequest {
+        omit_resource_metrics,
+    });
     request.metadata_mut().insert(
         "authorization",
         format!("Bearer {}", token)
@@ -219,6 +239,8 @@ pub async fn grpc_get_process_list(token: String) -> Result<GetProcessListRespon
         disk_total_bytes: response.disk_total_bytes,
         error_message: response.error_message,
         vm_lua_memory_bytes: response.vm_lua_memory_bytes,
+        cpu_utilization_percent: response.cpu_utilization_percent,
+        memory_utilization_percent: response.memory_utilization_percent,
     })
 }
 

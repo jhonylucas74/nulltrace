@@ -7,7 +7,6 @@ import {
   getMockMemory,
   getMockDisk,
   MOCK_PROCESSES,
-  OS_BASELINE_GIB,
   OS_KERNEL_GIB,
   OS_DESKTOP_UI_GIB,
 } from "../lib/systemMonitorData";
@@ -19,9 +18,8 @@ import { useWindowManager } from "../contexts/WindowManagerContext";
 import styles from "./SystemMonitorApp.module.css";
 
 const PROCESS_LIST_POLL_MS = 3000;
-
-/** VM Lua heap limit (1 MB per VM). */
-const LUA_MEMORY_LIMIT_BYTES = 1024 * 1024;
+/** Shorter interval when Resources tab is open for real CPU/memory graph updates. */
+const RESOURCES_POLL_MS = 800;
 
 /** One process from gRPC GetProcessList (VM processes when authenticated). */
 interface GrpcProcessEntry {
@@ -30,6 +28,40 @@ interface GrpcProcessEntry {
   username: string;
   status: string;
   memory_bytes: number;
+}
+
+/** Tauri returns camelCase from serde; normalize for the UI. */
+function normalizeProcessListResponse(res: Record<string, unknown>): {
+  processes: GrpcProcessEntry[];
+  disk_used_bytes: number;
+  disk_total_bytes: number;
+  vm_lua_memory_bytes: number;
+  cpu_utilization_percent: number;
+  memory_utilization_percent: number;
+  error_message: string;
+} {
+  const n = (a: unknown, b: unknown): number =>
+    typeof a === "number" ? a : typeof b === "number" ? b : 0;
+  const raw = (res.processes as unknown[]) ?? [];
+  const processes: GrpcProcessEntry[] = raw.map((p) => {
+    const o = p as Record<string, unknown>;
+    return {
+      pid: Number(o.pid ?? 0),
+      name: String(o.name ?? ""),
+      username: String(o.username ?? ""),
+      status: String(o.status ?? ""),
+      memory_bytes: n(o.memory_bytes, o.memoryBytes),
+    };
+  });
+  return {
+    processes,
+    disk_used_bytes: n(res.disk_used_bytes, res.diskUsedBytes),
+    disk_total_bytes: n(res.disk_total_bytes, res.diskTotalBytes),
+    vm_lua_memory_bytes: n(res.vm_lua_memory_bytes, res.vmLuaMemoryBytes),
+    cpu_utilization_percent: n(res.cpu_utilization_percent, res.cpuUtilizationPercent),
+    memory_utilization_percent: n(res.memory_utilization_percent, res.memoryUtilizationPercent),
+    error_message: String(res.error_message ?? res.errorMessage ?? ""),
+  };
 }
 
 type Section = "resources" | "processes";
@@ -41,14 +73,16 @@ const CHART_HEIGHT = 44;
 /** SVG sparkline: values 0–100, oldest to newest left to right. */
 function SparklineChart({ values, className }: { values: number[]; className?: string }) {
   if (values.length < 2) return null;
-  const max = Math.max(1, ...values);
-  const min = Math.min(0, ...values);
-  const range = max - min || 1;
+  // CPU/Memory series are percentages; keep fixed 0-100 scale.
+  const min = 0;
+  const max = 100;
+  const range = max - min;
   const stepX = CHART_WIDTH / (values.length - 1);
   const points = values
     .map((v, i) => {
+      const clamped = Math.max(min, Math.min(max, v));
       const x = i * stepX;
-      const y = CHART_HEIGHT - ((v - min) / range) * (CHART_HEIGHT - 2) - 1;
+      const y = CHART_HEIGHT - ((clamped - min) / range) * (CHART_HEIGHT - 2) - 1;
       return `${x},${y}`;
     })
     .join(" ");
@@ -73,6 +107,13 @@ function SparklineChart({ values, className }: { values: number[]; className?: s
   );
 }
 
+function formatStorageFromGib(gib: number): string {
+  if (gib < 1) {
+    return `${(gib * 1024).toFixed(1)} MiB`;
+  }
+  return `${gib.toFixed(1)} GiB`;
+}
+
 /** Process list row: memory shown as string (e.g. "1.0 GiB", "0.1 MiB", or "N/A"). */
 export interface ProcessRow {
   id: string;
@@ -82,10 +123,10 @@ export interface ProcessRow {
   memoryDisplay: string;
 }
 
-/** Derive memory/disk from NullCloud localMachine or fallback to mock. When authenticated with gRPC process list and sysinfo, memory used = OS_BASELINE_GIB + sum(process memory); total from sysinfo. */
+/** Derive memory/disk from gRPC or NullCloud or mock. When authenticated, memory used = vm_lua_memory_bytes scaled to nominal; total from sysinfo (nominal). */
 function useResourceTotals(
   grpcDisk: { usedBytes: number; totalBytes: number } | null,
-  grpcProcesses: GrpcProcessEntry[] | null,
+  vmLuaMemoryBytes: number | undefined | null,
   totalMemoryMb: number | null
 ) {
   const nullcloud = useNullCloudOptional();
@@ -96,11 +137,12 @@ function useResourceTotals(
   const mockDiskUsedRatio = mockDiskTotal > 0 ? mockDisk.usedGib / mockDiskTotal : 0.12;
 
   const memory = (() => {
-    if (totalMemoryMb != null && grpcProcesses != null) {
+    // Authenticated: use vm_lua_memory_bytes (real) scaled to nominal for display.
+    if (totalMemoryMb != null && vmLuaMemoryBytes != null && vmLuaMemoryBytes >= 0) {
       const totalGib = totalMemoryMb / 1024;
-      const processSumGib = grpcProcesses.reduce((s, p) => s + p.memory_bytes, 0) / (1024 ** 3);
-      const usedGib = Math.min(OS_BASELINE_GIB + processSumGib, totalGib);
-      return { usedGib, totalGib };
+      // real bytes → nominal GiB: ratio 1024:1, so used_nominal_GiB = real_bytes / (1024 * 1024)
+      const usedGib = vmLuaMemoryBytes / (1024 * 1024);
+      return { usedGib: Math.min(usedGib, totalGib), totalGib };
     }
     if (nullcloud) {
       return {
@@ -145,6 +187,8 @@ export default function SystemMonitorApp() {
     disk_used_bytes: number;
     disk_total_bytes: number;
     vm_lua_memory_bytes?: number;
+    cpu_utilization_percent?: number;
+    memory_utilization_percent?: number;
   } | null>(null);
   const [sysinfoMemoryMb, setSysinfoMemoryMb] = useState<number | null>(null);
   const [grpcError, setGrpcError] = useState<string | null>(null);
@@ -155,17 +199,12 @@ export default function SystemMonitorApp() {
       : null;
   const resourceTotals = useResourceTotals(
     grpcDisk,
-    grpcData?.processes ?? null,
+    grpcData?.vm_lua_memory_bytes,
     sysinfoMemoryMb
   );
 
-  const [cpuHistory, setCpuHistory] = useState<number[]>(() => Array(CHART_POINTS).fill(getMockCpuPercent()));
-  const [memoryHistory, setMemoryHistory] = useState<number[]>(() => {
-    const pct = resourceTotals.memory.totalGib > 0
-      ? (resourceTotals.memory.usedGib / resourceTotals.memory.totalGib) * 100
-      : 0;
-    return Array(CHART_POINTS).fill(pct);
-  });
+  const [cpuHistory, setCpuHistory] = useState<number[]>(() => Array(CHART_POINTS).fill(0));
+  const [memoryHistory, setMemoryHistory] = useState<number[]>(() => Array(CHART_POINTS).fill(0));
   const baseCpu = useRef(getMockCpuPercent());
   const memPctInitial = useMemo(() => {
     const t = resourceTotals.memory;
@@ -178,32 +217,36 @@ export default function SystemMonitorApp() {
     const tauri = (window as unknown as { __TAURI__?: unknown }).__TAURI__;
     if (!tauri) return;
     setGrpcError(null);
+    // Omit CPU/memory utilization when on Processes tab (server returns 0 for those fields).
+    const omitResourceMetrics = section === "processes";
     try {
-      const res = await invoke<{
-        processes: GrpcProcessEntry[];
-        disk_used_bytes: number;
-        disk_total_bytes: number;
-        vm_lua_memory_bytes?: number;
-        error_message: string;
-      }>("grpc_get_process_list", { token });
-      if (res.error_message === "UNAUTHENTICATED") {
+      const res = await invoke<Record<string, unknown>>("grpc_get_process_list", {
+        args: {
+          token,
+          omitResourceMetrics,
+        },
+      });
+      const out = normalizeProcessListResponse(res);
+      if (out.error_message === "UNAUTHENTICATED") {
         logout();
         return;
       }
-      if (res.error_message) {
-        setGrpcError(res.error_message);
+      if (out.error_message) {
+        setGrpcError(out.error_message);
         return;
       }
       setGrpcData({
-        processes: Array.isArray(res.processes) ? res.processes : [],
-        disk_used_bytes: res.disk_used_bytes ?? 0,
-        disk_total_bytes: res.disk_total_bytes ?? 0,
-        vm_lua_memory_bytes: res.vm_lua_memory_bytes,
+        processes: out.processes,
+        disk_used_bytes: out.disk_used_bytes,
+        disk_total_bytes: out.disk_total_bytes,
+        vm_lua_memory_bytes: out.vm_lua_memory_bytes,
+        cpu_utilization_percent: out.cpu_utilization_percent,
+        memory_utilization_percent: out.memory_utilization_percent,
       });
     } catch (e) {
       setGrpcError(e instanceof Error ? e.message : String(e));
     }
-  }, [playerId, token, logout]);
+  }, [playerId, token, logout, section]);
 
   const fetchSysinfo = useCallback(async () => {
     if (!playerId || !token) return;
@@ -222,6 +265,7 @@ export default function SystemMonitorApp() {
     }
   }, [playerId, token]);
 
+  // Base poll for process list and sysinfo (processes tab, disk, memory totals).
   useEffect(() => {
     if (!playerId || !token) {
       setSysinfoMemoryMb(null);
@@ -236,24 +280,65 @@ export default function SystemMonitorApp() {
     return () => clearInterval(t);
   }, [playerId, token, fetchProcessList, fetchSysinfo]);
 
+  // Resources tab: when authenticated, poll more frequently for real CPU/memory graphs.
+  // When not authenticated, use mock random walk for demo.
   useEffect(() => {
     if (section !== "resources") return;
+    const authenticated = Boolean(playerId && token);
+    if (authenticated) {
+      // Poll and append real utilization to history.
+      const poll = async () => {
+        const tauri = (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+        if (!tauri) return;
+        try {
+          const res = await invoke<Record<string, unknown>>("grpc_get_process_list", {
+            args: {
+              token,
+              omitResourceMetrics: false,
+            },
+          });
+          const out = normalizeProcessListResponse(res);
+          if (out.error_message) return;
+          setCpuHistory((prev) => [...prev.slice(1), out.cpu_utilization_percent]);
+          setMemoryHistory((prev) => [...prev.slice(1), out.memory_utilization_percent]);
+        } catch {
+          // Ignore fetch errors for graph updates.
+        }
+      };
+      poll();
+      const t = setInterval(poll, RESOURCES_POLL_MS);
+      return () => clearInterval(t);
+    }
+    // Not authenticated: mock random walk for demo.
     const t = setInterval(() => {
       baseCpu.current = Math.max(0, Math.min(100, baseCpu.current + (Math.random() - 0.5) * 8));
       baseMemPct.current = Math.max(0, Math.min(100, baseMemPct.current + (Math.random() - 0.5) * 3));
       setCpuHistory((prev) => [...prev.slice(1), baseCpu.current]);
       setMemoryHistory((prev) => [...prev.slice(1), baseMemPct.current]);
-    }, 800);
+    }, RESOURCES_POLL_MS);
     return () => clearInterval(t);
-  }, [section]);
+  }, [section, playerId, token]);
 
-  const cpuPercent = cpuHistory[cpuHistory.length - 1] ?? getMockCpuPercent();
+  const cpuPercent = cpuHistory[cpuHistory.length - 1] ?? (playerId && token ? 0 : getMockCpuPercent());
   const memory = resourceTotals.memory;
   const disk = resourceTotals.disk;
   const diskTotal = resourceTotals.diskTotal;
   const diskUsedPercent = diskTotal > 0 ? (disk.usedGib / diskTotal) * 100 : 0;
+  const diskUsedDisplay = formatStorageFromGib(disk.usedGib);
+  const diskFreeDisplay = formatStorageFromGib(disk.freeGib);
 
   const processes: ProcessRow[] = useMemo(() => {
+    if (grpcData != null) {
+      return grpcData.processes
+        .filter((p) => p.status === "running")
+        .map((p) => ({
+          id: `pid-${p.pid}`,
+          name: p.name,
+          pid: p.pid,
+          cpuPercent: 0,
+          memoryDisplay: `${(p.memory_bytes / (1024 * 1024)).toFixed(1)} MiB`,
+        }));
+    }
     const rows: ProcessRow[] = [];
     rows.push({
       id: "os-kernel",
@@ -279,27 +364,15 @@ export default function SystemMonitorApp() {
         memoryDisplay: "N/A",
       });
     });
-    if (grpcData != null) {
-      grpcData.processes.forEach((p) => {
-        rows.push({
-          id: `pid-${p.pid}`,
-          name: p.name,
-          pid: p.pid,
-          cpuPercent: 0,
-          memoryDisplay: `${(p.memory_bytes / (1024 * 1024)).toFixed(1)} MiB`,
-        });
+    [...MOCK_PROCESSES].sort((a, b) => b.cpuPercent - a.cpuPercent).forEach((p) => {
+      rows.push({
+        id: p.id,
+        name: p.name,
+        pid: p.pid,
+        cpuPercent: p.cpuPercent,
+        memoryDisplay: `${p.memoryMb.toFixed(1)} MiB`,
       });
-    } else {
-      [...MOCK_PROCESSES].sort((a, b) => b.cpuPercent - a.cpuPercent).forEach((p) => {
-        rows.push({
-          id: p.id,
-          name: p.name,
-          pid: p.pid,
-          cpuPercent: p.cpuPercent,
-          memoryDisplay: `${p.memoryMb.toFixed(1)} MiB`,
-        });
-      });
-    }
+    });
     return rows;
   }, [windows, grpcData]);
 
@@ -360,7 +433,7 @@ export default function SystemMonitorApp() {
                 <div className={styles.resourceRow}>
                   <span className={styles.resourceLabel}>{t("label_disk")}</span>
                   <span className={styles.resourceValue}>
-                    {disk.usedGib.toFixed(1)} GiB used, {disk.freeGib.toFixed(1)} GiB free
+                    {diskUsedDisplay} used, {diskFreeDisplay} free
                   </span>
                 </div>
                 <div className={styles.progressTrack}>
@@ -373,32 +446,6 @@ export default function SystemMonitorApp() {
                     aria-valuemax={100}
                   />
                 </div>
-              </div>
-              <div className={styles.resourceBlock}>
-                <div className={styles.resourceRow}>
-                  <span className={styles.resourceLabel}>{t("label_vm_lua_memory")}</span>
-                  <span className={styles.resourceValue}>
-                    {grpcData?.vm_lua_memory_bytes != null
-                      ? `${(grpcData.vm_lua_memory_bytes / (1024 * 1024)).toFixed(2)} MB / ${(LUA_MEMORY_LIMIT_BYTES / (1024 * 1024)).toFixed(2)} MB`
-                      : "—"}
-                  </span>
-                </div>
-                {grpcData?.vm_lua_memory_bytes != null && (
-                  <div className={styles.progressTrack}>
-                    <div
-                      className={styles.progressFill}
-                      style={{
-                        width: `${Math.min(100, (grpcData.vm_lua_memory_bytes / LUA_MEMORY_LIMIT_BYTES) * 100)}%`,
-                      }}
-                      role="progressbar"
-                      aria-valuenow={Math.round(
-                        (grpcData.vm_lua_memory_bytes / LUA_MEMORY_LIMIT_BYTES) * 100
-                      )}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                    />
-                  </div>
-                )}
               </div>
             </div>
           </>

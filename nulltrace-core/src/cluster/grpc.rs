@@ -16,6 +16,7 @@ use super::db::wallet_card_service::WalletCardService;
 use super::mailbox_hub::{MailboxHub, MailboxEvent};
 use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
 use super::process_spy_hub::{ProcessSpyConnection, ProcessSpyDownstreamMsg, ProcessSpyHub};
+use super::resource_limits;
 use super::terminal_hub::{SessionReady, TerminalHub};
 use super::vm_manager::ProcessSnapshot;
 use std::collections::HashMap;
@@ -98,6 +99,7 @@ pub struct ClusterGameService {
     process_run_hub: Arc<ProcessRunHub>,
     process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
     vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
+    vm_cpu_utilization_store: Arc<DashMap<Uuid, u8>>,
 }
 
 impl ClusterGameService {
@@ -119,6 +121,7 @@ impl ClusterGameService {
         process_run_hub: Arc<ProcessRunHub>,
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
         vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
+        vm_cpu_utilization_store: Arc<DashMap<Uuid, u8>>,
     ) -> Self {
         Self {
             player_service,
@@ -138,6 +141,7 @@ impl ClusterGameService {
             process_run_hub,
             process_snapshot_store,
             vm_lua_memory_store,
+            vm_cpu_utilization_store,
         }
     }
 
@@ -719,12 +723,14 @@ impl GameService for ClusterGameService {
             .map_err(|e| Status::internal(e.to_string()))?
             .ok_or_else(|| Status::not_found("No VM found for this player"))?;
 
-        let used_bytes = self
+        let real_used_bytes = self
             .fs_service
             .disk_usage_bytes(vm.id)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
+        // Return nominal scale for player display (used and total comparable).
+        let used_bytes = resource_limits::real_disk_bytes_to_nominal_bytes(real_used_bytes);
         let total_bytes = (vm.disk_mb as i64) * 1024 * 1024;
 
         Ok(Response::new(GetDiskUsageResponse {
@@ -738,6 +744,7 @@ impl GameService for ClusterGameService {
         &self,
         request: Request<GetProcessListRequest>,
     ) -> Result<Response<GetProcessListResponse>, Status> {
+        let include_resource_metrics = !request.get_ref().omit_resource_metrics;
         let claims = self.authenticate_request(&request)?;
         let player_id = Uuid::parse_str(&claims.sub)
             .map_err(|_| Status::internal("Invalid player_id in token"))?;
@@ -767,17 +774,35 @@ impl GameService for ClusterGameService {
             })
             .unwrap_or_default();
 
-        let disk_used_bytes = self
+        let real_disk_used_bytes = self
             .fs_service
             .disk_usage_bytes(vm.id)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
+        // Return nominal scale for player display (used and total comparable).
+        let disk_used_bytes = resource_limits::real_disk_bytes_to_nominal_bytes(real_disk_used_bytes);
         let disk_total_bytes = (vm.disk_mb as i64) * 1024 * 1024;
         let vm_lua_memory_bytes = self
             .vm_lua_memory_store
             .get(&vm.id)
             .map(|g| *g)
             .unwrap_or(0);
+        let cpu_from_store = self
+            .vm_cpu_utilization_store
+            .get(&vm.id)
+            .map(|g| *g as u32)
+            .unwrap_or(0);
+        let (cpu_utilization_percent, memory_utilization_percent) = if include_resource_metrics {
+            let real_memory_limit_bytes = resource_limits::nominal_ram_mb_to_real_bytes(vm.memory_mb) as u64;
+            let mem = if real_memory_limit_bytes > 0 {
+                ((vm_lua_memory_bytes as u128 * 100) / real_memory_limit_bytes as u128).min(100) as u32
+            } else {
+                0
+            };
+            (cpu_from_store, mem)
+        } else {
+            (0, 0)
+        };
 
         Ok(Response::new(GetProcessListResponse {
             processes,
@@ -785,6 +810,8 @@ impl GameService for ClusterGameService {
             disk_total_bytes,
             error_message: String::new(),
             vm_lua_memory_bytes,
+            cpu_utilization_percent,
+            memory_utilization_percent,
         }))
     }
 
@@ -2646,6 +2673,7 @@ mod tests {
             new_process_run_hub(),
             Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
+            Arc::new(DashMap::new()),
         )
     }
 
@@ -2670,6 +2698,7 @@ mod tests {
             new_process_spy_hub(),
             new_process_run_hub(),
             process_snapshot_store,
+            Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
         )
     }
@@ -2748,7 +2777,9 @@ mod tests {
         let pool = db::test_pool().await;
         let svc = test_cluster_game_service(&pool);
 
-        let request = Request::new(GetProcessListRequest {});
+        let request = Request::new(GetProcessListRequest {
+            omit_resource_metrics: false,
+        });
         // No authorization metadata
         let res = svc.get_process_list(request).await;
         assert!(res.is_err());
@@ -2811,7 +2842,9 @@ mod tests {
 
         let token = auth::generate_token(player_id, &name, &auth::get_jwt_secret())
             .expect("generate token");
-        let mut request = Request::new(GetProcessListRequest {});
+        let mut request = Request::new(GetProcessListRequest {
+            omit_resource_metrics: false,
+        });
         request.metadata_mut().insert(
             "authorization",
             format!("Bearer {}", token).parse().unwrap(),

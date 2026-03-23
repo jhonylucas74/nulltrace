@@ -22,6 +22,8 @@ pub struct VirtualMachine {
     pub ticks_per_second: u32,
     /// Nominal RAM in MB (for Lua heap limit via nominal→real mapping when resetting).
     pub memory_mb: i32,
+    /// Last measured CPU utilization (0–100) for player VMs; updated by the game loop. NPC/stress VMs stay 0.
+    pub cpu_utilization_percent: u8,
     pub lua: Lua,
 }
 
@@ -62,6 +64,7 @@ impl VirtualMachine {
             remaining_ticks: ticks_per_second,
             ticks_per_second,
             memory_mb,
+            cpu_utilization_percent: 0,
             lua,
         }
     }

@@ -245,7 +245,11 @@ message GetDiskUsageResponse {
   string error_message = 3;
 }
 
-message GetProcessListRequest {}
+message GetProcessListRequest {
+  // Default false: include cpu_utilization_percent and memory_utilization_percent (backward compatible).
+  // Set true when System Monitor is on Processes tab only to skip filling those fields (return 0).
+  bool omit_resource_metrics = 1;
+}
 
 message ProcessEntry {
   uint64 pid = 1;
@@ -262,6 +266,8 @@ message GetProcessListResponse {
   int64 disk_total_bytes = 3;
   string error_message = 4;
   uint64 vm_lua_memory_bytes = 5;  // Real Lua heap usage (bytes)
+  uint32 cpu_utilization_percent = 6;   // 0-100, ticks consumed/available in last 500ms
+  uint32 memory_utilization_percent = 7; // 0-100, real Lua heap / real limit
 }
 
 message GetSysinfoRequest {}

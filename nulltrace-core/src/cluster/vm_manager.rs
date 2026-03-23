@@ -556,6 +556,7 @@ impl VmManager {
         process_run_hub: Arc<ProcessRunHub>,
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
         vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
+        vm_cpu_utilization_store: Arc<DashMap<Uuid, u8>>,
         cluster_snapshot: std::sync::Arc<std::sync::RwLock<cluster_snapshot::ClusterSnapshot>>,
         pool: &PgPool,
         stress_mode: bool,
@@ -943,9 +944,31 @@ impl VmManager {
             }
 
             // ═══ TICK BUDGET: executable VM list ═══
-            // Every 0.5 seconds (real time): reset budgets; only VMs with remaining_ticks > 0 are executable.
+            // Every 0.5 seconds (real time): record CPU utilization, reset budgets; only VMs with remaining_ticks > 0 are executable.
             // Same logic for both game and stress mode (stress performs better with smaller loop).
             if last_budget_reset.elapsed() >= Duration::from_millis(500) {
+                // Record CPU utilization for player-owned VMs only (consumed = ticks_per_second - remaining_ticks).
+                // Must iterate all player VMs with running processes, not only `executable_vm_indices`:
+                // VMs that fully use their budget have remaining_ticks == 0 and are removed from the executable list,
+                // so they would never be recorded and usage would stay at 0%.
+                // Canonical value on VirtualMachine; DashMap mirrors for gRPC (handler cannot borrow `vms`).
+                for vm in vms.iter_mut() {
+                    if !self.player_owned_vm_ids.contains(&vm.id) {
+                        continue;
+                    }
+                    let util_pct = if !vm.has_running_processes() {
+                        0
+                    } else {
+                        let consumed = vm.ticks_per_second.saturating_sub(vm.remaining_ticks);
+                        if vm.ticks_per_second > 0 {
+                            ((consumed as u64 * 100) / vm.ticks_per_second as u64) as u8
+                        } else {
+                            0
+                        }
+                    };
+                    vm.cpu_utilization_percent = util_pct;
+                    vm_cpu_utilization_store.insert(vm.id, util_pct);
+                }
                 for vm in vms.iter_mut() {
                     if vm.has_running_processes() {
                         vm.remaining_ticks = vm.ticks_per_second;
