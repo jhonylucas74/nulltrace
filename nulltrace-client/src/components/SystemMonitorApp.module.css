@@ -201,15 +201,6 @@
   text-align: right;
 }
 
-.processMemory {
-  flex-shrink: 0;
-  width: 5rem;
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  text-align: right;
-}
-
 .processHeader {
   display: flex;
   align-items: center;
@@ -233,10 +224,5 @@
 
 .processHeaderCpu {
   width: 4rem;
-  text-align: right;
-}
-
-.processHeaderMemory {
-  width: 5rem;
   text-align: right;
 }

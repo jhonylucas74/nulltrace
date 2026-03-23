@@ -165,6 +165,8 @@ pub struct ProcessListEntry {
     pub username: String,
     pub status: String,
     pub memory_bytes: u64,
+    /// 0-100: per-process share of total VM tick budget (same scale as Resources CPU %).
+    pub cpu_utilization_percent: u32,
 }
 
 /// Arguments for `grpc_get_process_list`.
@@ -230,6 +232,7 @@ pub async fn grpc_get_process_list(args: GetProcessListArgs) -> Result<GetProces
             username: p.username,
             status: p.status,
             memory_bytes: p.memory_bytes,
+            cpu_utilization_percent: p.cpu_utilization_percent,
         })
         .collect();
 

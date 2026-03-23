@@ -100,6 +100,8 @@ pub struct ClusterGameService {
     process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
     vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
     vm_cpu_utilization_store: Arc<DashMap<Uuid, u8>>,
+    /// After `upgrade_vm` updates CPU in DB, game loop applies new core count to in-memory `VirtualMachine` (tick budget).
+    pending_cpu_core_sync: Arc<DashMap<Uuid, i16>>,
 }
 
 impl ClusterGameService {
@@ -122,6 +124,7 @@ impl ClusterGameService {
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
         vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
         vm_cpu_utilization_store: Arc<DashMap<Uuid, u8>>,
+        pending_cpu_core_sync: Arc<DashMap<Uuid, i16>>,
     ) -> Self {
         Self {
             player_service,
@@ -142,6 +145,7 @@ impl ClusterGameService {
             process_snapshot_store,
             vm_lua_memory_store,
             vm_cpu_utilization_store,
+            pending_cpu_core_sync,
         }
     }
 
@@ -670,6 +674,7 @@ impl GameService for ClusterGameService {
                                     status: s.status,
                                     memory_bytes: s.memory_bytes,
                                     args: s.args,
+                                    cpu_utilization_percent: s.cpu_utilization_percent,
                                 })
                                 .collect(),
                         })),
@@ -769,6 +774,7 @@ impl GameService for ClusterGameService {
                         status: s.status.clone(),
                         memory_bytes: s.memory_bytes,
                         args: s.args.clone(),
+                        cpu_utilization_percent: s.cpu_utilization_percent,
                     })
                     .collect()
             })
@@ -925,6 +931,11 @@ impl GameService for ClusterGameService {
             .update_spec(vm.id, cpu_cores, memory_mb, disk_mb)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
+
+        if upgrade_type == super::vm_upgrade_catalog::UpgradeType::Cpu {
+            self.pending_cpu_core_sync
+                .insert(vm.id, req.new_value as i16);
+        }
 
         Ok(Response::new(UpgradeVmResponse {
             success: true,
@@ -2674,6 +2685,7 @@ mod tests {
             Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
+            Arc::new(DashMap::new()),
         )
     }
 
@@ -2698,6 +2710,7 @@ mod tests {
             new_process_spy_hub(),
             new_process_run_hub(),
             process_snapshot_store,
+            Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
         )
@@ -2824,6 +2837,7 @@ mod tests {
                 username: "user".to_string(),
                 status: "running".to_string(),
                 memory_bytes: 65_536,
+                cpu_utilization_percent: 40,
                 args: vec!["lua".to_string(), "/tmp/script.lua".to_string()],
             },
             ProcessSnapshot {
@@ -2832,6 +2846,7 @@ mod tests {
                 username: "root".to_string(),
                 status: "finished".to_string(),
                 memory_bytes: 32_768,
+                cpu_utilization_percent: 0,
                 args: vec!["init".to_string()],
             },
         ];
@@ -2859,10 +2874,12 @@ mod tests {
         assert_eq!(out.processes[0].username, "user");
         assert_eq!(out.processes[0].status, "running");
         assert_eq!(out.processes[0].memory_bytes, 65_536);
+        assert_eq!(out.processes[0].cpu_utilization_percent, 40);
         assert_eq!(out.processes[1].pid, 2);
         assert_eq!(out.processes[1].name, "init");
         assert_eq!(out.processes[1].status, "finished");
         assert_eq!(out.processes[1].memory_bytes, 32_768);
+        assert_eq!(out.processes[1].cpu_utilization_percent, 0);
 
         assert_eq!(out.disk_used_bytes, 0, "new VM has no files");
         assert_eq!(out.disk_total_bytes, (vm.disk_mb as i64) * 1024 * 1024);

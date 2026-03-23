@@ -27,11 +27,26 @@ pub struct VirtualMachine {
     pub lua: Lua,
 }
 
-/// Ticks per second from CPU cores. Base 40 (minimum for 1 core), scaled by cores.
-/// Budget is reset every 0.5s, so effective TPS per VM = 2 * this value (e.g. 2 cores → 80 × 2 = 160).
+/// Budget units per core per 500ms window (same units as `ticks_per_second` / `remaining_ticks`).
+/// Total VM budget = `TICKS_PER_CORE_PER_BUDGET * cpu_cores`. Each process may consume at most
+/// `TICKS_PER_CORE_PER_BUDGET` per window (one "logical core" worth), leaving headroom when
+/// `cpu_cores > 1` so System Monitor can show realistic aggregate and per-process CPU %.
+pub const TICKS_PER_CORE_PER_BUDGET: u32 = 50;
+
+/// Total tick budget for the VM (sum of per-core budgets). Scales linearly with core count.
 pub fn ticks_per_second_from_cpu(cpu_cores: i16) -> u32 {
     let cores = cpu_cores.max(1) as u32;
-    40 * cores
+    TICKS_PER_CORE_PER_BUDGET.saturating_mul(cores)
+}
+
+/// Per-process CPU display (0–100): share of the **VM total** tick budget for the window.
+/// Matches Resources tab semantics: e.g. 2 cores → budget 100; one process at one-core cap (50 ticks) → 50%.
+#[inline]
+pub fn process_cpu_utilization_percent(ticks_consumed_this_budget: u32, vm_ticks_per_second: u32) -> u32 {
+    if vm_ticks_per_second == 0 {
+        return 0;
+    }
+    ((ticks_consumed_this_budget as u64 * 100) / vm_ticks_per_second as u64).min(100) as u32
 }
 
 impl VirtualMachine {

@@ -258,6 +258,8 @@ message ProcessEntry {
   string status = 4;
   uint64 memory_bytes = 5;
   repeated string args = 6;  // Full argv used to invoke the process (always shown in Proc Spy)
+  // 0-100: share of total VM tick budget (same scale as Resources CPU %).
+  uint32 cpu_utilization_percent = 7;
 }
 
 message GetProcessListResponse {

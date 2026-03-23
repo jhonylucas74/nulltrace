@@ -46,6 +46,8 @@ pub struct Process {
     pub forward_stdout_to: Option<Arc<Mutex<String>>>,
     /// Estimated memory (base + code length * BYTES_PER_CODE_CHAR); computed once at spawn.
     pub estimated_memory_bytes: u64,
+    /// Process ticks consumed in the current VM budget window (capped per process at one core's budget).
+    pub ticks_consumed_this_budget: u32,
     /// Display name for monitor (e.g. "sh", "echo"). When set, snapshot uses this instead of args[0].
     pub display_name: Option<String>,
     thread: Thread,
@@ -78,6 +80,7 @@ impl Process {
             stdout: Arc::new(Mutex::new(String::new())),
             forward_stdout_to: None,
             estimated_memory_bytes,
+            ticks_consumed_this_budget: 0,
             display_name: None,
             thread,
             finished: false,

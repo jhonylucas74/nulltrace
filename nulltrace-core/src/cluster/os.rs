@@ -162,19 +162,38 @@ impl OS {
     }
 
     /// Returns the index of the next process to run (round-robin), or None if none runnable.
-    /// Caller must set VmContext and then call tick_process_at.
+    /// No per-process tick cap (`u32::MAX`).
     pub fn get_next_tick_index(&mut self) -> Option<usize> {
+        self.get_next_tick_index_with_cap(u32::MAX)
+    }
+
+    /// Next runnable process whose `ticks_consumed_this_budget` is below `cap` (one core budget).
+    /// Skips processes at cap so other processes can run; returns None if all runnable are at cap.
+    pub fn get_next_tick_index_with_cap(&mut self, cap: u32) -> Option<usize> {
         self.processes.retain(|p| !p.is_finished());
         self.is_finished = self.processes.iter().all(|proc| proc.is_finished());
         if self.processes.is_empty() {
             return None;
         }
-        self.next_process_index %= self.processes.len();
-        let idx = self.next_process_index;
-        if self.processes[idx].is_finished() {
-            return None;
+        let n = self.processes.len();
+        let start = self.next_process_index % n;
+        for attempt in 0..n {
+            let idx = (start + attempt) % n;
+            if self.processes[idx].is_finished() {
+                continue;
+            }
+            if self.processes[idx].ticks_consumed_this_budget < cap {
+                return Some(idx);
+            }
         }
-        Some(idx)
+        None
+    }
+
+    /// Zero per-process tick counters at the start of a new VM budget window.
+    pub fn reset_process_tick_budgets(&mut self) {
+        for p in &mut self.processes {
+            p.ticks_consumed_this_budget = 0;
+        }
     }
 
     /// Tick the process at the given index. Call after get_next_tick_index and setting VmContext.
@@ -182,6 +201,8 @@ impl OS {
     pub fn tick_process_at(&mut self, idx: usize) -> Result<(), mlua::Error> {
         if idx < self.processes.len() && !self.processes[idx].is_finished() {
             self.processes[idx].tick()?;
+            self.processes[idx].ticks_consumed_this_budget =
+                self.processes[idx].ticks_consumed_this_budget.saturating_add(1);
         }
         self.next_process_index = (idx + 1) % self.processes.len().max(1);
         Ok(())

@@ -20,18 +20,19 @@ use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
 use super::process_spy_hub::{PendingKill, PendingLuaSpawn, ProcessSpyDownstreamMsg, ProcessSpyHub, ProcessSpySubscription};
 use super::terminal_hub::{SessionReady, TerminalHub, TerminalSession};
 use super::cluster_snapshot;
-use super::vm::VirtualMachine;
+use super::vm::{process_cpu_utilization_percent, ticks_per_second_from_cpu, VirtualMachine};
 use super::vm_worker::{VmWorker, WorkerResult};
 use dashmap::DashMap;
 use sqlx::PgPool;
 use std::collections::HashSet;
+use std::io::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use uuid::Uuid;
 
-/// Snapshot of one process for gRPC (System Monitor / Proc Spy). Written every 60 ticks for player-owned VMs only.
+/// Snapshot of one process for gRPC (System Monitor / Proc Spy). Updated on each VM budget reset (~500ms wall-clock).
 /// Args are always included so Proc Spy can show the full command line used to invoke the process.
 #[derive(Debug, Clone)]
 pub struct ProcessSnapshot {
@@ -40,12 +41,11 @@ pub struct ProcessSnapshot {
     pub username: String,
     pub status: String,
     pub memory_bytes: u64,
+    /// 0–100: process ticks consumed vs one core budget in the last VM window.
+    pub cpu_utilization_percent: u32,
     /// Full argv used to call the process (e.g. ["grep", "bar", "/tmp/a.txt"]). Always shown in Proc Spy.
     pub args: Vec<String>,
 }
-
-/// Wall-clock interval between process list snapshot updates (for GetProcessList and Process Spy).
-const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(500); // 0.5 seconds
 
 const TPS: u32 = 60;
 const TICK_TIME: Duration = Duration::from_millis(1000 / TPS as u64);
@@ -557,6 +557,7 @@ impl VmManager {
         process_snapshot_store: Arc<DashMap<Uuid, Vec<ProcessSnapshot>>>,
         vm_lua_memory_store: Arc<DashMap<Uuid, u64>>,
         vm_cpu_utilization_store: Arc<DashMap<Uuid, u8>>,
+        pending_cpu_core_sync: Arc<DashMap<Uuid, i16>>,
         cluster_snapshot: std::sync::Arc<std::sync::RwLock<cluster_snapshot::ClusterSnapshot>>,
         pool: &PgPool,
         stress_mode: bool,
@@ -576,7 +577,6 @@ impl VmManager {
         let mut tick_count: u64 = 0;
         let start = Instant::now();
         let mut last_budget_reset = Instant::now();
-        let mut last_process_snapshot_time = Instant::now();
         let mut last_cluster_snapshot_time = Instant::now();
         let mut last_tick_log_secs: u64 = 0;
 
@@ -602,6 +602,25 @@ impl VmManager {
                 break;
             }
             let tick_start = Instant::now();
+
+            // Apply CPU core upgrades from DB (`upgrade_vm` updates DB only; sync tick budget here).
+            for vm in vms.iter_mut() {
+                if let Some((_, new_cores)) = pending_cpu_core_sync.remove(&vm.id) {
+                    let old_tps = vm.ticks_per_second;
+                    vm.cpu_cores = new_cores;
+                    vm.ticks_per_second = ticks_per_second_from_cpu(new_cores);
+                    if old_tps > 0 {
+                        vm.remaining_ticks = ((vm.remaining_ticks as u64 * vm.ticks_per_second as u64)
+                            / old_tps as u64)
+                            .min(vm.ticks_per_second as u64) as u32;
+                    } else {
+                        vm.remaining_ticks = vm.ticks_per_second;
+                    }
+                    if let Some(active) = self.active_vms.iter_mut().find(|a| a.id == vm.id) {
+                        active.cpu_cores = new_cores;
+                    }
+                }
+            }
 
             // Snapshot process list on first tick so GetProcessList has data immediately (and periodically below)
             if tick_count == 0 {
@@ -630,6 +649,10 @@ impl VmManager {
                                 username: p.username.clone(),
                                 status: status.to_string(),
                                 memory_bytes: p.estimated_memory_bytes,
+                                cpu_utilization_percent: process_cpu_utilization_percent(
+                                    p.ticks_consumed_this_budget,
+                                    vm.ticks_per_second,
+                                ),
                                 args: p.args.clone(),
                             }
                         })
@@ -944,8 +967,9 @@ impl VmManager {
             }
 
             // ═══ TICK BUDGET: executable VM list ═══
-            // Every 0.5 seconds (real time): record CPU utilization, reset budgets; only VMs with remaining_ticks > 0 are executable.
-            // Same logic for both game and stress mode (stress performs better with smaller loop).
+            // Every 0.5 seconds (real time): record CPU utilization, snapshot processes (per-process CPU %),
+            // reset per-process tick counters and VM budgets. Only VMs with remaining_ticks > 0 are executable.
+            // VM `remaining_ticks` decreases only when a process actually runs a tick (see vm_worker).
             if last_budget_reset.elapsed() >= Duration::from_millis(500) {
                 // Record CPU utilization for player-owned VMs only (consumed = ticks_per_second - remaining_ticks).
                 // Must iterate all player VMs with running processes, not only `executable_vm_indices`:
@@ -969,7 +993,84 @@ impl VmManager {
                     vm.cpu_utilization_percent = util_pct;
                     vm_cpu_utilization_store.insert(vm.id, util_pct);
                 }
+                // Process list + Lua memory for player VMs (before per-process counters reset).
+                for vm in vms.iter() {
+                    if !self.player_owned_vm_ids.contains(&vm.id) {
+                        continue;
+                    }
+                    let snapshots: Vec<ProcessSnapshot> = vm
+                        .os
+                        .processes
+                        .iter()
+                        .map(|p| {
+                            let name = p
+                                .display_name
+                                .clone()
+                                .or_else(|| p.args.first().cloned())
+                                .unwrap_or_else(|| format!("pid_{}", p.id));
+                            let status = if p.is_finished() {
+                                "finished"
+                            } else {
+                                "running"
+                            };
+                            ProcessSnapshot {
+                                pid: p.id,
+                                name,
+                                username: p.username.clone(),
+                                status: status.to_string(),
+                                memory_bytes: p.estimated_memory_bytes,
+                                cpu_utilization_percent: process_cpu_utilization_percent(
+                                    p.ticks_consumed_this_budget,
+                                    vm.ticks_per_second,
+                                ),
+                                args: p.args.clone(),
+                            }
+                        })
+                        .collect();
+                    // #region agent log
+                    {
+                        const DEBUG_LOG: &str =
+                            "/home/jhony/projects/nulltrace/.cursor/debug-b7a9f4.log";
+                        if let Some(p) = vm.os.processes.iter().find(|pr| !pr.is_finished()) {
+                            let pct = process_cpu_utilization_percent(
+                                p.ticks_consumed_this_budget,
+                                vm.ticks_per_second,
+                            );
+                            let ts = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis())
+                                .unwrap_or(0);
+                            let line = format!(
+                                r#"{{"sessionId":"b7a9f4","hypothesisId":"H1","location":"vm_manager.rs:budget_snapshot","message":"first running process cpu","data":{{"pid":{},"ticksConsumed":{},"vmTicksPerSecond":{},"cpuCores":{},"computedPct":{}}},"timestamp":{}}}"#,
+                                p.id,
+                                p.ticks_consumed_this_budget,
+                                vm.ticks_per_second,
+                                vm.cpu_cores,
+                                pct,
+                                ts
+                            );
+                            let _ = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(DEBUG_LOG)
+                                .and_then(|mut f| writeln!(f, "{line}"));
+                        }
+                    }
+                    // #endregion
+                    process_snapshot_store.insert(vm.id, snapshots.clone());
+                    vm_lua_memory_store.insert(vm.id, vm.lua.used_memory() as u64);
+                    let mut hub = process_spy_hub.lock().unwrap();
+                    for conn in hub.connections.values_mut() {
+                        if conn.vm_id == vm.id {
+                            let _ = conn.downstream_tx.try_send(ProcessSpyDownstreamMsg::ProcessList(
+                                snapshots.clone(),
+                            ));
+                        }
+                    }
+                }
+                // New budget window: per-process tick caps reset; VM tick budget refilled.
                 for vm in vms.iter_mut() {
+                    vm.os.reset_process_tick_budgets();
                     if vm.has_running_processes() {
                         vm.remaining_ticks = vm.ticks_per_second;
                     }
@@ -991,12 +1092,7 @@ impl VmManager {
             );
             total_process_ticks += process_ticks;
 
-            // Decrement budget and remove exhausted VMs from executable list.
-            for &idx in executable_vm_indices.iter() {
-                if vms[idx].remaining_ticks > 0 {
-                    vms[idx].remaining_ticks -= 1;
-                }
-            }
+            // VM budget was decremented inside vm_worker when a process tick actually ran.
             executable_vm_indices.retain(|&idx| vms[idx].remaining_ticks > 0);
 
             // ═══ MEMORY EXCEEDED: reset Lua state for VMs that hit limit ═══
@@ -1437,50 +1533,6 @@ impl VmManager {
                 .await;
                 if let Ok(mut snap) = cluster_snapshot.write() {
                     *snap = snapshot;
-                }
-            }
-
-            // Snapshot process list for player-owned VMs every SNAPSHOT_INTERVAL (0.5 s wall-clock)
-            if tick_start.duration_since(last_process_snapshot_time) >= SNAPSHOT_INTERVAL {
-                last_process_snapshot_time = tick_start;
-                for vm in vms.iter() {
-                    if !self.player_owned_vm_ids.contains(&vm.id) {
-                        continue;
-                    }
-                    let snapshots: Vec<ProcessSnapshot> = vm
-                        .os
-                        .processes
-                        .iter()
-                        .map(|p| {
-                            let name = p
-                                .display_name
-                                .clone()
-                                .or_else(|| p.args.first().cloned())
-                                .unwrap_or_else(|| format!("pid_{}", p.id));
-                            let status = if p.is_finished() {
-                                "finished"
-                            } else {
-                                "running"
-                            };
-                            ProcessSnapshot {
-                                pid: p.id,
-                                name,
-                                username: p.username.clone(),
-                                status: status.to_string(),
-                                memory_bytes: p.estimated_memory_bytes,
-                                args: p.args.clone(),
-                            }
-                        })
-                        .collect();
-                    process_snapshot_store.insert(vm.id, snapshots.clone());
-                    vm_lua_memory_store.insert(vm.id, vm.lua.used_memory() as u64);
-                    // Push process list to process spy connections for this VM
-                    let mut hub = process_spy_hub.lock().unwrap();
-                    for conn in hub.connections.values_mut() {
-                        if conn.vm_id == vm.id {
-                            let _ = conn.downstream_tx.try_send(ProcessSpyDownstreamMsg::ProcessList(snapshots.clone()));
-                        }
-                    }
                 }
             }
 

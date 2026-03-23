@@ -7,8 +7,6 @@ import {
   getMockMemory,
   getMockDisk,
   MOCK_PROCESSES,
-  OS_KERNEL_GIB,
-  OS_DESKTOP_UI_GIB,
 } from "../lib/systemMonitorData";
 import { getAppByType } from "../lib/appList";
 import type { WindowType } from "../contexts/WindowManagerContext";
@@ -27,7 +25,8 @@ interface GrpcProcessEntry {
   name: string;
   username: string;
   status: string;
-  memory_bytes: number;
+  /** 0–100: per-process share of one core's tick budget (last VM window). */
+  cpu_utilization_percent: number;
 }
 
 /** Tauri returns camelCase from serde; normalize for the UI. */
@@ -50,7 +49,7 @@ function normalizeProcessListResponse(res: Record<string, unknown>): {
       name: String(o.name ?? ""),
       username: String(o.username ?? ""),
       status: String(o.status ?? ""),
-      memory_bytes: n(o.memory_bytes, o.memoryBytes),
+      cpu_utilization_percent: n(o.cpu_utilization_percent, o.cpuUtilizationPercent),
     };
   });
   return {
@@ -114,13 +113,11 @@ function formatStorageFromGib(gib: number): string {
   return `${gib.toFixed(1)} GiB`;
 }
 
-/** Process list row: memory shown as string (e.g. "1.0 GiB", "0.1 MiB", or "N/A"). */
 export interface ProcessRow {
   id: string;
   name: string;
   pid: number;
   cpuPercent: number;
-  memoryDisplay: string;
 }
 
 /** Derive memory/disk from gRPC or NullCloud or mock. When authenticated, memory used = vm_lua_memory_bytes scaled to nominal; total from sysinfo (nominal). */
@@ -227,6 +224,33 @@ export default function SystemMonitorApp() {
         },
       });
       const out = normalizeProcessListResponse(res);
+      // #region agent log
+      {
+        const first = out.processes[0];
+        fetch("http://127.0.0.1:7242/ingest/2b8d4a5b-9f29-4b60-a986-d81d272186e0", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Debug-Session-Id": "b7a9f4",
+          },
+          body: JSON.stringify({
+            sessionId: "b7a9f4",
+            runId: "post-fix-cpu-sync",
+            hypothesisId: "H3",
+            location: "SystemMonitorApp.tsx:fetchProcessList",
+            message: "normalized get_process_list",
+            data: {
+              section,
+              omitResourceMetrics: section === "processes",
+              responseVmCpuPct: out.cpu_utilization_percent,
+              firstProcessPid: first?.pid ?? null,
+              firstProcessCpuPct: first?.cpu_utilization_percent ?? null,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+      }
+      // #endregion
       if (out.error_message === "UNAUTHENTICATED") {
         logout();
         return;
@@ -335,8 +359,7 @@ export default function SystemMonitorApp() {
           id: `pid-${p.pid}`,
           name: p.name,
           pid: p.pid,
-          cpuPercent: 0,
-          memoryDisplay: `${(p.memory_bytes / (1024 * 1024)).toFixed(1)} MiB`,
+          cpuPercent: p.cpu_utilization_percent,
         }));
     }
     const rows: ProcessRow[] = [];
@@ -345,14 +368,12 @@ export default function SystemMonitorApp() {
       name: "kernel",
       pid: 0,
       cpuPercent: 0,
-      memoryDisplay: `${OS_KERNEL_GIB.toFixed(1)} GiB`,
     });
     rows.push({
       id: "os-desktop-ui",
       name: "desktop-ui",
       pid: 1,
       cpuPercent: 0,
-      memoryDisplay: `${OS_DESKTOP_UI_GIB.toFixed(1)} GiB`,
     });
     windows.forEach((win, i) => {
       const label = getAppByType(win.type as WindowType)?.label ?? win.type;
@@ -361,7 +382,6 @@ export default function SystemMonitorApp() {
         name: label,
         pid: WINDOW_PID_BASE + i,
         cpuPercent: 0,
-        memoryDisplay: "N/A",
       });
     });
     [...MOCK_PROCESSES].sort((a, b) => b.cpuPercent - a.cpuPercent).forEach((p) => {
@@ -370,7 +390,6 @@ export default function SystemMonitorApp() {
         name: p.name,
         pid: p.pid,
         cpuPercent: p.cpuPercent,
-        memoryDisplay: `${p.memoryMb.toFixed(1)} MiB`,
       });
     });
     return rows;
@@ -466,7 +485,6 @@ export default function SystemMonitorApp() {
               <span className={styles.processHeaderName}>{t("header_name")}</span>
               <span className={styles.processHeaderPid}>{t("header_pid")}</span>
               <span className={styles.processHeaderCpu}>{t("header_cpu")}</span>
-              <span className={styles.processHeaderMemory}>{t("header_memory")}</span>
             </div>
             <ul className={styles.processList}>
               {processes.map((proc) => (
@@ -474,7 +492,6 @@ export default function SystemMonitorApp() {
                   <span className={styles.processName}>{proc.name}</span>
                   <span className={styles.processPid}>{proc.pid}</span>
                   <span className={styles.processCpu}>{proc.cpuPercent.toFixed(1)}</span>
-                  <span className={styles.processMemory}>{proc.memoryDisplay}</span>
                 </li>
               ))}
             </ul>

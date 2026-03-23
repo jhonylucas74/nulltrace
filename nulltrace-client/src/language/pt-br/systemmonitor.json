@@ -14,6 +14,5 @@
   "subtitle_error": "Erro: {{error}}",
   "header_name": "Nome",
   "header_pid": "PID",
-  "header_cpu": "CPU %",
-  "header_memory": "Memória"
+  "header_cpu": "CPU %"
 }

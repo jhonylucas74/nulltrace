@@ -2,7 +2,7 @@
 use super::lua_api::context::{SpawnQueueItem, VmContext};
 use super::net::dns::DnsResolver;
 use super::net::packet::Packet;
-use super::vm::VirtualMachine;
+use super::vm::{VirtualMachine, TICKS_PER_CORE_PER_BUDGET};
 use std::sync::{Arc, RwLock};
 use uuid::Uuid;
 
@@ -118,8 +118,8 @@ impl VmWorker {
                 }
             }
 
-            // Tick one process (round-robin)
-            let process_idx = vm.os.get_next_tick_index();
+            // Tick one process (round-robin), at most TICKS_PER_CORE_PER_BUDGET ticks per process per VM window.
+            let process_idx = vm.os.get_next_tick_index_with_cap(TICKS_PER_CORE_PER_BUDGET);
             if let Some(idx) = process_idx {
                 let (pid, stdin, stdout, args, forward_stdout_to, username) = {
                     let p = &vm.os.processes[idx];
@@ -139,10 +139,19 @@ impl VmWorker {
                     ctx.current_username = username.clone();
                     ctx.set_current_process(stdin, stdout, args, forward_stdout_to);
                 }
-                if let Err(e) = vm.os.tick_process_at(idx) {
-                    if matches!(e, mlua::Error::MemoryError(_)) {
-                        println!("[cluster] VM {} exceeded memory limit (1 MB)", vm.id);
-                        result.memory_exceeded_vms.push(vm.id);
+                match vm.os.tick_process_at(idx) {
+                    Err(e) => {
+                        if matches!(e, mlua::Error::MemoryError(_)) {
+                            println!("[cluster] VM {} exceeded memory limit (1 MB)", vm.id);
+                            result.memory_exceeded_vms.push(vm.id);
+                        }
+                    }
+                    Ok(()) => {
+                        if vm.remaining_ticks > 0 {
+                            // VM budget counts only when a process actually ran a tick (idle slots stay available).
+                            vm.remaining_ticks -= 1;
+                        }
+                        result.process_ticks += 1;
                     }
                 }
 
@@ -156,7 +165,6 @@ impl VmWorker {
                         }
                     }
                 }
-                result.process_ticks += 1;
             }
 
             // Capture finished process stdout
