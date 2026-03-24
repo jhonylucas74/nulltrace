@@ -224,33 +224,6 @@ export default function SystemMonitorApp() {
         },
       });
       const out = normalizeProcessListResponse(res);
-      // #region agent log
-      {
-        const first = out.processes[0];
-        fetch("http://127.0.0.1:7242/ingest/2b8d4a5b-9f29-4b60-a986-d81d272186e0", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Debug-Session-Id": "b7a9f4",
-          },
-          body: JSON.stringify({
-            sessionId: "b7a9f4",
-            runId: "post-fix-cpu-sync",
-            hypothesisId: "H3",
-            location: "SystemMonitorApp.tsx:fetchProcessList",
-            message: "normalized get_process_list",
-            data: {
-              section,
-              omitResourceMetrics: section === "processes",
-              responseVmCpuPct: out.cpu_utilization_percent,
-              firstProcessPid: first?.pid ?? null,
-              firstProcessCpuPct: first?.cpu_utilization_percent ?? null,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-      }
-      // #endregion
       if (out.error_message === "UNAUTHENTICATED") {
         logout();
         return;

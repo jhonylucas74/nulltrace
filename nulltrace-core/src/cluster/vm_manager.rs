@@ -25,7 +25,6 @@ use super::vm_worker::{VmWorker, WorkerResult};
 use dashmap::DashMap;
 use sqlx::PgPool;
 use std::collections::HashSet;
-use std::io::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
@@ -1027,36 +1026,6 @@ impl VmManager {
                             }
                         })
                         .collect();
-                    // #region agent log
-                    {
-                        const DEBUG_LOG: &str =
-                            "/home/jhony/projects/nulltrace/.cursor/debug-b7a9f4.log";
-                        if let Some(p) = vm.os.processes.iter().find(|pr| !pr.is_finished()) {
-                            let pct = process_cpu_utilization_percent(
-                                p.ticks_consumed_this_budget,
-                                vm.ticks_per_second,
-                            );
-                            let ts = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_millis())
-                                .unwrap_or(0);
-                            let line = format!(
-                                r#"{{"sessionId":"b7a9f4","hypothesisId":"H1","location":"vm_manager.rs:budget_snapshot","message":"first running process cpu","data":{{"pid":{},"ticksConsumed":{},"vmTicksPerSecond":{},"cpuCores":{},"computedPct":{}}},"timestamp":{}}}"#,
-                                p.id,
-                                p.ticks_consumed_this_budget,
-                                vm.ticks_per_second,
-                                vm.cpu_cores,
-                                pct,
-                                ts
-                            );
-                            let _ = std::fs::OpenOptions::new()
-                                .create(true)
-                                .append(true)
-                                .open(DEBUG_LOG)
-                                .and_then(|mut f| writeln!(f, "{line}"));
-                        }
-                    }
-                    // #endregion
                     process_snapshot_store.insert(vm.id, snapshots.clone());
                     vm_lua_memory_store.insert(vm.id, vm.lua.used_memory() as u64);
                     let mut hub = process_spy_hub.lock().unwrap();
