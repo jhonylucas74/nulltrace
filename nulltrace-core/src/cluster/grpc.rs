@@ -12,6 +12,7 @@ use super::db::user_service::{UserService, VmUser};
 use super::db::vm_service::VmService;
 use super::db::wallet_service::{WalletError, WalletService};
 use super::db::codelab_service::CodelabService;
+use super::db::feed_service::{FeedPostRow, FeedService};
 use super::db::wallet_card_service::WalletCardService;
 use super::mailbox_hub::{MailboxHub, MailboxEvent};
 use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
@@ -47,8 +48,9 @@ use game::{
     ProcessSpyClientMessage, ProcessSpyOpened, ProcessSpyServerMessage, ProcessSpyStdout,
     ProcessSpyError, KillProcess, LuaScriptSpawned, RankingEntry, RefreshTokenRequest, RefreshTokenResponse,
     SpawnLuaScript,
-    CreateFolderRequest, CreateFolderResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
-    SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, StdinChunk, StdinData,
+    CreateFolderRequest, CreateFolderResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse,     SetPreferredThemeRequest,
+    SetPreferredThemeResponse, SetHackerboardLanguagePreferencesRequest,
+    SetHackerboardLanguagePreferencesResponse, SetShortcutsRequest, SetShortcutsResponse, StdinChunk, StdinData,
     PromptReady, StdoutData, SubscribePid, TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened,
     TerminalServerMessage, UnsubscribePid, WriteFileRequest, WriteFileResponse,
     ReadFileRequest, ReadFileResponse,
@@ -79,6 +81,8 @@ use game::{
     // Codelab
     GetCodelabProgressRequest, GetCodelabProgressResponse,
     MarkCodelabSolvedRequest, MarkCodelabSolvedResponse,
+    CreateFeedPostRequest, CreateFeedPostResponse, FeedPostEntry, ListFeedPostsRequest,
+    ListFeedPostsResponse, ToggleFeedPostLikeRequest, ToggleFeedPostLikeResponse,
 };
 
 pub struct ClusterGameService {
@@ -93,6 +97,7 @@ pub struct ClusterGameService {
     wallet_service: Arc<WalletService>,
     wallet_card_service: Arc<WalletCardService>,
     codelab_service: Arc<CodelabService>,
+    feed_service: Arc<FeedService>,
     mailbox_hub: MailboxHub,
     terminal_hub: Arc<TerminalHub>,
     process_spy_hub: Arc<ProcessSpyHub>,
@@ -117,6 +122,7 @@ impl ClusterGameService {
         wallet_service: Arc<WalletService>,
         wallet_card_service: Arc<WalletCardService>,
         codelab_service: Arc<CodelabService>,
+        feed_service: Arc<FeedService>,
         mailbox_hub: MailboxHub,
         terminal_hub: Arc<TerminalHub>,
         process_spy_hub: Arc<ProcessSpyHub>,
@@ -138,6 +144,7 @@ impl ClusterGameService {
             wallet_service,
             wallet_card_service,
             codelab_service,
+            feed_service,
             mailbox_hub,
             terminal_hub,
             process_spy_hub,
@@ -160,6 +167,21 @@ impl ClusterGameService {
 
         crate::auth::validate_token(token, &crate::auth::get_jwt_secret())
             .map_err(|e| Status::unauthenticated(format!("Invalid token: {}", e)))
+    }
+}
+
+fn feed_post_row_to_proto(r: FeedPostRow) -> FeedPostEntry {
+    FeedPostEntry {
+        id: r.id.to_string(),
+        author_id: r.author_id.to_string(),
+        author_username: r.author_username,
+        body: r.body,
+        language: r.language,
+        created_at_ms: r.created_at.timestamp_millis(),
+        reply_to_id: r.reply_to_id.map(|u| u.to_string()).unwrap_or_default(),
+        post_type: r.post_type,
+        like_count: r.like_count,
+        liked_by_me: r.liked_by_me,
     }
 }
 
@@ -1704,6 +1726,8 @@ impl GameService for ClusterGameService {
             error_message: String::new(),
             preferred_theme,
             shortcuts_overrides,
+            hackerboard_feed_language_filter: player.hackerboard_feed_language_filter.clone(),
+            hackerboard_post_language: player.hackerboard_post_language.clone(),
         }))
     }
 
@@ -1760,6 +1784,37 @@ impl GameService for ClusterGameService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(SetPreferredThemeResponse {
+            success: true,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn set_hackerboard_language_preferences(
+        &self,
+        request: Request<SetHackerboardLanguagePreferencesRequest>,
+    ) -> Result<Response<SetHackerboardLanguagePreferencesResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let SetHackerboardLanguagePreferencesRequest {
+            feed_language_filter,
+            post_language,
+        } = request.into_inner();
+        let feed = feed_language_filter.trim();
+        let post = post_language.trim();
+        if !PlayerService::is_valid_hackerboard_feed_filter(feed)
+            || !PlayerService::is_valid_hackerboard_post_language(post)
+        {
+            return Ok(Response::new(SetHackerboardLanguagePreferencesResponse {
+                success: false,
+                error_message: "Invalid feed_language_filter or post_language".to_string(),
+            }));
+        }
+        self.player_service
+            .set_hackerboard_language_prefs(player_id, feed, post)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(SetHackerboardLanguagePreferencesResponse {
             success: true,
             error_message: String::new(),
         }))
@@ -1832,6 +1887,93 @@ impl GameService for ClusterGameService {
             success: true,
             error_message: String::new(),
         }))
+    }
+
+    async fn list_feed_posts(
+        &self,
+        request: Request<ListFeedPostsRequest>,
+    ) -> Result<Response<ListFeedPostsResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let req = request.into_inner();
+        let language_filter = req.language_filter.trim();
+        let filter_opt = if language_filter.is_empty() {
+            None
+        } else if language_filter == "en" || language_filter == "pt-br" {
+            Some(language_filter)
+        } else {
+            return Err(Status::invalid_argument(
+                "language_filter must be empty, en, or pt-br",
+            ));
+        };
+        let limit = if req.limit <= 0 { 50 } else { req.limit };
+        let rows = self
+            .feed_service
+            .list_posts(filter_opt, limit, player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        let posts = rows.into_iter().map(feed_post_row_to_proto).collect();
+        Ok(Response::new(ListFeedPostsResponse {
+            posts,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn create_feed_post(
+        &self,
+        request: Request<CreateFeedPostRequest>,
+    ) -> Result<Response<CreateFeedPostResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let req = request.into_inner();
+        let reply_to = if req.reply_to_post_id.trim().is_empty() {
+            None
+        } else {
+            Some(
+                Uuid::parse_str(req.reply_to_post_id.trim())
+                    .map_err(|_| Status::invalid_argument("Invalid reply_to_post_id"))?,
+            )
+        };
+        match self
+            .feed_service
+            .create_post(player_id, &req.body, &req.language, reply_to)
+            .await
+        {
+            Ok(row) => Ok(Response::new(CreateFeedPostResponse {
+                post: Some(feed_post_row_to_proto(row)),
+                error_message: String::new(),
+            })),
+            Err(msg) => Ok(Response::new(CreateFeedPostResponse {
+                post: None,
+                error_message: msg,
+            })),
+        }
+    }
+
+    async fn toggle_feed_post_like(
+        &self,
+        request: Request<ToggleFeedPostLikeRequest>,
+    ) -> Result<Response<ToggleFeedPostLikeResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let req = request.into_inner();
+        let post_id = Uuid::parse_str(req.post_id.trim())
+            .map_err(|_| Status::invalid_argument("Invalid post_id"))?;
+        match self.feed_service.toggle_like(post_id, player_id).await {
+            Ok((liked, like_count)) => Ok(Response::new(ToggleFeedPostLikeResponse {
+                liked,
+                like_count,
+                error_message: String::new(),
+            })),
+            Err(msg) => Ok(Response::new(ToggleFeedPostLikeResponse {
+                liked: false,
+                like_count: 0,
+                error_message: msg,
+            })),
+        }
     }
 
     // ── Email handlers ───────────────────────────────────────────────────────
@@ -2649,10 +2791,10 @@ async fn vm_and_owner(
 mod tests {
     use super::super::db::{
         self, codelab_service::CodelabService, email_account_service::EmailAccountService,
-        email_service::EmailService, faction_service::FactionService, fs_service::FsService,
-        player_service::PlayerService, shortcuts_service::ShortcutsService, user_service::UserService,
-        vm_service::{VmConfig, VmService},
-        wallet_service::WalletService, wallet_card_service::WalletCardService,
+        email_service::EmailService, faction_service::FactionService, feed_service::FeedService,
+        fs_service::FsService, player_service::PlayerService, shortcuts_service::ShortcutsService,
+        user_service::UserService, vm_service::{VmConfig, VmService}, wallet_service::WalletService,
+        wallet_card_service::WalletCardService,
     };
     use super::super::mailbox_hub;
     use super::super::process_run_hub::new_hub as new_process_run_hub;
@@ -2678,6 +2820,7 @@ mod tests {
             Arc::new(WalletService::new(pool.clone())),
             Arc::new(WalletCardService::new(pool.clone())),
             Arc::new(CodelabService::new(pool.clone())),
+            Arc::new(FeedService::new(pool.clone())),
             mailbox_hub::new_hub(),
             new_hub(),
             new_process_spy_hub(),
@@ -2705,6 +2848,7 @@ mod tests {
             Arc::new(WalletService::new(pool.clone())),
             Arc::new(WalletCardService::new(pool.clone())),
             Arc::new(CodelabService::new(pool.clone())),
+            Arc::new(FeedService::new(pool.clone())),
             mailbox_hub::new_hub(),
             new_hub(),
             new_process_spy_hub(),

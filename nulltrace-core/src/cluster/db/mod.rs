@@ -14,6 +14,7 @@ pub mod wallet_service;
 pub mod wallet_card_service;
 pub mod card_invoice_service;
 pub mod codelab_service;
+pub mod feed_service;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -119,6 +120,12 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
     sqlx::raw_sql(include_str!("../../../migrations/030_create_admins.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/031_create_feed_posts.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/032_add_player_hackerboard_language_prefs.sql"))
         .execute(pool)
         .await?;
     Ok(())

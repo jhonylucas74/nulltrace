@@ -1,9 +1,26 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { MessageSquare, Trophy, Search, Flag, CheckCircle, Info, User, MessageCircle, Heart, Mail, Users, ArrowLeft } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import {
+  MessageSquare,
+  Trophy,
+  Search,
+  Flag,
+  CheckCircle,
+  Info,
+  User,
+  MessageCircle,
+  Heart,
+  Mail,
+  Users,
+  ArrowLeft,
+  Loader2,
+  Globe,
+} from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import {
   useHackerboard,
   type FeedPost,
+  type FeedPostLanguage,
   type FactionWithRank,
   getConversationId,
 } from "../contexts/HackerboardContext";
@@ -11,6 +28,23 @@ import styles from "./HackerboardApp.module.css";
 
 type Section = "feed" | "rankings" | "messages" | "group" | "profile";
 type RankTab = "hackers" | "factions";
+
+/** Matches non-cluster server stub (`nulltrace-core/src/server/main.rs`). */
+const FEED_CLUSTER_STUB_ERROR = "Use the unified cluster binary for Hackerboard feed";
+
+function resolveFeedErrorDisplay(
+  feedError: string | null,
+  t: (key: string) => string
+): { message: string; tone: "error" | "info" } | null {
+  if (!feedError) return null;
+  if (feedError === FEED_CLUSTER_STUB_ERROR) {
+    return { message: t("feedClusterRequired"), tone: "info" };
+  }
+  if (feedError === "Failed to load feed") {
+    return { message: t("feedError"), tone: "error" };
+  }
+  return { message: feedError, tone: "error" };
+}
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -227,7 +261,8 @@ function PostIcon({ type }: { type: FeedPost["type"] }) {
 }
 
 export default function HackerboardApp() {
-  const { username } = useAuth();
+  const { t } = useTranslation("hackerboard");
+  const { username, token } = useAuth();
   const {
     hackers,
     factions,
@@ -237,6 +272,12 @@ export default function HackerboardApp() {
     addFeedPost,
     toggleLike,
     userLikedPostIds,
+    feedLanguageFilter,
+    setFeedLanguageFilter,
+    composePostLanguage,
+    setComposePostLanguage,
+    feedLoading,
+    feedError,
     getDmConversations,
     getDmMessages,
     sendDm,
@@ -254,6 +295,9 @@ export default function HackerboardApp() {
   const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [composeText, setComposeText] = useState("");
+  const [feedLangMenuOpen, setFeedLangMenuOpen] = useState(false);
+  const feedLangMenuRef = useRef<HTMLDivElement>(null);
+  const [threadReplyLanguage, setThreadReplyLanguage] = useState<FeedPostLanguage>("en");
   const [expandedThreadId, setExpandedThreadId] = useState<string | null>(null);
   const [threadReplyText, setThreadReplyText] = useState("");
   const [selectedDmConversationId, setSelectedDmConversationId] = useState<string | null>(null);
@@ -279,6 +323,28 @@ export default function HackerboardApp() {
     [searchQuery, searchFactions]
   );
 
+  const feedErrorDisplay = useMemo(
+    () => resolveFeedErrorDisplay(feedError, t),
+    [feedError, t]
+  );
+
+  useEffect(() => {
+    if (!feedLangMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const el = feedLangMenuRef.current;
+      if (el && !el.contains(e.target as Node)) setFeedLangMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFeedLangMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [feedLangMenuOpen]);
+
   /** Only root posts (no replyToId) appear in the main feed. */
   const rootPosts = useMemo(() => feed.filter((p) => !p.replyToId), [feed]);
 
@@ -296,33 +362,51 @@ export default function HackerboardApp() {
     return map;
   }, [feed]);
 
-  function handlePostSubmit(e: React.FormEvent) {
+  async function handlePostSubmit(e: React.FormEvent) {
     e.preventDefault();
     const body = composeText.trim();
-    if (!body || !currentUserHacker) return;
-    addFeedPost({ type: "user", body, authorId: currentUserHacker.id });
-    setComposeText("");
-  }
-
-  function toggleThread(postId: string) {
-    setExpandedThreadId((prev) => (prev === postId ? null : postId));
-    setThreadReplyText("");
-    if (expandedThreadId !== postId) {
-      setTimeout(() => threadReplyInputRef.current?.focus(), 100);
+    if (!body || !currentUserHacker || !token) return;
+    try {
+      await addFeedPost({
+        type: "user",
+        body,
+        authorId: currentUserHacker.id,
+        language: composePostLanguage,
+      });
+      setComposeText("");
+    } catch {
+      /* error surfaced via feedError on next refresh */
     }
   }
 
-  function handleThreadReplySubmit(e: React.FormEvent, rootPostId: string) {
-    e.preventDefault();
-    const body = threadReplyText.trim();
-    if (!body || !currentUserHacker) return;
-    addFeedPost({
-      type: "user",
-      body,
-      authorId: currentUserHacker.id,
-      replyToId: rootPostId,
+  function toggleThread(postId: string) {
+    setExpandedThreadId((prev) => {
+      const next = prev === postId ? null : postId;
+      if (next) {
+        setThreadReplyLanguage(composePostLanguage);
+        setTimeout(() => threadReplyInputRef.current?.focus(), 100);
+      }
+      return next;
     });
     setThreadReplyText("");
+  }
+
+  async function handleThreadReplySubmit(e: React.FormEvent, rootPostId: string) {
+    e.preventDefault();
+    const body = threadReplyText.trim();
+    if (!body || !currentUserHacker || !token) return;
+    try {
+      await addFeedPost({
+        type: "user",
+        body,
+        authorId: currentUserHacker.id,
+        replyToId: rootPostId,
+        language: threadReplyLanguage,
+      });
+      setThreadReplyText("");
+    } catch {
+      /* ignore */
+    }
   }
 
   const dmConversationsList = useMemo(
@@ -407,7 +491,7 @@ export default function HackerboardApp() {
   return (
     <div className={styles.app}>
       <aside className={styles.sidebar}>
-        <div className={styles.sidebarTitle}>Hackerboard</div>
+        <div className={styles.sidebarTitle}>{t("title")}</div>
         <button
           type="button"
           className={`${styles.navItem} ${section === "feed" ? styles.navItemActive : ""}`}
@@ -416,7 +500,7 @@ export default function HackerboardApp() {
           <span className={styles.navIcon}>
             <MessageSquare size={18} />
           </span>
-          Feed
+          {t("feed")}
         </button>
         <button
           type="button"
@@ -426,7 +510,7 @@ export default function HackerboardApp() {
           <span className={styles.navIcon}>
             <Trophy size={18} />
           </span>
-          Rankings
+          {t("rankings")}
         </button>
         <button
           type="button"
@@ -436,7 +520,7 @@ export default function HackerboardApp() {
           <span className={styles.navIcon}>
             <Mail size={18} />
           </span>
-          Messages
+          {t("messages")}
         </button>
         <button
           type="button"
@@ -446,37 +530,117 @@ export default function HackerboardApp() {
           <span className={styles.navIcon}>
             <Users size={18} />
           </span>
-          Group
+          {t("group")}
         </button>
       </aside>
       <main className={styles.main}>
         {section === "feed" && (
           <div className={styles.feedArea}>
             <div className={styles.feedHeader}>
-              <h2 className={styles.feedTitle}>Feed</h2>
+              <h2 className={styles.feedTitle}>{t("feed")}</h2>
               <span className={styles.feedLive}>
                 <span className={styles.feedLiveDot} />
-                Live
+                {t("live")}
               </span>
-            </div>
-            <form className={styles.compose} onSubmit={handlePostSubmit}>
-              <textarea
-                ref={composeTextareaRef}
-                className={styles.composeTextarea}
-                placeholder="What's happening?"
-                value={composeText}
-                onChange={(e) => setComposeText(e.target.value)}
-                rows={3}
-                aria-label="New post"
-              />
-              <div className={styles.composeActions}>
-                <button type="submit" className={styles.composeBtn} disabled={!composeText.trim() || !currentUserHacker}>
-                  Post
+              <div className={styles.feedHeaderSpacer} aria-hidden />
+              <div className={styles.feedLangMenuWrap} ref={feedLangMenuRef}>
+                <button
+                  type="button"
+                  className={`${styles.feedLangMenuBtn} ${feedLangMenuOpen ? styles.feedLangMenuBtnOpen : ""}`}
+                  aria-expanded={feedLangMenuOpen}
+                  aria-haspopup="listbox"
+                  aria-label={t("feedLanguageMenuAria")}
+                  onClick={() => setFeedLangMenuOpen((o) => !o)}
+                >
+                  <Globe size={18} aria-hidden />
+                  {feedLanguageFilter !== "all" ? (
+                    <span className={styles.feedLangMenuBadge} aria-hidden />
+                  ) : null}
                 </button>
+                {feedLangMenuOpen ? (
+                  <div className={styles.feedLangMenuPanel} role="listbox" aria-label={t("languageFilter")}>
+                    {(
+                      [
+                        { value: "all" as const, label: t("langAll") },
+                        { value: "en" as const, label: t("langEn") },
+                        { value: "pt-br" as const, label: t("langPtBr") },
+                      ] as const
+                    ).map(({ value, label }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        role="option"
+                        aria-selected={feedLanguageFilter === value}
+                        className={`${styles.feedLangMenuOption} ${
+                          feedLanguageFilter === value ? styles.feedLangMenuOptionActive : ""
+                        }`}
+                        onClick={() => {
+                          setFeedLanguageFilter(value);
+                          setFeedLangMenuOpen(false);
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
+            </div>
+            <form className={styles.compose} onSubmit={(e) => void handlePostSubmit(e)}>
+              {feedErrorDisplay ? (
+                <p
+                  className={
+                    feedErrorDisplay.tone === "info" ? styles.feedErrorInfo : styles.feedError
+                  }
+                >
+                  {feedErrorDisplay.message}
+                </p>
+              ) : null}
+              {token ? (
+                <>
+                  <textarea
+                    ref={composeTextareaRef}
+                    className={styles.composeTextarea}
+                    placeholder={t("whatsHappening")}
+                    value={composeText}
+                    onChange={(e) => setComposeText(e.target.value)}
+                    rows={3}
+                    aria-label="New post"
+                  />
+                  <div className={styles.composeActions}>
+                    <label className={styles.composeLangInline} htmlFor="hackerboard-compose-lang">
+                      <span className={styles.composeLangInlineLabel}>{t("composeLanguageShort")}</span>
+                      <select
+                        id="hackerboard-compose-lang"
+                        className={styles.composeLangSelectCompact}
+                        value={composePostLanguage}
+                        onChange={(e) => setComposePostLanguage(e.target.value as FeedPostLanguage)}
+                        aria-label={t("composeLanguage")}
+                      >
+                        <option value="en">{t("langEn")}</option>
+                        <option value="pt-br">{t("langPtBr")}</option>
+                      </select>
+                    </label>
+                    <button
+                      type="submit"
+                      className={styles.composeBtn}
+                      disabled={!composeText.trim() || !currentUserHacker || feedLoading}
+                    >
+                      {t("post")}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className={styles.emptyState}>{t("signInFeed")}</p>
+              )}
             </form>
-            {rootPosts.length === 0 ? (
-              <p className={styles.emptyState}>No posts yet.</p>
+            {feedLoading ? (
+              <div className={styles.loadingFeed}>
+                <span className={styles.loadingFeedText}>{t("loadingFeed")}</span>
+                <Loader2 size={28} className={styles.loadingFeedSpinner} aria-hidden />
+              </div>
+            ) : rootPosts.length === 0 ? (
+              <p className={styles.emptyState}>{t("noPosts")}</p>
             ) : (
               rootPosts.map((post) => {
                 const authorHandle = getAuthorHandle(post, hackers);
@@ -515,6 +679,14 @@ export default function HackerboardApp() {
                               {" · "}
                             </>
                           ) : null}
+                          {post.language ? (
+                            <>
+                              <span className={styles.postLangBadge}>
+                                {post.language === "pt-br" ? t("langBadge_pt") : t("langBadge_en")}
+                              </span>
+                              {" · "}
+                            </>
+                          ) : null}
                           {formatTime(post.timestamp)}
                         </p>
                         <p className={styles.postBody}>{post.body}</p>
@@ -523,21 +695,21 @@ export default function HackerboardApp() {
                             type="button"
                             className={`${styles.postActionBtn} ${isExpanded ? styles.postActionBtnActive : ""}`}
                             onClick={() => toggleThread(post.id)}
-                            title="Comments"
-                            aria-label="Comments"
+                            title={t("comments")}
+                            aria-label={t("comments")}
                           >
                             <MessageCircle size={16} />
-                            <span>{replyCount > 0 ? replyCount : "Reply"}</span>
+                            <span>{replyCount > 0 ? replyCount : t("reply")}</span>
                           </button>
                           <button
                             type="button"
                             className={`${styles.postActionBtn} ${isLiked ? styles.postActionBtnLiked : ""}`}
-                            onClick={() => toggleLike(post.id)}
-                            title={isLiked ? "Unlike" : "Like"}
-                            aria-label={isLiked ? "Unlike" : "Like"}
+                            onClick={() => void toggleLike(post.id)}
+                            title={isLiked ? t("unlike") : t("like")}
+                            aria-label={isLiked ? t("unlike") : t("like")}
                           >
                             <Heart size={16} fill={isLiked ? "currentColor" : "none"} />
-                            <span>{likeCount > 0 ? likeCount : "Like"}</span>
+                            <span>{likeCount > 0 ? likeCount : t("like")}</span>
                           </button>
                         </div>
                       </div>
@@ -557,24 +729,45 @@ export default function HackerboardApp() {
                         })}
                         <form
                           className={styles.threadReplyForm}
-                          onSubmit={(e) => handleThreadReplySubmit(e, post.id)}
+                          onSubmit={(e) => void handleThreadReplySubmit(e, post.id)}
                         >
-                          <textarea
-                            ref={expandedThreadId === post.id ? threadReplyInputRef : undefined}
-                            className={styles.threadReplyInput}
-                            placeholder={`Reply to @${authorHandle}...`}
-                            value={expandedThreadId === post.id ? threadReplyText : ""}
-                            onChange={(e) => setThreadReplyText(e.target.value)}
-                            rows={2}
-                            aria-label="Reply"
-                          />
-                          <button
-                            type="submit"
-                            className={styles.threadReplyBtn}
-                            disabled={!threadReplyText.trim() || !currentUserHacker}
-                          >
-                            Reply
-                          </button>
+                          {token ? (
+                            <>
+                              <div className={styles.threadReplyLangRow}>
+                                <label className={styles.composeLangInline} htmlFor={`hackerboard-reply-lang-${post.id}`}>
+                                  <span className={styles.composeLangInlineLabel}>{t("composeLanguageShort")}</span>
+                                  <select
+                                    id={`hackerboard-reply-lang-${post.id}`}
+                                    className={styles.composeLangSelectCompact}
+                                    value={threadReplyLanguage}
+                                    onChange={(e) => setThreadReplyLanguage(e.target.value as FeedPostLanguage)}
+                                    aria-label={t("composeLanguage")}
+                                  >
+                                  <option value="en">{t("langEn")}</option>
+                                  <option value="pt-br">{t("langPtBr")}</option>
+                                </select>
+                                </label>
+                              </div>
+                              <textarea
+                                ref={expandedThreadId === post.id ? threadReplyInputRef : undefined}
+                                className={styles.threadReplyInput}
+                                placeholder={`Reply to @${authorHandle}...`}
+                                value={expandedThreadId === post.id ? threadReplyText : ""}
+                                onChange={(e) => setThreadReplyText(e.target.value)}
+                                rows={2}
+                                aria-label="Reply"
+                              />
+                              <button
+                                type="submit"
+                                className={styles.threadReplyBtn}
+                                disabled={!threadReplyText.trim() || !currentUserHacker || feedLoading}
+                              >
+                                {t("reply")}
+                              </button>
+                            </>
+                          ) : (
+                            <p className={styles.emptyState}>{t("signInFeed")}</p>
+                          )}
                         </form>
                       </div>
                     )}

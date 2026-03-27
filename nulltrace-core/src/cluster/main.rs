@@ -42,6 +42,7 @@ use cluster_snapshot::ClusterSnapshot;
 use db::admin_service::AdminService as AdminDbService;
 use db::card_invoice_service::CardInvoiceService;
 use db::codelab_service::CodelabService;
+use db::feed_service::FeedService;
 use grpc::game::game_service_server::GameServiceServer;
 use grpc::ClusterGameService;
 use process_run_hub::new_hub as new_process_run_hub;
@@ -139,6 +140,7 @@ async fn main() {
         wallet_card_service.clone(),
     ));
     let codelab_service = Arc::new(CodelabService::new(pool.clone()));
+    let feed_service = Arc::new(FeedService::new(pool.clone()));
     let mailbox_hub = mailbox_hub::new_hub();
 
     // ── Seed default player (Haru) if not present ──
@@ -253,6 +255,7 @@ async fn main() {
         wallet_service.clone(),
         wallet_card_service.clone(),
         codelab_service.clone(),
+        feed_service.clone(),
         mailbox_hub.clone(),
         terminal_hub.clone(),
         process_spy_hub.clone(),

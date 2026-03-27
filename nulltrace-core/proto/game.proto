@@ -29,8 +29,12 @@ service GameService {
   rpc GetPlayerProfile (GetPlayerProfileRequest) returns (GetPlayerProfileResponse);
   rpc SetPreferredTheme (SetPreferredThemeRequest) returns (SetPreferredThemeResponse);
   rpc SetShortcuts (SetShortcutsRequest) returns (SetShortcutsResponse);
+  rpc SetHackerboardLanguagePreferences (SetHackerboardLanguagePreferencesRequest) returns (SetHackerboardLanguagePreferencesResponse);
   rpc CreateFaction (CreateFactionRequest) returns (CreateFactionResponse);
   rpc LeaveFaction (LeaveFactionRequest) returns (LeaveFactionResponse);
+  rpc ListFeedPosts (ListFeedPostsRequest) returns (ListFeedPostsResponse);
+  rpc CreateFeedPost (CreateFeedPostRequest) returns (CreateFeedPostResponse);
+  rpc ToggleFeedPostLike (ToggleFeedPostLikeRequest) returns (ToggleFeedPostLikeResponse);
   rpc RunProcess (RunProcessRequest) returns (stream RunProcessResponse);
   rpc GetEmails (GetEmailsRequest) returns (GetEmailsResponse);
   rpc SendEmail (SendEmailRequest) returns (SendEmailResponse);
@@ -439,6 +443,8 @@ message GetPlayerProfileResponse {
   string error_message = 5;
   string preferred_theme = 6;
   string shortcuts_overrides = 7;
+  string hackerboard_feed_language_filter = 8;
+  string hackerboard_post_language = 9;
 }
 
 message SetPreferredThemeRequest {
@@ -459,6 +465,16 @@ message SetShortcutsResponse {
   string error_message = 2;
 }
 
+message SetHackerboardLanguagePreferencesRequest {
+  string feed_language_filter = 1;  // "all" | "en" | "pt-br"
+  string post_language = 2;           // "en" | "pt-br"
+}
+
+message SetHackerboardLanguagePreferencesResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
 message CreateFactionRequest {
   string name = 1;
 }
@@ -474,6 +490,52 @@ message LeaveFactionRequest {}
 message LeaveFactionResponse {
   bool success = 1;
   string error_message = 2;
+}
+
+// ── Hackerboard feed ────────────────────────────────────────────────────────
+
+message FeedPostEntry {
+  string id = 1;
+  string author_id = 2;
+  string author_username = 3;
+  string body = 4;
+  string language = 5;
+  int64 created_at_ms = 6;
+  string reply_to_id = 7;  // empty if root post
+  string post_type = 8;
+  int32 like_count = 9;
+  bool liked_by_me = 10;
+}
+
+message ListFeedPostsRequest {
+  string language_filter = 1;  // empty = all; "en" or "pt-br" to filter
+  int32 limit = 2;             // default 50, max 100
+}
+
+message ListFeedPostsResponse {
+  repeated FeedPostEntry posts = 1;
+  string error_message = 2;
+}
+
+message CreateFeedPostRequest {
+  string body = 1;
+  string language = 2;
+  string reply_to_post_id = 3;  // empty = root post
+}
+
+message CreateFeedPostResponse {
+  FeedPostEntry post = 1;
+  string error_message = 2;
+}
+
+message ToggleFeedPostLikeRequest {
+  string post_id = 1;
+}
+
+message ToggleFeedPostLikeResponse {
+  bool liked = 1;
+  int32 like_count = 2;
+  string error_message = 3;
 }
 
 // ── Email ──────────────────────────────────────────────────────────────────

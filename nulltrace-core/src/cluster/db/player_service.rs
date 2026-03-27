@@ -21,6 +21,8 @@ pub struct Player {
     pub points: i32,
     pub faction_id: Option<Uuid>,
     pub preferred_theme: Option<String>,
+    pub hackerboard_feed_language_filter: String,
+    pub hackerboard_post_language: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -51,7 +53,7 @@ impl PlayerService {
             r#"
             INSERT INTO players (id, username, password_hash)
             VALUES ($1, $2, $3)
-            RETURNING id, username, password_hash, points, faction_id, preferred_theme, created_at, updated_at
+            RETURNING id, username, password_hash, points, faction_id, preferred_theme, hackerboard_feed_language_filter, hackerboard_post_language, created_at, updated_at
             "#,
         )
         .bind(id)
@@ -66,7 +68,7 @@ impl PlayerService {
     pub async fn get_by_username(&self, username: &str) -> Result<Option<Player>, sqlx::Error> {
         let rec = sqlx::query_as::<_, Player>(
             r#"
-            SELECT id, username, password_hash, points, faction_id, preferred_theme, created_at, updated_at
+            SELECT id, username, password_hash, points, faction_id, preferred_theme, hackerboard_feed_language_filter, hackerboard_post_language, created_at, updated_at
             FROM players WHERE username = $1
             "#,
         )
@@ -80,7 +82,7 @@ impl PlayerService {
     pub async fn get_by_id(&self, id: Uuid) -> Result<Option<Player>, sqlx::Error> {
         let rec = sqlx::query_as::<_, Player>(
             r#"
-            SELECT id, username, password_hash, points, faction_id, preferred_theme, created_at, updated_at
+            SELECT id, username, password_hash, points, faction_id, preferred_theme, hackerboard_feed_language_filter, hackerboard_post_language, created_at, updated_at
             FROM players WHERE id = $1
             "#,
         )
@@ -157,6 +159,39 @@ impl PlayerService {
         Ok(())
     }
 
+    /// Valid values: `all`, `en`, `pt-br`.
+    pub fn is_valid_hackerboard_feed_filter(s: &str) -> bool {
+        matches!(s, "all" | "en" | "pt-br")
+    }
+
+    /// Valid values: `en`, `pt-br`.
+    pub fn is_valid_hackerboard_post_language(s: &str) -> bool {
+        matches!(s, "en" | "pt-br")
+    }
+
+    pub async fn set_hackerboard_language_prefs(
+        &self,
+        player_id: Uuid,
+        feed_filter: &str,
+        post_language: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE players SET
+                hackerboard_feed_language_filter = $2,
+                hackerboard_post_language = $3,
+                updated_at = now()
+            WHERE id = $1
+            "#,
+        )
+        .bind(player_id)
+        .bind(feed_filter)
+        .bind(post_language)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Set faction for a player (None to leave faction).
     pub async fn set_faction_id(
         &self,
@@ -199,6 +234,17 @@ impl PlayerService {
 mod tests {
     use super::*;
     use super::super::test_pool;
+
+    #[test]
+    fn hackerboard_language_validation() {
+        assert!(PlayerService::is_valid_hackerboard_feed_filter("all"));
+        assert!(PlayerService::is_valid_hackerboard_feed_filter("en"));
+        assert!(PlayerService::is_valid_hackerboard_feed_filter("pt-br"));
+        assert!(!PlayerService::is_valid_hackerboard_feed_filter("de"));
+        assert!(PlayerService::is_valid_hackerboard_post_language("en"));
+        assert!(PlayerService::is_valid_hackerboard_post_language("pt-br"));
+        assert!(!PlayerService::is_valid_hackerboard_post_language("all"));
+    }
 
     #[tokio::test]
     async fn test_create_player() {

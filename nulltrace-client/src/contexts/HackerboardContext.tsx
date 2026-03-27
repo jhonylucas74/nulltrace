@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useMemo, useState, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "./AuthContext";
 
 export interface Hacker {
@@ -17,6 +18,8 @@ export interface Faction {
 
 export type FeedPostType = "hacked" | "mission" | "system" | "user";
 
+export type FeedPostLanguage = "en" | "pt-br";
+
 export interface FeedPost {
   id: string;
   type: FeedPostType;
@@ -27,6 +30,8 @@ export interface FeedPost {
   authorId?: string;
   replyToId?: string;
   likeCount?: number;
+  /** Present for server-backed and new user posts */
+  language?: FeedPostLanguage;
 }
 
 export type DMMessageType = "text" | "faction_invite";
@@ -82,142 +87,32 @@ const MOCK_FACTIONS: Faction[] = [
   { id: "f3", name: "Deep Signal", memberIds: ["h7", "h9", "h13"] },
 ];
 
-/** Build initial feed: few hacked (with penalty note), many user posts and replies. */
-function buildInitialFeed(hackers: Hacker[]): FeedPost[] {
-  const byPoints = [...hackers].sort((a, b) => b.points - a.points);
-  const posts: FeedPost[] = [];
-  let ts = Date.now() - 3600 * 1000 * 24 * 2;
-  const step = 1000 * 60 * 12;
-
-  // Hacked posts: attacker hacked victim; victim will be penalized and lose ranking positions
-  const hackedPairs: [Hacker, Hacker][] = [
-    [byPoints[2], byPoints[0]],
-    [byPoints[4], byPoints[1]],
-  ];
-  for (let i = 0; i < hackedPairs.length; i++) {
-    const [attacker, victim] = hackedPairs[i];
-    if (attacker && victim) {
-      posts.push({
-        id: `feed-hacked-${i + 1}`,
-        type: "hacked",
-        body: `${attacker.username} hacked ${victim.username}. ${victim.username} will be penalized and will lose positions in the ranking.`,
-        timestamp: ts,
-        hackerId: attacker.id,
-        targetId: victim.id,
-        likeCount: 0,
-      });
-      ts += step;
-    }
-  }
-
-  // System welcome
-  posts.push({
-    id: "feed-welcome",
-    type: "system",
-    body: "Welcome to Hackerboard. Complete missions to climb the ranks.",
-    timestamp: ts - 3600 * 1000 * 24 * 2,
-    likeCount: 0,
-  });
-  ts += step;
-
-  // User posts and conversation
-  const userPost1: FeedPost = {
-    id: "feed-user-1",
-    type: "user",
-    body: "Just cleared the mainframe mission. Rank #12 here I come.",
-    timestamp: ts,
-    authorId: "h12",
-    likeCount: 3,
+function mapApiEntryToFeedPost(p: {
+  id: string;
+  author_id: string;
+  author_username: string;
+  body: string;
+  language: string;
+  created_at_ms: number;
+  reply_to_id: string;
+  post_type: string;
+  like_count: number;
+  liked_by_me: boolean;
+}): FeedPost {
+  const pt = p.post_type as FeedPostType;
+  const type: FeedPostType =
+    pt === "system" || pt === "hacked" || pt === "mission" || pt === "user" ? pt : "user";
+  const lang = p.language === "pt-br" || p.language === "en" ? p.language : undefined;
+  return {
+    id: p.id,
+    type,
+    body: p.body,
+    timestamp: p.created_at_ms,
+    authorId: p.author_id,
+    replyToId: p.reply_to_id || undefined,
+    likeCount: p.like_count,
+    language: lang,
   };
-  posts.push(userPost1);
-  ts += step;
-
-  // Reply to user post 1 – clear example of a reply
-  posts.push({
-    id: "feed-reply-1",
-    type: "user",
-    body: "Nice one! I'm stuck on that one. Any tips?",
-    timestamp: ts,
-    authorId: "h7",
-    replyToId: "feed-user-1",
-    likeCount: 1,
-  });
-  ts += step;
-
-  posts.push({
-    id: "feed-reply-2",
-    type: "user",
-    body: "Same here, would love some hints.",
-    timestamp: ts,
-    authorId: "h9",
-    replyToId: "feed-user-1",
-    likeCount: 0,
-  });
-  ts += step;
-
-  posts.push({
-    id: "feed-user-2",
-    type: "user",
-    body: "Who's up for a raid tonight? Null Protocol assemble.",
-    timestamp: ts,
-    authorId: "h3",
-    likeCount: 5,
-  });
-  ts += step;
-
-  posts.push({
-    id: "feed-reply-3",
-    type: "user",
-    body: "I'm in. What time?",
-    timestamp: ts,
-    authorId: "h5",
-    replyToId: "feed-user-2",
-    likeCount: 2,
-  });
-  ts += step;
-
-  posts.push({
-    id: "feed-user-3",
-    type: "user",
-    body: "New exploit dropped. Check the boards.",
-    timestamp: ts,
-    authorId: "h1",
-    likeCount: 8,
-  });
-  ts += step;
-
-  posts.push({
-    id: "feed-reply-4",
-    type: "user",
-    body: "Already on it. This one's nasty.",
-    timestamp: ts,
-    authorId: "h2",
-    replyToId: "feed-user-3",
-    likeCount: 4,
-  });
-  ts += step;
-
-  posts.push({
-    id: "feed-user-4",
-    type: "user",
-    body: "Deep Signal looking for one more for the weekend op. DM me.",
-    timestamp: ts,
-    authorId: "h7",
-    likeCount: 2,
-  });
-  ts += step;
-
-  posts.push({
-    id: "feed-reply-5",
-    type: "user",
-    body: "Count me in. Need the points.",
-    timestamp: ts,
-    authorId: "h13",
-    replyToId: "feed-user-4",
-    likeCount: 0,
-  });
-
-  return posts.sort((a, b) => b.timestamp - a.timestamp);
 }
 
 /** Canonical conversation id for a pair of hackers. */
@@ -280,15 +175,28 @@ export interface FactionWithRank extends Faction {
   rank: number;
 }
 
+export type FeedLanguageFilter = "all" | FeedPostLanguage;
+
+function i18nLangToComposeDefault(lng: string): FeedPostLanguage {
+  return lng === "pt-br" || lng.startsWith("pt") ? "pt-br" : "en";
+}
+
 interface HackerboardContextValue {
   hackers: HackerWithRank[];
   factions: FactionWithRank[];
   feed: FeedPost[];
   userLikedPostIds: Set<string>;
+  feedLanguageFilter: FeedLanguageFilter;
+  setFeedLanguageFilter: (f: FeedLanguageFilter) => void;
+  composePostLanguage: FeedPostLanguage;
+  setComposePostLanguage: (l: FeedPostLanguage) => void;
+  feedLoading: boolean;
+  feedError: string | null;
+  refreshFeed: () => void;
   searchHackers: (query: string) => HackerWithRank[];
   searchFactions: (query: string) => FactionWithRank[];
-  addFeedPost: (post: Omit<FeedPost, "id" | "timestamp">) => void;
-  toggleLike: (postId: string) => void;
+  addFeedPost: (post: Omit<FeedPost, "id" | "timestamp"> & { language: FeedPostLanguage }) => Promise<void>;
+  toggleLike: (postId: string) => Promise<void>;
   getDmConversations: (currentUserId: string) => DmConversationItem[];
   getDmMessages: (conversationId: string) => DMMessage[];
   sendDm: (senderId: string, otherParticipantId: string, body: string) => void;
@@ -321,7 +229,19 @@ function computeFactionsWithRank(hackers: Hacker[], factions: Faction[]): Factio
 
 export function HackerboardProvider({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
-  const [feed, setFeed] = useState<FeedPost[]>(() => buildInitialFeed(MOCK_HACKERS));
+  const { i18n } = useTranslation("hackerboard");
+  const [feed, setFeed] = useState<FeedPost[]>([]);
+  const [feedLanguageFilter, setFeedLanguageFilterState] = useState<FeedLanguageFilter>("all");
+  const [composePostLanguage, setComposePostLanguageState] = useState<FeedPostLanguage>(() =>
+    i18nLangToComposeDefault(i18n.language)
+  );
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const feedFilterRef = useRef<FeedLanguageFilter>(feedLanguageFilter);
+  const composeRef = useRef<FeedPostLanguage>(composePostLanguage);
+  feedFilterRef.current = feedLanguageFilter;
+  composeRef.current = composePostLanguage;
+  const [feedLoading, setFeedLoading] = useState(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
   const [userLikedPostIds, setUserLikedPostIds] = useState<Set<string>>(new Set());
   const [dmConversations, setDmConversations] = useState<Record<string, DMMessage[]>>(buildInitialDmConversations);
   const [factionGroupMessages, setFactionGroupMessages] = useState<Record<string, FactionGroupMessage[]>>(
@@ -384,6 +304,139 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     fetchRanking();
   }, [fetchRanking, rankingRefreshTrigger]);
+
+  const schedulePersistHackerboardPrefs = useCallback(() => {
+    if (!token) return;
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      persistTimerRef.current = null;
+      const ff = feedFilterRef.current;
+      const pl = composeRef.current;
+      const feedStr = ff === "all" ? "all" : ff;
+      void invoke<{ success: boolean; error_message: string }>("grpc_set_hackerboard_language_preferences", {
+        token,
+        feedLanguageFilter: feedStr,
+        postLanguage: pl,
+      }).catch(() => {});
+    }, 300);
+  }, [token]);
+
+  const setFeedLanguageFilter = useCallback(
+    (f: FeedLanguageFilter) => {
+      feedFilterRef.current = f;
+      setFeedLanguageFilterState(f);
+      schedulePersistHackerboardPrefs();
+    },
+    [schedulePersistHackerboardPrefs]
+  );
+
+  const setComposePostLanguage = useCallback(
+    (l: FeedPostLanguage) => {
+      composeRef.current = l;
+      setComposePostLanguageState(l);
+      schedulePersistHackerboardPrefs();
+    },
+    [schedulePersistHackerboardPrefs]
+  );
+
+  useEffect(() => {
+    if (!token) {
+      setFeedLanguageFilterState("all");
+      setComposePostLanguageState(i18nLangToComposeDefault(i18n.language));
+    }
+  }, [token, i18n.language]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await invoke<{
+          error_message: string;
+          hackerboard_feed_language_filter?: string;
+          hackerboard_post_language?: string;
+        }>("grpc_get_player_profile", { token });
+        if (cancelled || res.error_message) return;
+        const ff = (res.hackerboard_feed_language_filter ?? "").trim();
+        if (ff === "all" || ff === "en" || ff === "pt-br") {
+          const next: FeedLanguageFilter = ff === "all" ? "all" : (ff as FeedPostLanguage);
+          feedFilterRef.current = next;
+          setFeedLanguageFilterState(next);
+        }
+        const pl = (res.hackerboard_post_language ?? "").trim();
+        if (pl === "en" || pl === "pt-br") {
+          composeRef.current = pl;
+          setComposePostLanguageState(pl);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const fetchFeed = useCallback(async () => {
+    if (!token) {
+      setFeed([]);
+      setUserLikedPostIds(new Set());
+      setFeedError(null);
+      setFeedLoading(false);
+      return;
+    }
+    setFeedLoading(true);
+    setFeedError(null);
+    try {
+      const language_filter = feedLanguageFilter === "all" ? "" : feedLanguageFilter;
+      const res = await invoke<{
+        posts: Array<{
+          id: string;
+          author_id: string;
+          author_username: string;
+          body: string;
+          language: string;
+          created_at_ms: number;
+          reply_to_id: string;
+          post_type: string;
+          like_count: number;
+          liked_by_me: boolean;
+        }>;
+        error_message: string;
+      }>("grpc_list_feed_posts", {
+        token,
+        languageFilter: language_filter,
+        limit: 100,
+      });
+      if (res.error_message) {
+        setFeed([]);
+        setUserLikedPostIds(new Set());
+        setFeedError(res.error_message);
+        return;
+      }
+      const mapped = res.posts.map((p) => mapApiEntryToFeedPost(p));
+      setFeed(mapped);
+      const liked = new Set<string>();
+      for (const p of res.posts) {
+        if (p.liked_by_me) liked.add(p.id);
+      }
+      setUserLikedPostIds(liked);
+    } catch {
+      setFeed([]);
+      setUserLikedPostIds(new Set());
+      setFeedError("Failed to load feed");
+    } finally {
+      setFeedLoading(false);
+    }
+  }, [token, feedLanguageFilter]);
+
+  useEffect(() => {
+    void fetchFeed();
+  }, [fetchFeed]);
+
+  const refreshFeed = useCallback(() => {
+    void fetchFeed();
+  }, [fetchFeed]);
 
   const hackers = useMemo(() => {
     const list = apiRanking?.hackers ?? MOCK_HACKERS;
@@ -518,33 +571,45 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
     });
   }, []);
 
-  const addFeedPost = useCallback((post: Omit<FeedPost, "id" | "timestamp">) => {
-    setFeed((prev) => [
-      {
-        ...post,
-        id: `feed-${Date.now()}`,
-        timestamp: Date.now(),
-        likeCount: 0,
-      },
-      ...prev,
-    ]);
-  }, []);
+  const addFeedPost = useCallback(
+    async (post: Omit<FeedPost, "id" | "timestamp"> & { language: FeedPostLanguage }) => {
+      if (!token) return;
+      const res = await invoke<{ post: unknown; error_message: string }>("grpc_create_feed_post", {
+        token,
+        body: post.body,
+        language: post.language,
+        replyToPostId: post.replyToId ?? "",
+      });
+      if (res.error_message) {
+        throw new Error(res.error_message);
+      }
+      await fetchFeed();
+    },
+    [token, fetchFeed]
+  );
 
-  const toggleLike = useCallback((postId: string) => {
-    setFeed((prev) =>
-      prev.map((p) => {
-        if (p.id !== postId) return p;
-        const liked = userLikedPostIds.has(postId);
-        return { ...p, likeCount: Math.max(0, (p.likeCount ?? 0) + (liked ? -1 : 1)) };
-      })
-    );
-    setUserLikedPostIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(postId)) next.delete(postId);
-      else next.add(postId);
-      return next;
-    });
-  }, [userLikedPostIds]);
+  const toggleLike = useCallback(
+    async (postId: string) => {
+      if (!token) return;
+      const res = await invoke<{ liked: boolean; like_count: number; error_message: string }>(
+        "grpc_toggle_feed_post_like",
+        { token, postId }
+      );
+      if (res.error_message) {
+        throw new Error(res.error_message);
+      }
+      setFeed((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, likeCount: res.like_count } : p))
+      );
+      setUserLikedPostIds((prev) => {
+        const next = new Set(prev);
+        if (res.liked) next.add(postId);
+        else next.delete(postId);
+        return next;
+      });
+    },
+    [token]
+  );
 
   const getDmConversations = useCallback(
     (currentUserId: string): DmConversationItem[] => {
@@ -621,6 +686,13 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       factions: factionsWithRank,
       feed,
       userLikedPostIds,
+      feedLanguageFilter,
+      setFeedLanguageFilter,
+      composePostLanguage,
+      setComposePostLanguage,
+      feedLoading,
+      feedError,
+      refreshFeed,
       searchHackers: (query: string) => {
         const q = query.trim().toLowerCase();
         if (!q) return hackers;
@@ -650,7 +722,14 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       factionsWithRank,
       feed,
       userLikedPostIds,
+      feedLanguageFilter,
+      composePostLanguage,
+      feedLoading,
+      feedError,
+      refreshFeed,
       addFeedPost,
+      setFeedLanguageFilter,
+      setComposePostLanguage,
       toggleLike,
       getDmConversations,
       getDmMessages,

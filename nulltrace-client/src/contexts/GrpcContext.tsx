@@ -28,6 +28,8 @@ export interface GetPlayerProfileResponse {
   preferred_theme: string;
   shortcuts_overrides: string;
   error_message: string;
+  hackerboard_feed_language_filter?: string;
+  hackerboard_post_language?: string;
 }
 
 export interface EmailMessage {

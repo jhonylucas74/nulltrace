@@ -8,8 +8,9 @@ use game::{
     LeaveFactionResponse, ListFsRequest, ListFsResponse, LoginRequest, LoginResponse,
     MovePathRequest, MovePathResponse, PingRequest, PingResponse, ProcessSpyClientMessage,
     ProcessSpyServerMessage,     RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest,
-    RenamePathResponse, RunProcessRequest, RunProcessResponse, RestoreDiskRequest, RestoreDiskResponse, SetPreferredThemeRequest,
-    SetPreferredThemeResponse, SetShortcutsRequest, SetShortcutsResponse, TerminalClientMessage,
+    RenamePathResponse, RunProcessRequest, RunProcessResponse, RestoreDiskRequest, RestoreDiskResponse,     SetPreferredThemeRequest,
+    SetPreferredThemeResponse, SetHackerboardLanguagePreferencesRequest,
+    SetHackerboardLanguagePreferencesResponse, SetShortcutsRequest, SetShortcutsResponse, TerminalClientMessage,
     TerminalServerMessage, WriteFileRequest, WriteFileResponse,
     ReadFileRequest, ReadFileResponse,
     EmptyTrashRequest, EmptyTrashResponse,
@@ -37,6 +38,8 @@ use game::{
     PayAccountBillRequest, PayAccountBillResponse,
     GetCodelabProgressRequest, GetCodelabProgressResponse,
     MarkCodelabSolvedRequest, MarkCodelabSolvedResponse,
+    CreateFeedPostRequest, CreateFeedPostResponse, ListFeedPostsRequest, ListFeedPostsResponse,
+    ToggleFeedPostLikeRequest, ToggleFeedPostLikeResponse,
 };
 use tonic::{Request, Response, Status, transport::Server};
 use tokio_stream::wrappers::ReceiverStream;
@@ -359,6 +362,8 @@ impl GameService for MyGameService {
             error_message: "Use the unified cluster binary for profile".to_string(),
             preferred_theme: String::new(),
             shortcuts_overrides: String::new(),
+            hackerboard_feed_language_filter: String::new(),
+            hackerboard_post_language: String::new(),
         }))
     }
 
@@ -382,6 +387,16 @@ impl GameService for MyGameService {
         }))
     }
 
+    async fn set_hackerboard_language_preferences(
+        &self,
+        _request: Request<SetHackerboardLanguagePreferencesRequest>,
+    ) -> Result<Response<SetHackerboardLanguagePreferencesResponse>, Status> {
+        Ok(Response::new(SetHackerboardLanguagePreferencesResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for Hackerboard preferences".to_string(),
+        }))
+    }
+
     async fn create_faction(
         &self,
         _request: Request<CreateFactionRequest>,
@@ -400,6 +415,37 @@ impl GameService for MyGameService {
         Ok(Response::new(LeaveFactionResponse {
             success: false,
             error_message: "Use the unified cluster binary for factions".to_string(),
+        }))
+    }
+
+    async fn list_feed_posts(
+        &self,
+        _request: Request<ListFeedPostsRequest>,
+    ) -> Result<Response<ListFeedPostsResponse>, Status> {
+        Ok(Response::new(ListFeedPostsResponse {
+            posts: vec![],
+            error_message: "Use the unified cluster binary for Hackerboard feed".to_string(),
+        }))
+    }
+
+    async fn create_feed_post(
+        &self,
+        _request: Request<CreateFeedPostRequest>,
+    ) -> Result<Response<CreateFeedPostResponse>, Status> {
+        Ok(Response::new(CreateFeedPostResponse {
+            post: None,
+            error_message: "Use the unified cluster binary for Hackerboard feed".to_string(),
+        }))
+    }
+
+    async fn toggle_feed_post_like(
+        &self,
+        _request: Request<ToggleFeedPostLikeRequest>,
+    ) -> Result<Response<ToggleFeedPostLikeResponse>, Status> {
+        Ok(Response::new(ToggleFeedPostLikeResponse {
+            liked: false,
+            like_count: 0,
+            error_message: "Use the unified cluster binary for Hackerboard feed".to_string(),
         }))
     }
 

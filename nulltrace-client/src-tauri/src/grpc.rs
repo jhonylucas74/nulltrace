@@ -15,13 +15,15 @@ use game::{
     GetPlayerProfileRequest, GetProcessListRequest, GetRankingRequest, GetSysinfoRequest,
     UpgradeVmRequest, InjectStdin, Interrupt, KillProcess, LeaveFactionRequest, ListFsRequest, LoginRequest,
     MovePathRequest, OpenCodeRun, OpenTerminal, PingRequest, ProcessListSnapshot, ProcessSpyClientMessage,
-    ProcessSpyOpened, RenamePathRequest, RestoreDiskRequest, RunProcessRequest, SetPreferredThemeRequest,
+    ProcessSpyOpened, RenamePathRequest, RestoreDiskRequest, RunProcessRequest,     SetPreferredThemeRequest,
+    SetHackerboardLanguagePreferencesRequest,
     SetShortcutsRequest, SpawnLuaScript, StdinData, SubscribePid, TerminalClientMessage,
     TerminalOpened, UnsubscribePid, WriteFileRequest, ReadFileRequest, EmptyTrashRequest,
     GetInstalledStoreAppsRequest, InstallStoreAppRequest, UninstallStoreAppRequest,
     GetWalletBalancesRequest, GetWalletTransactionsRequest, GetWalletKeysRequest,
     TransferFundsRequest, ResolveTransferKeyRequest, ConvertFundsRequest, GetWalletCardsRequest, CreateWalletCardRequest,
     DeleteWalletCardRequest, GetCardTransactionsRequest, GetCardStatementRequest,     PayCardBillRequest, PayAccountBillRequest,
+    CreateFeedPostRequest, ListFeedPostsRequest, ToggleFeedPostLikeRequest,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -463,6 +465,8 @@ pub struct GetPlayerProfileCommandResponse {
     pub error_message: String,
     pub preferred_theme: String,
     pub shortcuts_overrides: String,
+    pub hackerboard_feed_language_filter: String,
+    pub hackerboard_post_language: String,
 }
 
 /// Tauri command: Get current player profile (rank, points, faction).
@@ -497,6 +501,52 @@ pub async fn grpc_get_player_profile(token: String) -> Result<GetPlayerProfileCo
         error_message: response.error_message,
         preferred_theme: response.preferred_theme,
         shortcuts_overrides: response.shortcuts_overrides,
+        hackerboard_feed_language_filter: response.hackerboard_feed_language_filter,
+        hackerboard_post_language: response.hackerboard_post_language,
+    })
+}
+
+/// Response for grpc_set_hackerboard_language_preferences command.
+#[derive(serde::Serialize)]
+pub struct SetHackerboardLanguagePreferencesCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Persist Hackerboard feed filter and post language (authenticated).
+#[tauri::command]
+pub async fn grpc_set_hackerboard_language_preferences(
+    token: String,
+    feed_language_filter: String,
+    post_language: String,
+) -> Result<SetHackerboardLanguagePreferencesCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(SetHackerboardLanguagePreferencesRequest {
+        feed_language_filter,
+        post_language,
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .set_hackerboard_language_preferences(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(SetHackerboardLanguagePreferencesCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
     })
 }
 
@@ -654,6 +704,177 @@ pub async fn grpc_leave_faction(token: String) -> Result<LeaveFactionCommandResp
         .into_inner();
     Ok(LeaveFactionCommandResponse {
         success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+/// Single Hackerboard feed post (matches proto FeedPostEntry).
+#[derive(serde::Serialize)]
+pub struct FeedPostEntryResponse {
+    pub id: String,
+    pub author_id: String,
+    pub author_username: String,
+    pub body: String,
+    pub language: String,
+    pub created_at_ms: i64,
+    pub reply_to_id: String,
+    pub post_type: String,
+    pub like_count: i32,
+    pub liked_by_me: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct ListFeedPostsCommandResponse {
+    pub posts: Vec<FeedPostEntryResponse>,
+    pub error_message: String,
+}
+
+/// Tauri command: List Hackerboard feed posts (authenticated).
+#[tauri::command]
+pub async fn grpc_list_feed_posts(
+    token: String,
+    language_filter: String,
+    limit: i32,
+) -> Result<ListFeedPostsCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(ListFeedPostsRequest {
+        language_filter,
+        limit,
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .list_feed_posts(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(ListFeedPostsCommandResponse {
+        posts: response
+            .posts
+            .into_iter()
+            .map(|p| FeedPostEntryResponse {
+                id: p.id,
+                author_id: p.author_id,
+                author_username: p.author_username,
+                body: p.body,
+                language: p.language,
+                created_at_ms: p.created_at_ms,
+                reply_to_id: p.reply_to_id,
+                post_type: p.post_type,
+                like_count: p.like_count,
+                liked_by_me: p.liked_by_me,
+            })
+            .collect(),
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct CreateFeedPostCommandResponse {
+    pub post: Option<FeedPostEntryResponse>,
+    pub error_message: String,
+}
+
+/// Tauri command: Create Hackerboard feed post or reply (authenticated).
+#[tauri::command]
+pub async fn grpc_create_feed_post(
+    token: String,
+    body: String,
+    language: String,
+    reply_to_post_id: String,
+) -> Result<CreateFeedPostCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(CreateFeedPostRequest {
+        body,
+        language,
+        reply_to_post_id,
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .create_feed_post(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    let post = response.post.map(|p| FeedPostEntryResponse {
+        id: p.id,
+        author_id: p.author_id,
+        author_username: p.author_username,
+        body: p.body,
+        language: p.language,
+        created_at_ms: p.created_at_ms,
+        reply_to_id: p.reply_to_id,
+        post_type: p.post_type,
+        like_count: p.like_count,
+        liked_by_me: p.liked_by_me,
+    });
+    Ok(CreateFeedPostCommandResponse {
+        post,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct ToggleFeedPostLikeCommandResponse {
+    pub liked: bool,
+    pub like_count: i32,
+    pub error_message: String,
+}
+
+/// Tauri command: Toggle like on a Hackerboard feed post (authenticated).
+#[tauri::command]
+pub async fn grpc_toggle_feed_post_like(
+    token: String,
+    post_id: String,
+) -> Result<ToggleFeedPostLikeCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(ToggleFeedPostLikeRequest { post_id });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .toggle_feed_post_like(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(ToggleFeedPostLikeCommandResponse {
+        liked: response.liked,
+        like_count: response.like_count,
         error_message: response.error_message,
     })
 }

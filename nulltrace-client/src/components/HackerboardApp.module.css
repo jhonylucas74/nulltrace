@@ -112,6 +112,198 @@
   color: var(--text-primary);
 }
 
+.feedHeaderSpacer {
+  flex: 1;
+  min-width: 4px;
+}
+
+.feedLangMenuWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.feedLangMenuBtn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.feedLangMenuBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.feedLangMenuBtnOpen {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.feedLangMenuBadge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-primary);
+}
+
+.feedLangMenuPanel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 168px;
+  padding: 0.25rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+}
+
+.feedLangMenuOption {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.feedLangMenuOption:hover {
+  background: var(--bg-tertiary);
+}
+
+.feedLangMenuOptionActive {
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.threadReplyLangRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.composeLangInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  cursor: pointer;
+}
+
+.composeLangInlineLabel {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.composeLangSelectCompact {
+  min-width: 5.5rem;
+  max-width: 9rem;
+  padding: 0.3rem 1.35rem 0.3rem 0.4rem;
+  font-size: 0.78rem;
+  font-family: inherit;
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236c7086' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.35rem center;
+  background-size: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 4px);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.composeLangSelectCompact:hover {
+  border-color: var(--text-muted);
+}
+
+.composeLangSelectCompact:focus {
+  border-color: var(--accent);
+}
+
+.composeLangSelectCompact option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.postLangBadge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+.loadingFeed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2rem;
+  color: var(--text-muted);
+}
+
+.loadingFeedText {
+  font-size: 0.85rem;
+}
+
+.loadingFeedSpinner {
+  animation: feedSpin 1s linear infinite;
+  color: var(--text-muted);
+}
+
+@keyframes feedSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.feedError {
+  color: var(--term-red, #ff5555);
+  font-size: 0.85rem;
+  padding: 0.5rem 0;
+}
+
+.feedErrorInfo {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  padding: 0.5rem 0;
+  color: var(--text-secondary);
+}
+
 /* Compose box (X/Bluesky style) */
 .compose {
   margin-bottom: 1rem;
@@ -170,7 +362,10 @@
 
 .composeActions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
+  gap: 0.6rem;
 }
 
 .composeBtn {
