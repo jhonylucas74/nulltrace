@@ -11,9 +11,11 @@ use game::terminal_client_message::Msg as TerminalClientMsg;
 use game::terminal_server_message::Msg as TerminalServerMsg;
 use game::run_process_response::Msg as RunProcessResponseMsg;
 use game::{
-    CopyPathRequest, CreateFolderRequest, CreateFactionRequest, GetDiskUsageRequest, GetHomePathRequest,
+    AcceptFactionInviteRequest, CopyPathRequest, CreateFolderRequest, CreateFactionRequest,
+    DeclineFactionInviteRequest, GetDiskUsageRequest, GetHomePathRequest,
     GetPlayerProfileRequest, GetProcessListRequest, GetRankingRequest, GetSysinfoRequest,
-    UpgradeVmRequest, InjectStdin, Interrupt, KillProcess, LeaveFactionRequest, ListFsRequest, LoginRequest,
+    UpgradeVmRequest, InjectStdin, Interrupt, KillProcess, LeaveFactionRequest, ListFactionInvitesRequest,
+    ListFsRequest, LoginRequest,
     MovePathRequest, OpenCodeRun, OpenTerminal, PingRequest, ProcessListSnapshot, ProcessSpyClientMessage,
     ProcessSpyOpened, RenamePathRequest, RestoreDiskRequest, RunProcessRequest,     SetPreferredThemeRequest,
     SetHackerboardLanguagePreferencesRequest,
@@ -24,6 +26,12 @@ use game::{
     TransferFundsRequest, ResolveTransferKeyRequest, ConvertFundsRequest, GetWalletCardsRequest, CreateWalletCardRequest,
     DeleteWalletCardRequest, GetCardTransactionsRequest, GetCardStatementRequest,     PayCardBillRequest, PayAccountBillRequest,
     CreateFeedPostRequest, ListFeedPostsRequest, ToggleFeedPostLikeRequest,
+    SendFactionInviteRequest,
+    ListOutgoingFactionInvitesRequest, CancelFactionInviteRequest,
+    BlockHackerboardPlayerRequest, UnblockHackerboardPlayerRequest, ListBlockedPlayersRequest,
+    ListHackerboardDmMessagesRequest, ListHackerboardDmThreadsRequest,
+    ListHackerboardFactionMessagesRequest, SendHackerboardDmRequest,
+    SendHackerboardFactionMessageRequest,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -405,6 +413,8 @@ pub struct RankingEntryResponse {
     pub points: i32,
     pub faction_id: String,
     pub faction_name: String,
+    pub faction_creator_id: String,
+    pub faction_allow_member_invites: bool,
 }
 
 /// Response for grpc_get_ranking command.
@@ -449,6 +459,8 @@ pub async fn grpc_get_ranking(token: String) -> Result<GetRankingCommandResponse
                 points: e.points,
                 faction_id: e.faction_id,
                 faction_name: e.faction_name,
+                faction_creator_id: e.faction_creator_id,
+                faction_allow_member_invites: e.faction_allow_member_invites,
             })
             .collect(),
         error_message: response.error_message,
@@ -704,6 +716,656 @@ pub async fn grpc_leave_faction(token: String) -> Result<LeaveFactionCommandResp
         .into_inner();
     Ok(LeaveFactionCommandResponse {
         success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+/// Response for grpc_send_faction_invite command.
+#[derive(serde::Serialize)]
+pub struct SendFactionInviteCommandResponse {
+    pub invite_id: String,
+    pub error_message: String,
+}
+
+/// Tauri command: Send a faction invite by target username (authenticated).
+#[tauri::command]
+pub async fn grpc_send_faction_invite(
+    target_username: String,
+    token: String,
+) -> Result<SendFactionInviteCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(SendFactionInviteRequest { target_username });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .send_faction_invite(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(SendFactionInviteCommandResponse {
+        invite_id: response.invite_id,
+        error_message: response.error_message,
+    })
+}
+
+/// One incoming faction invite (matches proto FactionInviteEntry).
+#[derive(serde::Serialize)]
+pub struct FactionInviteEntryResponse {
+    pub invite_id: String,
+    pub faction_id: String,
+    pub faction_name: String,
+    pub from_username: String,
+    pub created_at_ms: i64,
+}
+
+/// Response for grpc_list_faction_invites command.
+#[derive(serde::Serialize)]
+pub struct ListFactionInvitesCommandResponse {
+    pub invites: Vec<FactionInviteEntryResponse>,
+    pub error_message: String,
+}
+
+/// Tauri command: List pending faction invites for the current player (authenticated).
+#[tauri::command]
+pub async fn grpc_list_faction_invites(token: String) -> Result<ListFactionInvitesCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(ListFactionInvitesRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .list_faction_invites(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    let invites = response
+        .invites
+        .into_iter()
+        .map(|e| FactionInviteEntryResponse {
+            invite_id: e.invite_id,
+            faction_id: e.faction_id,
+            faction_name: e.faction_name,
+            from_username: e.from_username,
+            created_at_ms: e.created_at_ms,
+        })
+        .collect();
+    Ok(ListFactionInvitesCommandResponse {
+        invites,
+        error_message: response.error_message,
+    })
+}
+
+/// Response for grpc_accept_faction_invite command.
+#[derive(serde::Serialize)]
+pub struct AcceptFactionInviteCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Accept a faction invite (authenticated).
+#[tauri::command]
+pub async fn grpc_accept_faction_invite(
+    invite_id: String,
+    token: String,
+) -> Result<AcceptFactionInviteCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(AcceptFactionInviteRequest { invite_id });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .accept_faction_invite(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(AcceptFactionInviteCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+/// Response for grpc_decline_faction_invite command.
+#[derive(serde::Serialize)]
+pub struct DeclineFactionInviteCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri command: Decline a faction invite (authenticated).
+#[tauri::command]
+pub async fn grpc_decline_faction_invite(
+    invite_id: String,
+    token: String,
+) -> Result<DeclineFactionInviteCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(DeclineFactionInviteRequest { invite_id });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .decline_faction_invite(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(DeclineFactionInviteCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct OutgoingFactionInviteEntryResponse {
+    pub invite_id: String,
+    pub to_username: String,
+    pub from_username: String,
+    pub from_player_id: String,
+    pub created_at_ms: i64,
+}
+
+#[derive(serde::Serialize)]
+pub struct ListOutgoingFactionInvitesCommandResponse {
+    pub invites: Vec<OutgoingFactionInviteEntryResponse>,
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_list_outgoing_faction_invites(
+    token: String,
+) -> Result<ListOutgoingFactionInvitesCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(ListOutgoingFactionInvitesRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .list_outgoing_faction_invites(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    let invites = response
+        .invites
+        .into_iter()
+        .map(|e| OutgoingFactionInviteEntryResponse {
+            invite_id: e.invite_id,
+            to_username: e.to_username,
+            from_username: e.from_username,
+            from_player_id: e.from_player_id,
+            created_at_ms: e.created_at_ms,
+        })
+        .collect();
+    Ok(ListOutgoingFactionInvitesCommandResponse {
+        invites,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct CancelFactionInviteCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_cancel_faction_invite(
+    invite_id: String,
+    token: String,
+) -> Result<CancelFactionInviteCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(CancelFactionInviteRequest { invite_id });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .cancel_faction_invite(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(CancelFactionInviteCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct BlockHackerboardPlayerCommandResponse {
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_block_hackerboard_player(
+    target_username: String,
+    token: String,
+) -> Result<BlockHackerboardPlayerCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(BlockHackerboardPlayerRequest { target_username });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .block_hackerboard_player(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(BlockHackerboardPlayerCommandResponse {
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct UnblockHackerboardPlayerCommandResponse {
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_unblock_hackerboard_player(
+    target_username: String,
+    token: String,
+) -> Result<UnblockHackerboardPlayerCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(UnblockHackerboardPlayerRequest { target_username });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .unblock_hackerboard_player(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(UnblockHackerboardPlayerCommandResponse {
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct BlockedPlayerEntryResponse {
+    pub player_id: String,
+    pub username: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct ListBlockedPlayersCommandResponse {
+    pub blocked: Vec<BlockedPlayerEntryResponse>,
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_list_blocked_players(
+    token: String,
+) -> Result<ListBlockedPlayersCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(ListBlockedPlayersRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .list_blocked_players(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    let blocked = response
+        .blocked
+        .into_iter()
+        .map(|e| BlockedPlayerEntryResponse {
+            player_id: e.player_id,
+            username: e.username,
+        })
+        .collect();
+    Ok(ListBlockedPlayersCommandResponse {
+        blocked,
+        error_message: response.error_message,
+    })
+}
+
+// ── Hackerboard DMs + faction chat (Phase 2) ─────────────────────────────────
+
+#[derive(serde::Serialize)]
+pub struct HackerboardDmThreadEntryResponse {
+    pub peer_player_id: String,
+    pub peer_username: String,
+    pub last_message_id: String,
+    pub last_body: String,
+    pub last_created_at_ms: i64,
+}
+
+#[derive(serde::Serialize)]
+pub struct ListHackerboardDmThreadsCommandResponse {
+    pub threads: Vec<HackerboardDmThreadEntryResponse>,
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_list_hackerboard_dm_threads(
+    token: String,
+    limit: i32,
+) -> Result<ListHackerboardDmThreadsCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut request = tonic::Request::new(ListHackerboardDmThreadsRequest { limit });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+    let response = client
+        .list_hackerboard_dm_threads(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    let threads = response
+        .threads
+        .into_iter()
+        .map(|t| HackerboardDmThreadEntryResponse {
+            peer_player_id: t.peer_player_id,
+            peer_username: t.peer_username,
+            last_message_id: t.last_message_id,
+            last_body: t.last_body,
+            last_created_at_ms: t.last_created_at_ms,
+        })
+        .collect();
+    Ok(ListHackerboardDmThreadsCommandResponse {
+        threads,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct HackerboardDmMessageEntryResponse {
+    pub id: String,
+    pub from_player_id: String,
+    pub body: String,
+    pub created_at_ms: i64,
+}
+
+#[derive(serde::Serialize)]
+pub struct ListHackerboardDmMessagesCommandResponse {
+    pub messages: Vec<HackerboardDmMessageEntryResponse>,
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_list_hackerboard_dm_messages(
+    token: String,
+    peer_username: String,
+    before_message_id: String,
+    limit: i32,
+) -> Result<ListHackerboardDmMessagesCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut request = tonic::Request::new(ListHackerboardDmMessagesRequest {
+        peer_username,
+        before_message_id,
+        limit,
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+    let response = client
+        .list_hackerboard_dm_messages(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    let messages = response
+        .messages
+        .into_iter()
+        .map(|m| HackerboardDmMessageEntryResponse {
+            id: m.id,
+            from_player_id: m.from_player_id,
+            body: m.body,
+            created_at_ms: m.created_at_ms,
+        })
+        .collect();
+    Ok(ListHackerboardDmMessagesCommandResponse {
+        messages,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct SendHackerboardDmCommandResponse {
+    pub message_id: String,
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_send_hackerboard_dm(
+    token: String,
+    target_username: String,
+    body: String,
+) -> Result<SendHackerboardDmCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut request = tonic::Request::new(SendHackerboardDmRequest {
+        target_username,
+        body,
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+    let response = client
+        .send_hackerboard_dm(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(SendHackerboardDmCommandResponse {
+        message_id: response.message_id,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct HackerboardFactionMessageEntryResponse {
+    pub id: String,
+    pub from_player_id: String,
+    pub from_username: String,
+    pub body: String,
+    pub created_at_ms: i64,
+}
+
+#[derive(serde::Serialize)]
+pub struct ListHackerboardFactionMessagesCommandResponse {
+    pub messages: Vec<HackerboardFactionMessageEntryResponse>,
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_list_hackerboard_faction_messages(
+    token: String,
+    before_message_id: String,
+    limit: i32,
+) -> Result<ListHackerboardFactionMessagesCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut request = tonic::Request::new(ListHackerboardFactionMessagesRequest {
+        before_message_id,
+        limit,
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+    let response = client
+        .list_hackerboard_faction_messages(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    let messages = response
+        .messages
+        .into_iter()
+        .map(|m| HackerboardFactionMessageEntryResponse {
+            id: m.id,
+            from_player_id: m.from_player_id,
+            from_username: m.from_username,
+            body: m.body,
+            created_at_ms: m.created_at_ms,
+        })
+        .collect();
+    Ok(ListHackerboardFactionMessagesCommandResponse {
+        messages,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct SendHackerboardFactionMessageCommandResponse {
+    pub message_id: String,
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_send_hackerboard_faction_message(
+    token: String,
+    body: String,
+) -> Result<SendHackerboardFactionMessageCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut request = tonic::Request::new(SendHackerboardFactionMessageRequest { body });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+    let response = client
+        .send_hackerboard_faction_message(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(SendHackerboardFactionMessageCommandResponse {
+        message_id: response.message_id,
         error_message: response.error_message,
     })
 }

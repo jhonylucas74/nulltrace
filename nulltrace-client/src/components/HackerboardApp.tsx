@@ -17,6 +17,7 @@ import {
   Globe,
   RotateCw,
   ShieldAlert,
+  UserX,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import {
@@ -32,8 +33,13 @@ import styles from "./HackerboardApp.module.css";
 type Section = "feed" | "rankings" | "messages" | "group" | "profile";
 type RankTab = "hackers" | "factions";
 
+/** Synthetic "other participant" id for the server-backed faction invites pane. */
+const SERVER_FACTION_INVITES_PANEL_ID = "__server_faction_invites__";
+
 /** Matches non-cluster server stub (`nulltrace-core/src/server/main.rs`). */
 const FEED_CLUSTER_STUB_ERROR = "Use the unified cluster binary for Hackerboard feed";
+
+const RANKING_CLUSTER_STUB_ERROR = "Use the unified cluster binary for ranking";
 
 const REPORT_REASON_VALUES = ["spam", "harassment", "hate_or_abuse", "other"] as const;
 
@@ -53,6 +59,78 @@ function resolveFeedErrorDisplay(
     return { message: t("feedError"), tone: "error" };
   }
   return { message: feedError, tone: "error" };
+}
+
+function resolveRankingErrorDisplay(
+  rankingError: string | null,
+  t: (key: string) => string
+): { message: string; tone: "error" | "info" } | null {
+  if (!rankingError) return null;
+  if (rankingError === RANKING_CLUSTER_STUB_ERROR) {
+    return { message: t("rankingClusterRequired"), tone: "info" };
+  }
+  if (rankingError === "__ranking_network__") {
+    return { message: t("rankingNetworkError"), tone: "error" };
+  }
+  return { message: rankingError, tone: "error" };
+}
+
+/** Map server / client error tokens to `hackerboard` i18n keys. */
+function mapHackerboardMessagingError(raw: string | undefined, t: (key: string) => string): string {
+  if (!raw) return t("messagingSendFailed");
+  if (raw === "__peer_unavailable__") return t("dmErrorPeerUnavailable");
+  if (raw === "__network__") return t("messagingNetworkError");
+  if (raw === "__dm_blocked__") return t("dmErrorBlocked");
+  const keys: Record<string, string> = {
+    "Player not found": "dmErrorPlayerNotFound",
+    "Cannot message yourself": "dmErrorSelf",
+    "Message is empty": "messagingEmptyBody",
+    "You are not in a faction": "factionChatErrorNotInFaction",
+  };
+  const key = keys[raw];
+  if (key) return t(key);
+  if (raw.startsWith("Message exceeds")) return t("messagingBodyTooLong");
+  return t("messagingSendFailed");
+}
+
+function mapFactionInviteUiError(raw: string | undefined, t: (key: string) => string): string {
+  if (!raw) return t("inviteSendFailed");
+  if (raw === "__invite_username_empty__") return t("inviteUsernameRequired");
+  if (raw === "__network__") return t("messagingNetworkError");
+  const keys: Record<string, string> = {
+    "Player not found": "dmErrorPlayerNotFound",
+    "You are not in a faction": "factionChatErrorNotInFaction",
+    "Username is required": "inviteUsernameRequired",
+    "Cannot invite yourself": "inviteErrorSelf",
+    "Only the faction creator can send invites": "inviteErrorCreatorOnly",
+    "Player is already in a faction": "inviteErrorTargetInFaction",
+    "An invite to this player for this faction is already pending": "inviteErrorAlreadyPending",
+    "Inviter not found": "inviteSendFailed",
+    "You are not a member of that faction": "inviteSendFailed",
+    "Faction not found": "inviteSendFailed",
+    "Not allowed to cancel this invite": "cancelInviteNotAllowed",
+    "Invite is not pending": "cancelInviteNotPending",
+    "Invite not found": "cancelInviteNotFound",
+    "Invalid invite id": "cancelInviteInvalidId",
+  };
+  const key = keys[raw];
+  if (key) return t(key);
+  return raw;
+}
+
+function mapBlockActionError(raw: string | undefined, t: (key: string) => string): string {
+  if (!raw) return t("blockActionFailed");
+  if (raw === "__network__") return t("messagingNetworkError");
+  const keys: Record<string, string> = {
+    "Username is required": "inviteUsernameRequired",
+    "Player not found": "dmErrorPlayerNotFound",
+    "Cannot block yourself": "blockErrorSelf",
+    "Not blocked": "unblockErrorNotBlocked",
+    "Not signed in": "signInMessages",
+  };
+  const key = keys[raw];
+  if (key) return t(key);
+  return raw;
 }
 
 function formatTime(ts: number): string {
@@ -79,6 +157,7 @@ function getAuthorHandle(
 }
 
 function CreateFactionForm({ onCreate }: { onCreate: (name: string) => void }) {
+  const { t } = useTranslation("hackerboard");
   const [name, setName] = useState("");
   return (
     <form
@@ -95,13 +174,13 @@ function CreateFactionForm({ onCreate }: { onCreate: (name: string) => void }) {
       <input
         type="text"
         className={styles.createFactionInput}
-        placeholder="Faction name"
+        placeholder={t("createFactionNamePlaceholder")}
         value={name}
         onChange={(e) => setName(e.target.value)}
-        aria-label="Faction name"
+        aria-label={t("createFactionNameAria")}
       />
       <button type="submit" className={styles.createFactionBtn} disabled={!name.trim()}>
-        Create
+        {t("createFactionSubmit")}
       </button>
     </form>
   );
@@ -118,8 +197,22 @@ function GroupWithFaction({
   groupMessageText,
   setGroupMessageText,
   onSendGroupMessage,
-  onInviteMember,
   onLeaveFaction,
+  inviteFeedback,
+  groupSendError,
+  showLoadOlderMessages,
+  onLoadOlderMessages,
+  loadOlderMessagesPending,
+  loadOlderMessagesLabel,
+  loadingOlderMessagesLabel,
+  inviteUsername,
+  setInviteUsername,
+  onSubmitUsernameInvite,
+  usernameInvitePending,
+  outgoingInvites,
+  onCancelOutgoingInvite,
+  cancelOutgoingBusyId,
+  clusterRankingActive,
 }: {
   currentUserHacker: { id: string };
   currentUserFaction: FactionWithRank;
@@ -129,35 +222,75 @@ function GroupWithFaction({
   groupMessageText: string;
   setGroupMessageText: (v: string) => void;
   onSendGroupMessage: (e: React.FormEvent) => void;
-  onInviteMember: (userId: string) => void;
   onLeaveFaction: () => void;
+  inviteFeedback?: string | null;
+  groupSendError?: string | null;
+  showLoadOlderMessages?: boolean;
+  onLoadOlderMessages?: () => void;
+  loadOlderMessagesPending?: boolean;
+  loadOlderMessagesLabel?: string;
+  loadingOlderMessagesLabel?: string;
+  inviteUsername: string;
+  setInviteUsername: (v: string) => void;
+  onSubmitUsernameInvite: (e: React.FormEvent) => void;
+  usernameInvitePending: boolean;
+  outgoingInvites: Array<{
+    inviteId: string;
+    toUsername: string;
+    fromUsername: string;
+    createdAtMs: number;
+  }>;
+  onCancelOutgoingInvite: (inviteId: string) => void | Promise<void>;
+  cancelOutgoingBusyId: string | null;
+  clusterRankingActive: boolean;
 }) {
+  const { t } = useTranslation("hackerboard");
   const [groupTab, setGroupTab] = useState<GroupTab>("chat");
-  const [showInvitePicker, setShowInvitePicker] = useState(false);
   const [leaveConfirm, setLeaveConfirm] = useState(false);
-  const inviteCandidates = hackers.filter((h) => !currentUserFaction.memberIds.includes(h.id));
 
   return (
     <>
       <div className={styles.groupTitle}>{currentUserFaction.name}</div>
+      <p className={styles.factionSummary} aria-live="polite">
+        {t("factionSummaryStats", {
+          rank: currentUserFaction.rank,
+          count: currentUserFaction.memberIds.length,
+          points: currentUserFaction.totalPoints.toLocaleString(),
+        })}
+      </p>
       <div className={styles.groupTabs}>
         <button
           type="button"
           className={groupTab === "chat" ? styles.groupTabActive : styles.groupTab}
           onClick={() => setGroupTab("chat")}
         >
-          Chat
+          {t("factionTabChat")}
         </button>
         <button
           type="button"
           className={groupTab === "members" ? styles.groupTabActive : styles.groupTab}
           onClick={() => setGroupTab("members")}
         >
-          Members
+          {t("factionTabMembers")}
         </button>
       </div>
       {groupTab === "chat" && (
         <>
+          {groupSendError ? <p className={styles.inviteFeedbackError}>{groupSendError}</p> : null}
+          {showLoadOlderMessages && onLoadOlderMessages ? (
+            <div className={styles.loadOlderRow}>
+              <button
+                type="button"
+                className={styles.loadOlderBtn}
+                onClick={onLoadOlderMessages}
+                disabled={loadOlderMessagesPending}
+              >
+                {loadOlderMessagesPending
+                  ? (loadingOlderMessagesLabel ?? "…")
+                  : (loadOlderMessagesLabel ?? "Load older")}
+              </button>
+            </div>
+          ) : null}
           <div className={styles.groupMessageList} ref={groupMessageListRef as React.LegacyRef<HTMLDivElement>}>
             {currentUserFactionGroupMessages.map((msg) => {
               const senderName = hackers.find((h) => h.id === msg.senderId)?.username ?? msg.senderId;
@@ -178,48 +311,65 @@ function GroupWithFaction({
             <input
               type="text"
               className={styles.messageInput}
-              placeholder="Message the group..."
+              placeholder={t("groupChatPlaceholder")}
               value={groupMessageText}
               onChange={(e) => setGroupMessageText(e.target.value)}
-              aria-label="Group message"
+              aria-label={t("groupChatAria")}
             />
             <button type="submit" className={styles.messageSendBtn} disabled={!groupMessageText.trim()}>
-              Send
+              {t("factionChatSend")}
             </button>
           </form>
         </>
       )}
       {groupTab === "members" && (
         <div className={styles.membersArea}>
-          <h3 className={styles.membersSectionTitle}>Invite member</h3>
-          {showInvitePicker ? (
-            <ul className={styles.invitePickerList}>
-              {inviteCandidates.map((h) => (
-                <li key={h.id}>
-                  <button
-                    type="button"
-                    className={styles.invitePickerItem}
-                    onClick={() => {
-                      onInviteMember(h.id);
-                      setShowInvitePicker(false);
-                    }}
-                  >
-                    {h.username}
-                  </button>
-                </li>
-              ))}
-              {inviteCandidates.length === 0 && <p className={styles.emptyState}>No hackers to invite.</p>}
-              <button type="button" className={styles.invitePickerCancel} onClick={() => setShowInvitePicker(false)}>
-                Cancel
-              </button>
-            </ul>
-          ) : (
-            <button type="button" className={styles.inviteMemberBtn} onClick={() => setShowInvitePicker(true)}>
-              Invite member
+          <h3 className={styles.membersSectionTitle}>{t("inviteByUsernameTitle")}</h3>
+          {inviteFeedback ? <p className={styles.inviteFeedbackError}>{inviteFeedback}</p> : null}
+          <form className={styles.usernameInviteForm} onSubmit={onSubmitUsernameInvite}>
+            <input
+              type="text"
+              className={styles.usernameInviteInput}
+              placeholder={t("inviteUsernamePlaceholder")}
+              value={inviteUsername}
+              onChange={(e) => setInviteUsername(e.target.value)}
+              autoComplete="off"
+              aria-label={t("inviteUsernameAria")}
+              disabled={usernameInvitePending}
+            />
+            <button type="submit" className={styles.inviteMemberBtn} disabled={usernameInvitePending || !inviteUsername.trim()}>
+              {t("sendInvite")}
             </button>
-          )}
+          </form>
+          {clusterRankingActive ? (
+            <>
+              <h3 className={styles.membersSectionTitle}>{t("outgoingInvitesTitle")}</h3>
+              {outgoingInvites.length === 0 ? (
+                <p className={styles.emptyState}>{t("outgoingInvitesEmpty")}</p>
+              ) : (
+                <ul className={styles.outgoingInviteList}>
+                  {outgoingInvites.map((inv) => (
+                    <li key={inv.inviteId} className={styles.outgoingInviteRow}>
+                      <span className={styles.outgoingInviteMeta}>
+                        {t("outgoingInviteRow", { user: inv.toUsername, from: inv.fromUsername })}
+                      </span>
+                      <button
+                        type="button"
+                        className={styles.outgoingInviteCancelBtn}
+                        onClick={() => void onCancelOutgoingInvite(inv.inviteId)}
+                        disabled={cancelOutgoingBusyId === inv.inviteId}
+                      >
+                        {t("cancelInvite")}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : null}
           <h3 className={styles.membersSectionTitle}>
-            Members {currentUserFaction.memberIds.length > 0 && `(${currentUserFaction.memberIds.length})`}
+            {t("membersTitle")}{" "}
+            {currentUserFaction.memberIds.length > 0 ? `(${currentUserFaction.memberIds.length})` : ""}
           </h3>
           <ul className={styles.memberList}>
             {currentUserFaction.memberIds.map((id) => {
@@ -230,17 +380,17 @@ function GroupWithFaction({
           <div className={styles.leaveFactionWrap}>
             {leaveConfirm ? (
               <>
-                <span className={styles.leaveConfirmText}>Leave this faction?</span>
+                <span className={styles.leaveConfirmText}>{t("leaveFactionConfirm")}</span>
                 <button type="button" className={styles.leaveConfirmBtn} onClick={() => { onLeaveFaction(); setLeaveConfirm(false); }}>
-                  Yes, leave
+                  {t("leaveFactionYes")}
                 </button>
                 <button type="button" className={styles.leaveCancelBtn} onClick={() => setLeaveConfirm(false)}>
-                  Cancel
+                  {t("leaveFactionCancel")}
                 </button>
               </>
             ) : (
               <button type="button" className={styles.leaveFactionBtn} onClick={() => setLeaveConfirm(true)}>
-                Leave faction
+                {t("leaveFaction")}
               </button>
             )}
           </div>
@@ -295,14 +445,33 @@ export default function HackerboardApp() {
     getDmConversations,
     getDmMessages,
     sendDm,
+    refreshDmConversation,
+    refreshHackerboardMessaging,
+    hasMoreOlderDmMessages,
+    loadOlderDmMessages,
+    hasMoreOlderFactionMessages,
+    loadOlderFactionMessages,
     getFactionGroupMessages,
     sendFactionGroupMessage,
     getEffectiveFactionId,
     createFaction,
     leaveFaction,
-    sendFactionInvite,
     acceptFactionInvite,
     declineFactionInvite,
+    factionInvitesIncoming,
+    acceptServerFactionInvite,
+    declineServerFactionInvite,
+    clusterRankingActive,
+    rankingError,
+    retryRanking,
+    blockedPlayerIds,
+    isBlockedByMe,
+    blockPlayer,
+    unblockPlayer,
+    canSendFactionInvite,
+    sendFactionInviteByUsername,
+    factionInvitesOutgoing,
+    cancelFactionInviteOutgoing,
   } = useHackerboard();
   const [section, setSection] = useState<Section>("feed");
   const [rankTab, setRankTab] = useState<RankTab>("hackers");
@@ -318,9 +487,24 @@ export default function HackerboardApp() {
   const [selectedDmOtherParticipantId, setSelectedDmOtherParticipantId] = useState<string | null>(null);
   const [dmMessageText, setDmMessageText] = useState("");
   const [groupMessageText, setGroupMessageText] = useState("");
+  const [groupInviteFeedback, setGroupInviteFeedback] = useState<string | null>(null);
+  const [dmSendError, setDmSendError] = useState<string | null>(null);
+  const [groupSendError, setGroupSendError] = useState<string | null>(null);
+  const [loadingOlderDm, setLoadingOlderDm] = useState(false);
+  const [loadingOlderFaction, setLoadingOlderFaction] = useState(false);
+  const [serverInviteActionError, setServerInviteActionError] = useState<string | null>(null);
+  const [groupInviteUsername, setGroupInviteUsername] = useState("");
+  const [groupInviteBusy, setGroupInviteBusy] = useState(false);
+  const [cancelOutgoingBusyId, setCancelOutgoingBusyId] = useState<string | null>(null);
+  const [profileBlockBusy, setProfileBlockBusy] = useState(false);
+  const [profileActionError, setProfileActionError] = useState<string | null>(null);
+  const [profileInviteToast, setProfileInviteToast] = useState<string | null>(null);
+  const profileInviteToastTimerRef = useRef<number | null>(null);
   const composeTextareaRef = useRef<HTMLTextAreaElement>(null);
   const dmMessageListRef = useRef<HTMLDivElement>(null);
+  const suppressDmAutoScrollRef = useRef(false);
   const groupMessageListRef = useRef<HTMLDivElement>(null);
+  const suppressGroupAutoScrollRef = useRef(false);
   const feedAreaRef = useRef<HTMLDivElement>(null);
   const feedLoadMoreSentinelRef = useRef<HTMLDivElement>(null);
   /** Clears heart animation classes after keyframes finish (per post). */
@@ -389,6 +573,11 @@ export default function HackerboardApp() {
     [feedError, t]
   );
 
+  const rankingErrorDisplay = useMemo(
+    () => resolveRankingErrorDisplay(rankingError, t),
+    [rankingError, t]
+  );
+
   useEffect(() => {
     if (!feedLangMenuOpen) return;
     const onPointerDown = (e: PointerEvent) => {
@@ -442,8 +631,13 @@ export default function HackerboardApp() {
   }, [token, section, feedLoading, feedLoadingMore, feedRefreshing, refreshFeed]);
 
   const visibleFeed = useMemo(
-    () => feed.filter((p) => !reportedPostIds.has(p.id)),
-    [feed, reportedPostIds]
+    () =>
+      feed.filter((p) => {
+        if (reportedPostIds.has(p.id)) return false;
+        if (p.authorId && blockedPlayerIds.has(p.authorId)) return false;
+        return true;
+      }),
+    [feed, reportedPostIds, blockedPlayerIds]
   );
 
   /** Only root posts (no replyToId) appear in the main feed. */
@@ -585,30 +779,139 @@ export default function HackerboardApp() {
   }
 
   useEffect(() => {
+    if (suppressDmAutoScrollRef.current) {
+      suppressDmAutoScrollRef.current = false;
+      return;
+    }
     dmMessageListRef.current?.scrollTo({ top: dmMessageListRef.current.scrollHeight, behavior: "smooth" });
-  }, [selectedDmMessages.length]);
+  }, [selectedDmMessages.length, factionInvitesIncoming.length, selectedDmOtherParticipantId]);
   useEffect(() => {
     if (section !== "group" || !currentUserFactionGroupMessages.length) return;
+    if (suppressGroupAutoScrollRef.current) {
+      suppressGroupAutoScrollRef.current = false;
+      return;
+    }
     groupMessageListRef.current?.scrollTo({ top: groupMessageListRef.current.scrollHeight, behavior: "smooth" });
   }, [section, currentUserFactionGroupMessages.length]);
 
-  function handleSendDm(e: React.FormEvent) {
+  useEffect(() => {
+    if (!token || !clusterRankingActive) return;
+    if (section !== "messages" && section !== "group") return;
+    void refreshHackerboardMessaging();
+  }, [section, token, clusterRankingActive, refreshHackerboardMessaging]);
+
+  useEffect(() => {
+    if (section !== "messages") return;
+    if (!token || !clusterRankingActive || !currentUserHacker) return;
+    if (selectedDmOtherParticipantId === SERVER_FACTION_INVITES_PANEL_ID) return;
+    if (!selectedDmOtherParticipantId) return;
+    void refreshDmConversation(currentUserHacker.id, selectedDmOtherParticipantId);
+  }, [
+    section,
+    token,
+    clusterRankingActive,
+    currentUserHacker,
+    selectedDmOtherParticipantId,
+    refreshDmConversation,
+  ]);
+
+  useEffect(() => {
+    if (section !== "messages") setDmSendError(null);
+  }, [section]);
+
+  useEffect(() => {
+    if (section !== "group") setGroupSendError(null);
+  }, [section]);
+
+  useEffect(() => {
+    if (!token || !clusterRankingActive) return;
+    if (section !== "messages" && section !== "group") return;
+    const id = window.setInterval(() => {
+      void refreshHackerboardMessaging();
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [token, clusterRankingActive, section, refreshHackerboardMessaging]);
+
+  async function handleLoadOlderDm() {
+    if (!currentUserHacker || !selectedDmOtherParticipantId) return;
+    suppressDmAutoScrollRef.current = true;
+    setLoadingOlderDm(true);
+    try {
+      await loadOlderDmMessages(currentUserHacker.id, selectedDmOtherParticipantId);
+    } finally {
+      setLoadingOlderDm(false);
+    }
+  }
+
+  async function handleLoadOlderFaction() {
+    if (!effectiveFactionId) return;
+    suppressGroupAutoScrollRef.current = true;
+    setLoadingOlderFaction(true);
+    try {
+      await loadOlderFactionMessages(effectiveFactionId);
+    } finally {
+      setLoadingOlderFaction(false);
+    }
+  }
+
+  async function handleSendDm(e: React.FormEvent) {
     e.preventDefault();
     const body = dmMessageText.trim();
     if (!body || !currentUserHacker || !selectedDmOtherParticipantId) return;
-    sendDm(currentUserHacker.id, selectedDmOtherParticipantId, body);
-    setDmMessageText("");
+    setDmSendError(null);
+    const result = await sendDm(currentUserHacker.id, selectedDmOtherParticipantId, body);
+    if (result.success) {
+      setDmMessageText("");
+    } else {
+      setDmSendError(mapHackerboardMessagingError(result.errorMessage, t));
+    }
   }
 
-  function handleSendGroupMessage(e: React.FormEvent) {
+  async function handleSendGroupMessage(e: React.FormEvent) {
     e.preventDefault();
     const body = groupMessageText.trim();
     if (!body || !currentUserHacker || !effectiveFactionId) return;
-    sendFactionGroupMessage(effectiveFactionId, currentUserHacker.id, body);
-    setGroupMessageText("");
+    setGroupSendError(null);
+    const result = await sendFactionGroupMessage(effectiveFactionId, currentUserHacker.id, body);
+    if (result.success) {
+      setGroupMessageText("");
+    } else {
+      setGroupSendError(mapHackerboardMessagingError(result.errorMessage, t));
+    }
+  }
+
+  async function handleGroupUsernameInvite(e: React.FormEvent) {
+    e.preventDefault();
+    if (!currentUserHacker) return;
+    setGroupInviteFeedback(null);
+    setGroupInviteBusy(true);
+    try {
+      const r = await sendFactionInviteByUsername(groupInviteUsername);
+      if (!r.success) {
+        setGroupInviteFeedback(mapFactionInviteUiError(r.errorMessage, t));
+      } else {
+        setGroupInviteUsername("");
+      }
+    } finally {
+      setGroupInviteBusy(false);
+    }
+  }
+
+  async function handleCancelOutgoingInvite(inviteId: string) {
+    setGroupInviteFeedback(null);
+    setCancelOutgoingBusyId(inviteId);
+    try {
+      const r = await cancelFactionInviteOutgoing(inviteId);
+      if (!r.success) {
+        setGroupInviteFeedback(mapFactionInviteUiError(r.errorMessage, t));
+      }
+    } finally {
+      setCancelOutgoingBusyId(null);
+    }
   }
 
   function openProfile(userId: string) {
+    setProfileActionError(null);
     setSelectedProfileUserId(userId);
     setSection("profile");
   }
@@ -629,7 +932,35 @@ export default function HackerboardApp() {
     const conversationId = getConversationId(currentUserHacker.id, otherParticipantId);
     setSelectedDmConversationId(conversationId);
     setSelectedDmOtherParticipantId(otherParticipantId);
+    setServerInviteActionError(null);
+    setDmSendError(null);
   }
+
+  function openServerFactionInvitesPanel() {
+    setSelectedDmConversationId(SERVER_FACTION_INVITES_PANEL_ID);
+    setSelectedDmOtherParticipantId(SERVER_FACTION_INVITES_PANEL_ID);
+    setServerInviteActionError(null);
+    setDmSendError(null);
+  }
+
+  const showProfileInviteToast = useCallback((message: string) => {
+    if (profileInviteToastTimerRef.current !== null) {
+      window.clearTimeout(profileInviteToastTimerRef.current);
+    }
+    setProfileInviteToast(message);
+    profileInviteToastTimerRef.current = window.setTimeout(() => {
+      setProfileInviteToast(null);
+      profileInviteToastTimerRef.current = null;
+    }, 4000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (profileInviteToastTimerRef.current !== null) {
+        window.clearTimeout(profileInviteToastTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className={styles.app}>
@@ -677,6 +1008,21 @@ export default function HackerboardApp() {
         </button>
       </aside>
       <main className={styles.main}>
+        {token && rankingErrorDisplay ? (
+          <div
+            className={`${styles.rankingDegradedBar} ${
+              rankingErrorDisplay.tone === "info"
+                ? styles.rankingDegradedBarInfo
+                : styles.rankingDegradedBarError
+            }`}
+            role="status"
+          >
+            <span>{rankingErrorDisplay.message}</span>
+            <button type="button" className={styles.rankingRetryBtn} onClick={() => retryRanking()}>
+              {t("retryRanking")}
+            </button>
+          </div>
+        ) : null}
         {section === "feed" && (
           <div className={styles.feedArea} ref={feedAreaRef} onScroll={onFeedAreaScroll}>
             <div className={styles.feedHeader}>
@@ -1035,20 +1381,22 @@ export default function HackerboardApp() {
                   filteredHackers.map((h) => (
                     <div
                       key={h.id}
-                      className={`${styles.rankRow} ${currentUserHacker?.id === h.id ? styles.rankRowYou : ""}`}
+                      role="button"
+                      tabIndex={0}
+                      className={`${styles.rankRow} ${styles.rankRowInteractive} ${
+                        currentUserHacker?.id === h.id ? styles.rankRowYou : ""
+                      }`}
+                      onClick={() => openProfile(h.id)}
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Enter" || ev.key === " ") {
+                          ev.preventDefault();
+                          openProfile(h.id);
+                        }
+                      }}
                     >
                       <span className={styles.rankNum}>{h.rank}</span>
                       <span className={styles.rankName}>{h.username}</span>
                       <span className={styles.rankPoints}>{h.points.toLocaleString()} pts</span>
-                      <button
-                        type="button"
-                        className={styles.rankProfileBtn}
-                        onClick={() => openProfile(h.id)}
-                        title="View profile"
-                        aria-label="View profile"
-                      >
-                        Profile
-                      </button>
                     </div>
                   ))
                 )
@@ -1078,6 +1426,22 @@ export default function HackerboardApp() {
               <div className={styles.messagesHeader}>
                 <h2 className={styles.messagesTitle}>Messages</h2>
               </div>
+              {token && clusterRankingActive && (
+                <button
+                  type="button"
+                  className={`${styles.conversationItem} ${
+                    selectedDmOtherParticipantId === SERVER_FACTION_INVITES_PANEL_ID
+                      ? styles.conversationItemSelected
+                      : ""
+                  }`}
+                  onClick={() => openServerFactionInvitesPanel()}
+                >
+                  <span className={styles.conversationItemName}>
+                    {t("factionInvitesInbox")}
+                    {factionInvitesIncoming.length > 0 ? ` (${factionInvitesIncoming.length})` : ""}
+                  </span>
+                </button>
+              )}
               {dmConversationsList.map((item) => {
                 const other = hackers.find((x) => x.id === item.otherParticipantId);
                 const isSelected = selectedDmConversationId === item.conversationId;
@@ -1092,21 +1456,126 @@ export default function HackerboardApp() {
                   </button>
                 );
               })}
-              {!currentUserHacker && <p className={styles.emptyState}>Sign in to see messages.</p>}
+              {!currentUserHacker && <p className={styles.emptyState}>{t("signInMessages")}</p>}
               {currentUserHacker && dmConversationsList.length === 0 && (
-                <p className={styles.emptyState}>No conversations yet.</p>
+                <p className={styles.emptyState}>{t("noConversationsYet")}</p>
               )}
             </div>
             <div className={styles.conversationPane}>
-              {!selectedDmOtherParticipantId ? (
-                <p className={styles.conversationPlaceholder}>Select a conversation.</p>
+              {selectedDmOtherParticipantId === SERVER_FACTION_INVITES_PANEL_ID ? (
+                <>
+                  <div className={styles.conversationPaneHeader}>
+                    <span className={styles.conversationPaneTitle}>{t("factionInvitesInbox")}</span>
+                  </div>
+                  {serverInviteActionError ? (
+                    <p className={styles.inviteFeedbackError}>{serverInviteActionError}</p>
+                  ) : null}
+                  <div className={styles.messageList} ref={dmMessageListRef}>
+                    {factionInvitesIncoming.length === 0 ? (
+                      <p className={styles.emptyState}>{t("factionInvitesEmpty")}</p>
+                    ) : (
+                      factionInvitesIncoming.map((inv) => (
+                        <div key={inv.inviteId} className={styles.dmInviteCard}>
+                          <p className={styles.dmInviteText}>
+                            {t("factionInviteServerText", {
+                              faction: inv.factionName,
+                              from: inv.fromUsername,
+                            })}
+                          </p>
+                          <div className={styles.dmInviteActions}>
+                            <button
+                              type="button"
+                              className={styles.dmInviteAccept}
+                              onClick={async () => {
+                                const r = await acceptServerFactionInvite(inv.inviteId);
+                                if (!r.success) {
+                                  setServerInviteActionError(r.errorMessage ?? t("factionInviteActionFailed"));
+                                } else {
+                                  setServerInviteActionError(null);
+                                }
+                              }}
+                            >
+                              {t("acceptInvite")}
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.dmInviteDecline}
+                              onClick={async () => {
+                                const r = await declineServerFactionInvite(inv.inviteId);
+                                if (!r.success) {
+                                  setServerInviteActionError(r.errorMessage ?? t("factionInviteActionFailed"));
+                                } else {
+                                  setServerInviteActionError(null);
+                                }
+                              }}
+                            >
+                              {t("declineInvite")}
+                            </button>
+                          </div>
+                          <span className={styles.messageTime}>{formatTime(inv.createdAtMs)}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              ) : !selectedDmOtherParticipantId ? (
+                <p className={styles.conversationPlaceholder}>{t("selectConversation")}</p>
               ) : (
                 <>
                   <div className={styles.conversationPaneHeader}>
-                    <span className={styles.conversationPaneTitle}>
-                      {hackers.find((h) => h.id === selectedDmOtherParticipantId)?.username ?? selectedDmOtherParticipantId}
-                    </span>
+                    <button
+                      type="button"
+                      className={styles.conversationPaneTitleBtn}
+                      onClick={() => openProfile(selectedDmOtherParticipantId)}
+                      aria-label={t("viewProfilePeerAria", {
+                        name:
+                          hackers.find((h) => h.id === selectedDmOtherParticipantId)?.username ??
+                          selectedDmOtherParticipantId,
+                      })}
+                    >
+                      {hackers.find((h) => h.id === selectedDmOtherParticipantId)?.username ??
+                        selectedDmOtherParticipantId}
+                    </button>
+                    {currentUserHacker && token ? (
+                      <button
+                        type="button"
+                        className={styles.dmHeaderBlockBtn}
+                        onClick={() => {
+                          void (async () => {
+                            const uname = hackers.find((h) => h.id === selectedDmOtherParticipantId)?.username;
+                            if (!uname) return;
+                            setDmSendError(null);
+                            const r = isBlockedByMe(selectedDmOtherParticipantId)
+                              ? await unblockPlayer(uname)
+                              : await blockPlayer(uname);
+                            if (!r.success) {
+                              setDmSendError(mapBlockActionError(r.errorMessage, t));
+                            }
+                          })();
+                        }}
+                        title={isBlockedByMe(selectedDmOtherParticipantId) ? t("unblockUser") : t("blockUser")}
+                        aria-label={isBlockedByMe(selectedDmOtherParticipantId) ? t("unblockUser") : t("blockUser")}
+                      >
+                        <UserX size={18} aria-hidden />
+                      </button>
+                    ) : null}
                   </div>
+                  {dmSendError ? <p className={styles.inviteFeedbackError}>{dmSendError}</p> : null}
+                  {token &&
+                  clusterRankingActive &&
+                  selectedDmConversationId &&
+                  hasMoreOlderDmMessages(selectedDmConversationId) ? (
+                    <div className={styles.loadOlderRow}>
+                      <button
+                        type="button"
+                        className={styles.loadOlderBtn}
+                        onClick={() => void handleLoadOlderDm()}
+                        disabled={loadingOlderDm}
+                      >
+                        {loadingOlderDm ? t("loadingOlderMessages") : t("loadOlderMessages")}
+                      </button>
+                    </div>
+                  ) : null}
                   <div className={styles.messageList} ref={dmMessageListRef}>
                     {selectedDmMessages.map((msg) => {
                       const isFromSelf = msg.senderId === currentUserHacker?.id;
@@ -1119,7 +1588,17 @@ export default function HackerboardApp() {
                         return (
                           <div key={msg.id} className={styles.dmInviteCard}>
                             <p className={styles.dmInviteText}>
-                              Invited to join <strong>{msg.factionName ?? "Faction"}</strong> by {senderName}.
+                              Invited to join <strong>{msg.factionName ?? "Faction"}</strong>{" "}
+                              {t("dmInviteBy")}{" "}
+                              <button
+                                type="button"
+                                className={styles.dmInlineProfileLink}
+                                onClick={() => openProfile(msg.senderId)}
+                                aria-label={t("viewProfilePeerAria", { name: senderName })}
+                              >
+                                {senderName}
+                              </button>
+                              .
                             </p>
                             <div className={styles.dmInviteActions}>
                               <button
@@ -1127,14 +1606,14 @@ export default function HackerboardApp() {
                                 className={styles.dmInviteAccept}
                                 onClick={() => acceptFactionInvite(msg.id, currentUserHacker.id)}
                               >
-                                Accept
+                                {t("acceptInvite")}
                               </button>
                               <button
                                 type="button"
                                 className={styles.dmInviteDecline}
                                 onClick={() => declineFactionInvite(msg.id)}
                               >
-                                Decline
+                                {t("declineInvite")}
                               </button>
                             </div>
                             <span className={styles.messageTime}>{formatTime(msg.timestamp)}</span>
@@ -1147,7 +1626,16 @@ export default function HackerboardApp() {
                           key={msg.id}
                           className={`${styles.messageBubble} ${isFromSelf ? styles.messageBubbleSelf : ""}`}
                         >
-                          {!isFromSelf && <span className={styles.messageSender}>{senderName}</span>}
+                          {!isFromSelf ? (
+                            <button
+                              type="button"
+                              className={styles.dmSenderNameBtn}
+                              onClick={() => openProfile(msg.senderId)}
+                              aria-label={t("viewProfilePeerAria", { name: senderName })}
+                            >
+                              {senderName}
+                            </button>
+                          ) : null}
                           {msg.type === "faction_invite" ? (
                             <p className={styles.messageBody}>
                               Invite to join {msg.factionName ?? "Faction"}.
@@ -1183,28 +1671,24 @@ export default function HackerboardApp() {
         {section === "group" && (
           <div className={styles.groupArea}>
             {!currentUserHacker ? (
-              <p className={styles.groupEmptyState}>Sign in to access the group.</p>
+              <p className={styles.groupEmptyState}>{t("signInFaction")}</p>
             ) : !effectiveFactionId ? (
               <div className={styles.groupNoFaction}>
                 <div className={styles.groupNoFactionCard}>
                   <div className={styles.groupNoFactionIcon}>
                     <Users size={48} />
                   </div>
-                  <h2 className={styles.groupNoFactionTitle}>No faction yet</h2>
-                  <p className={styles.groupNoFactionText}>
-                    Create your own faction to chat with a team, or accept an invite sent to you in Messages.
-                  </p>
+                  <h2 className={styles.groupNoFactionTitle}>{t("noFactionYetTitle")}</h2>
+                  <p className={styles.groupNoFactionText}>{t("noFactionYetBody")}</p>
                   <div className={styles.groupNoFactionFormWrap}>
-                    <h3 className={styles.createFactionTitle}>Create a faction</h3>
+                    <h3 className={styles.createFactionTitle}>{t("createFactionSectionTitle")}</h3>
                     <CreateFactionForm
                       onCreate={(name) => {
                         void createFaction(name, currentUserHacker.id);
                       }}
                     />
                   </div>
-                  <p className={styles.groupNoFactionHint}>
-                    Invites from other hackers will appear as messages with Accept / Decline.
-                  </p>
+                  <p className={styles.groupNoFactionHint}>{t("noFactionHint")}</p>
                 </div>
               </div>
             ) : (
@@ -1217,7 +1701,26 @@ export default function HackerboardApp() {
                 groupMessageText={groupMessageText}
                 setGroupMessageText={setGroupMessageText}
                 onSendGroupMessage={handleSendGroupMessage}
-                onInviteMember={(userId) => sendFactionInvite(currentUserHacker.id, userId, currentUserFaction!.id)}
+                inviteFeedback={groupInviteFeedback}
+                groupSendError={groupSendError}
+                showLoadOlderMessages={
+                  !!token &&
+                  clusterRankingActive &&
+                  !!effectiveFactionId &&
+                  hasMoreOlderFactionMessages(effectiveFactionId)
+                }
+                onLoadOlderMessages={() => void handleLoadOlderFaction()}
+                loadOlderMessagesPending={loadingOlderFaction}
+                loadOlderMessagesLabel={t("loadOlderMessages")}
+                loadingOlderMessagesLabel={t("loadingOlderMessages")}
+                inviteUsername={groupInviteUsername}
+                setInviteUsername={setGroupInviteUsername}
+                onSubmitUsernameInvite={(e) => void handleGroupUsernameInvite(e)}
+                usernameInvitePending={groupInviteBusy}
+                outgoingInvites={factionInvitesOutgoing}
+                onCancelOutgoingInvite={(id) => void handleCancelOutgoingInvite(id)}
+                cancelOutgoingBusyId={cancelOutgoingBusyId}
+                clusterRankingActive={clusterRankingActive}
                 onLeaveFaction={() => void leaveFaction(currentUserHacker.id)}
               />
             )}
@@ -1238,14 +1741,69 @@ export default function HackerboardApp() {
                   <p className={styles.profileMeta}>
                     Rank #{profileUser.rank} · {profileUser.points.toLocaleString()} pts
                   </p>
+                  {profileActionError ? (
+                    <p className={styles.inviteFeedbackError} role="alert">
+                      {profileActionError}
+                    </p>
+                  ) : null}
                   {currentUserHacker && selectedProfileUserId !== currentUserHacker.id && (
-                    <button
-                      type="button"
-                      className={styles.profileMessageBtn}
-                      onClick={() => openProfileAndMessage(selectedProfileUserId)}
-                    >
-                      Message
-                    </button>
+                    <div className={styles.profileActions}>
+                      {!isBlockedByMe(selectedProfileUserId) ? (
+                        <button
+                          type="button"
+                          className={styles.profileMessageBtn}
+                          onClick={() => openProfileAndMessage(selectedProfileUserId)}
+                        >
+                          {t("messageUser")}
+                        </button>
+                      ) : null}
+                      {canSendFactionInvite(currentUserHacker.id, selectedProfileUserId) ? (
+                        <button
+                          type="button"
+                          className={styles.profileInviteBtn}
+                          onClick={() => {
+                            void (async () => {
+                              setProfileActionError(null);
+                              const r = await sendFactionInviteByUsername(profileUser.username);
+                              if (!r.success) {
+                                setProfileActionError(mapFactionInviteUiError(r.errorMessage, t));
+                              } else {
+                                showProfileInviteToast(
+                                  t("profileInviteSentToast", { username: profileUser.username })
+                                );
+                              }
+                            })();
+                          }}
+                        >
+                          {t("inviteToMyFaction")}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={
+                          isBlockedByMe(profileUser.id) ? styles.profileUnblockBtn : styles.profileBlockBtn
+                        }
+                        disabled={profileBlockBusy}
+                        onClick={() => {
+                          void (async () => {
+                            setProfileActionError(null);
+                            setProfileBlockBusy(true);
+                            try {
+                              const r = isBlockedByMe(profileUser.id)
+                                ? await unblockPlayer(profileUser.username)
+                                : await blockPlayer(profileUser.username);
+                              if (!r.success) {
+                                setProfileActionError(mapBlockActionError(r.errorMessage, t));
+                              }
+                            } finally {
+                              setProfileBlockBusy(false);
+                            }
+                          })();
+                        }}
+                      >
+                        {isBlockedByMe(profileUser.id) ? t("unblockUser") : t("blockUser")}
+                      </button>
+                    </div>
                   )}
                 </div>
                 <div className={styles.profilePosts}>
@@ -1296,6 +1854,11 @@ export default function HackerboardApp() {
           </div>
         </fieldset>
       </Modal>
+      {profileInviteToast ? (
+        <div className={styles.hackerboardToast} role="status" aria-live="polite">
+          {profileInviteToast}
+        </div>
+      ) : null}
     </div>
   );
 }

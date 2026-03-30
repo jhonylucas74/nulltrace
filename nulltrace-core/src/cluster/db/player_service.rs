@@ -228,6 +228,40 @@ impl PlayerService {
             .map(|(r, id, u, p, f)| (r as u32, id, u, p, f))
             .collect())
     }
+
+    /// Ranking for a viewer: excludes players blocked in either direction; includes faction creator id for UI.
+    pub async fn get_ranking_for_viewer(
+        &self,
+        viewer_id: Uuid,
+    ) -> Result<Vec<(u32, Uuid, String, i32, Option<Uuid>, Option<Uuid>, bool)>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (i64, Uuid, String, i32, Option<Uuid>, Option<Uuid>, Option<bool>)>(
+            r#"
+            WITH visible AS (
+                SELECT p.id, p.username, p.points, p.faction_id
+                FROM players p
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM player_blocks b
+                    WHERE (b.blocker_id = $1 AND b.blocked_id = p.id)
+                       OR (b.blocker_id = p.id AND b.blocked_id = $1)
+                )
+            )
+            SELECT ROW_NUMBER() OVER (ORDER BY v.points DESC, v.id) AS rank,
+                   v.id, v.username, v.points, v.faction_id, f.creator_id, f.allow_member_invites
+            FROM visible v
+            LEFT JOIN factions f ON f.id = v.faction_id
+            ORDER BY v.points DESC, v.id
+            "#,
+        )
+        .bind(viewer_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(r, id, u, p, fac, fcreator, allow_inv)| {
+                (r as u32, id, u, p, fac, fcreator, allow_inv.unwrap_or(true))
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]

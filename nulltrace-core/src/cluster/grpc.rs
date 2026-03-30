@@ -4,6 +4,7 @@
 use super::bin_programs;
 use super::db::email_account_service::EmailAccountService;
 use super::db::email_service::EmailService;
+use super::db::faction_invite_service::FactionInviteService;
 use super::db::faction_service::FactionService;
 use super::db::fs_service::FsService;
 use super::db::player_service::PlayerService;
@@ -13,6 +14,9 @@ use super::db::vm_service::VmService;
 use super::db::wallet_service::{WalletError, WalletService};
 use super::db::codelab_service::CodelabService;
 use super::db::feed_service::{FeedPostRow, FeedService};
+use super::db::hackerboard_dm_service::HackerboardDmService;
+use super::db::hackerboard_faction_chat_service::HackerboardFactionChatService;
+use super::db::player_block_service::PlayerBlockService;
 use super::db::wallet_card_service::WalletCardService;
 use super::mailbox_hub::{MailboxHub, MailboxEvent};
 use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
@@ -43,6 +47,21 @@ use game::{
     GetRankingRequest, GetRankingResponse, GetSysinfoRequest, GetSysinfoResponse,
     UpgradeVmRequest, UpgradeVmResponse, HelloRequest,
     HelloResponse, LeaveFactionRequest, LeaveFactionResponse, ListFsRequest, ListFsResponse,
+    AcceptFactionInviteRequest, AcceptFactionInviteResponse,
+    DeclineFactionInviteRequest, DeclineFactionInviteResponse,
+    FactionInviteEntry, ListFactionInvitesRequest, ListFactionInvitesResponse,
+    SendFactionInviteRequest, SendFactionInviteResponse,
+    ListOutgoingFactionInvitesRequest, ListOutgoingFactionInvitesResponse,
+    OutgoingFactionInviteEntry, CancelFactionInviteRequest, CancelFactionInviteResponse,
+    BlockHackerboardPlayerRequest, BlockHackerboardPlayerResponse,
+    UnblockHackerboardPlayerRequest, UnblockHackerboardPlayerResponse,
+    ListBlockedPlayersRequest, ListBlockedPlayersResponse, BlockedPlayerEntry,
+    HackerboardDmMessageEntry, HackerboardDmThreadEntry, HackerboardFactionMessageEntry,
+    ListHackerboardDmMessagesRequest, ListHackerboardDmMessagesResponse,
+    ListHackerboardDmThreadsRequest, ListHackerboardDmThreadsResponse,
+    ListHackerboardFactionMessagesRequest, ListHackerboardFactionMessagesResponse,
+    SendHackerboardDmRequest, SendHackerboardDmResponse,
+    SendHackerboardFactionMessageRequest, SendHackerboardFactionMessageResponse,
     InjectStdin, LoginRequest, LoginResponse, MovePathRequest, MovePathResponse,
     OpenCodeRun, OpenTerminal, PingRequest, PingResponse, ProcessEntry, ProcessGone, ProcessListSnapshot,
     ProcessSpyClientMessage, ProcessSpyOpened, ProcessSpyServerMessage, ProcessSpyStdout,
@@ -91,6 +110,10 @@ pub struct ClusterGameService {
     fs_service: Arc<FsService>,
     user_service: Arc<UserService>,
     faction_service: Arc<FactionService>,
+    faction_invite_service: Arc<FactionInviteService>,
+    player_block_service: Arc<PlayerBlockService>,
+    hackerboard_dm_service: Arc<HackerboardDmService>,
+    hackerboard_faction_chat_service: Arc<HackerboardFactionChatService>,
     shortcuts_service: Arc<ShortcutsService>,
     email_service: Arc<EmailService>,
     email_account_service: Arc<EmailAccountService>,
@@ -116,6 +139,10 @@ impl ClusterGameService {
         fs_service: Arc<FsService>,
         user_service: Arc<UserService>,
         faction_service: Arc<FactionService>,
+        faction_invite_service: Arc<FactionInviteService>,
+        player_block_service: Arc<PlayerBlockService>,
+        hackerboard_dm_service: Arc<HackerboardDmService>,
+        hackerboard_faction_chat_service: Arc<HackerboardFactionChatService>,
         shortcuts_service: Arc<ShortcutsService>,
         email_service: Arc<EmailService>,
         email_account_service: Arc<EmailAccountService>,
@@ -138,6 +165,10 @@ impl ClusterGameService {
             fs_service,
             user_service,
             faction_service,
+            faction_invite_service,
+            player_block_service,
+            hackerboard_dm_service,
+            hackerboard_faction_chat_service,
             shortcuts_service,
             email_service,
             email_account_service,
@@ -1632,17 +1663,22 @@ impl GameService for ClusterGameService {
         &self,
         request: Request<GetRankingRequest>,
     ) -> Result<Response<GetRankingResponse>, Status> {
-        let _ = self.authenticate_request(&request)?;
+        let claims = self.authenticate_request(&request)?;
+        let viewer_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
 
         let rows = self
             .player_service
-            .get_ranking()
+            .get_ranking_for_viewer(viewer_id)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let mut entries = Vec::with_capacity(rows.len());
-        for (rank, id, username, points, faction_id) in rows {
+        for (rank, id, username, points, faction_id, faction_creator_id, faction_allow_member_invites) in rows {
             let faction_id_str = faction_id.map(|u| u.to_string()).unwrap_or_default();
+            let faction_creator_str = faction_creator_id
+                .map(|u| u.to_string())
+                .unwrap_or_default();
             let faction_name = match faction_id {
                 Some(fid) => self
                     .faction_service
@@ -1660,6 +1696,8 @@ impl GameService for ClusterGameService {
                 points,
                 faction_id: faction_id_str,
                 faction_name,
+                faction_creator_id: faction_creator_str,
+                faction_allow_member_invites,
             });
         }
 
@@ -1883,10 +1921,569 @@ impl GameService for ClusterGameService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
+        self.faction_invite_service
+            .cancel_pending_sent_by(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
         Ok(Response::new(LeaveFactionResponse {
             success: true,
             error_message: String::new(),
         }))
+    }
+
+    async fn send_faction_invite(
+        &self,
+        request: Request<SendFactionInviteRequest>,
+    ) -> Result<Response<SendFactionInviteResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let from_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let target_username = request.into_inner().target_username.trim().to_string();
+        if target_username.is_empty() {
+            return Ok(Response::new(SendFactionInviteResponse {
+                invite_id: String::new(),
+                error_message: "Username is required".to_string(),
+            }));
+        }
+
+        let inviter = self
+            .player_service
+            .get_by_id(from_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("Player not found"))?;
+
+        let faction_id = match inviter.faction_id {
+            Some(f) => f,
+            None => {
+                return Ok(Response::new(SendFactionInviteResponse {
+                    invite_id: String::new(),
+                    error_message: "You are not in a faction".to_string(),
+                }));
+            }
+        };
+
+        let target = match self
+            .player_service
+            .get_by_username(&target_username)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+        {
+            Some(p) => p,
+            None => {
+                return Ok(Response::new(SendFactionInviteResponse {
+                    invite_id: String::new(),
+                    error_message: "Player not found".to_string(),
+                }));
+            }
+        };
+
+        match self
+            .faction_invite_service
+            .create_invite(faction_id, from_id, target.id)
+            .await
+        {
+            Ok(id) => Ok(Response::new(SendFactionInviteResponse {
+                invite_id: id.to_string(),
+                error_message: String::new(),
+            })),
+            Err(msg) => Ok(Response::new(SendFactionInviteResponse {
+                invite_id: String::new(),
+                error_message: msg,
+            })),
+        }
+    }
+
+    async fn list_faction_invites(
+        &self,
+        request: Request<ListFactionInvitesRequest>,
+    ) -> Result<Response<ListFactionInvitesResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let _ = request.into_inner();
+
+        let rows = self
+            .faction_invite_service
+            .list_pending_for_player(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let invites = rows
+            .into_iter()
+            .map(|r| FactionInviteEntry {
+                invite_id: r.id.to_string(),
+                faction_id: r.faction_id.to_string(),
+                faction_name: r.faction_name,
+                from_username: r.from_username,
+                created_at_ms: r.created_at.timestamp_millis(),
+            })
+            .collect();
+
+        Ok(Response::new(ListFactionInvitesResponse {
+            invites,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn accept_faction_invite(
+        &self,
+        request: Request<AcceptFactionInviteRequest>,
+    ) -> Result<Response<AcceptFactionInviteResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let invite_id_trim = request.into_inner().invite_id.trim().to_string();
+        let invite_id = match Uuid::parse_str(&invite_id_trim) {
+            Ok(u) => u,
+            Err(_) => {
+                return Ok(Response::new(AcceptFactionInviteResponse {
+                    success: false,
+                    error_message: "Invalid invite id".to_string(),
+                }));
+            }
+        };
+
+        match self
+            .faction_invite_service
+            .accept_invite(invite_id, player_id)
+            .await
+        {
+            Ok(()) => Ok(Response::new(AcceptFactionInviteResponse {
+                success: true,
+                error_message: String::new(),
+            })),
+            Err(msg) => Ok(Response::new(AcceptFactionInviteResponse {
+                success: false,
+                error_message: msg,
+            })),
+        }
+    }
+
+    async fn decline_faction_invite(
+        &self,
+        request: Request<DeclineFactionInviteRequest>,
+    ) -> Result<Response<DeclineFactionInviteResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let invite_id_trim = request.into_inner().invite_id.trim().to_string();
+        let invite_id = match Uuid::parse_str(&invite_id_trim) {
+            Ok(u) => u,
+            Err(_) => {
+                return Ok(Response::new(DeclineFactionInviteResponse {
+                    success: false,
+                    error_message: "Invalid invite id".to_string(),
+                }));
+            }
+        };
+
+        match self
+            .faction_invite_service
+            .decline_invite(invite_id, player_id)
+            .await
+        {
+            Ok(()) => Ok(Response::new(DeclineFactionInviteResponse {
+                success: true,
+                error_message: String::new(),
+            })),
+            Err(msg) => Ok(Response::new(DeclineFactionInviteResponse {
+                success: false,
+                error_message: msg,
+            })),
+        }
+    }
+
+    async fn list_outgoing_faction_invites(
+        &self,
+        request: Request<ListOutgoingFactionInvitesRequest>,
+    ) -> Result<Response<ListOutgoingFactionInvitesResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let _ = request.into_inner();
+
+        let inviter = self
+            .player_service
+            .get_by_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("Player not found"))?;
+
+        let faction_id = match inviter.faction_id {
+            Some(f) => f,
+            None => {
+                return Ok(Response::new(ListOutgoingFactionInvitesResponse {
+                    invites: vec![],
+                    error_message: "You are not in a faction".to_string(),
+                }));
+            }
+        };
+
+        let rows = self
+            .faction_invite_service
+            .list_outgoing_pending_for_faction(faction_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let invites = rows
+            .into_iter()
+            .map(|r| OutgoingFactionInviteEntry {
+                invite_id: r.id.to_string(),
+                to_username: r.to_username,
+                from_username: r.from_username,
+                from_player_id: r.from_player_id.to_string(),
+                created_at_ms: r.created_at.timestamp_millis(),
+            })
+            .collect();
+
+        Ok(Response::new(ListOutgoingFactionInvitesResponse {
+            invites,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn cancel_faction_invite(
+        &self,
+        request: Request<CancelFactionInviteRequest>,
+    ) -> Result<Response<CancelFactionInviteResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let actor_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let invite_id_trim = request.into_inner().invite_id.trim().to_string();
+        let invite_id = match Uuid::parse_str(&invite_id_trim) {
+            Ok(u) => u,
+            Err(_) => {
+                return Ok(Response::new(CancelFactionInviteResponse {
+                    success: false,
+                    error_message: "Invalid invite id".to_string(),
+                }));
+            }
+        };
+
+        match self
+            .faction_invite_service
+            .cancel_invite(invite_id, actor_id)
+            .await
+        {
+            Ok(()) => Ok(Response::new(CancelFactionInviteResponse {
+                success: true,
+                error_message: String::new(),
+            })),
+            Err(msg) => Ok(Response::new(CancelFactionInviteResponse {
+                success: false,
+                error_message: msg,
+            })),
+        }
+    }
+
+    async fn block_hackerboard_player(
+        &self,
+        request: Request<BlockHackerboardPlayerRequest>,
+    ) -> Result<Response<BlockHackerboardPlayerResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let blocker_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let target_username = request.into_inner().target_username.trim().to_string();
+        if target_username.is_empty() {
+            return Ok(Response::new(BlockHackerboardPlayerResponse {
+                error_message: "Username is required".to_string(),
+            }));
+        }
+
+        let target = match self
+            .player_service
+            .get_by_username(&target_username)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+        {
+            Some(p) => p,
+            None => {
+                return Ok(Response::new(BlockHackerboardPlayerResponse {
+                    error_message: "Player not found".to_string(),
+                }));
+            }
+        };
+
+        match self
+            .player_block_service
+            .block(blocker_id, target.id)
+            .await
+        {
+            Ok(()) => Ok(Response::new(BlockHackerboardPlayerResponse {
+                error_message: String::new(),
+            })),
+            Err(msg) => Ok(Response::new(BlockHackerboardPlayerResponse {
+                error_message: msg,
+            })),
+        }
+    }
+
+    async fn unblock_hackerboard_player(
+        &self,
+        request: Request<UnblockHackerboardPlayerRequest>,
+    ) -> Result<Response<UnblockHackerboardPlayerResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let blocker_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let target_username = request.into_inner().target_username.trim().to_string();
+        if target_username.is_empty() {
+            return Ok(Response::new(UnblockHackerboardPlayerResponse {
+                error_message: "Username is required".to_string(),
+            }));
+        }
+
+        let target = match self
+            .player_service
+            .get_by_username(&target_username)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+        {
+            Some(p) => p,
+            None => {
+                return Ok(Response::new(UnblockHackerboardPlayerResponse {
+                    error_message: "Player not found".to_string(),
+                }));
+            }
+        };
+
+        match self
+            .player_block_service
+            .unblock(blocker_id, target.id)
+            .await
+        {
+            Ok(()) => Ok(Response::new(UnblockHackerboardPlayerResponse {
+                error_message: String::new(),
+            })),
+            Err(msg) => Ok(Response::new(UnblockHackerboardPlayerResponse {
+                error_message: msg,
+            })),
+        }
+    }
+
+    async fn list_blocked_players(
+        &self,
+        request: Request<ListBlockedPlayersRequest>,
+    ) -> Result<Response<ListBlockedPlayersResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let blocker_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let _ = request.into_inner();
+
+        let rows = self
+            .player_block_service
+            .list_blocked_by_blocker(blocker_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let blocked = rows
+            .into_iter()
+            .map(|r| BlockedPlayerEntry {
+                player_id: r.blocked_id.to_string(),
+                username: r.username,
+            })
+            .collect();
+
+        Ok(Response::new(ListBlockedPlayersResponse {
+            blocked,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn send_hackerboard_dm(
+        &self,
+        request: Request<SendHackerboardDmRequest>,
+    ) -> Result<Response<SendHackerboardDmResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let from_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let req = request.into_inner();
+        let target = req.target_username.trim();
+        match self
+            .hackerboard_dm_service
+            .send_message(from_id, target, &req.body)
+            .await
+        {
+            Ok(id) => Ok(Response::new(SendHackerboardDmResponse {
+                message_id: id.to_string(),
+                error_message: String::new(),
+            })),
+            Err(msg) => Ok(Response::new(SendHackerboardDmResponse {
+                message_id: String::new(),
+                error_message: msg,
+            })),
+        }
+    }
+
+    async fn list_hackerboard_dm_threads(
+        &self,
+        request: Request<ListHackerboardDmThreadsRequest>,
+    ) -> Result<Response<ListHackerboardDmThreadsResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let limit = request.into_inner().limit;
+        let lim = if limit <= 0 { 50 } else { limit as i64 };
+        let rows = self
+            .hackerboard_dm_service
+            .list_threads(player_id, lim)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        let threads = rows
+            .into_iter()
+            .map(|r| HackerboardDmThreadEntry {
+                peer_player_id: r.peer_id.to_string(),
+                peer_username: r.peer_username,
+                last_message_id: r.last_message_id.to_string(),
+                last_body: r.last_body,
+                last_created_at_ms: r.last_created_at.timestamp_millis(),
+            })
+            .collect();
+        Ok(Response::new(ListHackerboardDmThreadsResponse {
+            threads,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn list_hackerboard_dm_messages(
+        &self,
+        request: Request<ListHackerboardDmMessagesRequest>,
+    ) -> Result<Response<ListHackerboardDmMessagesResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let req = request.into_inner();
+        let peer_username = req.peer_username.trim();
+        if peer_username.is_empty() {
+            return Ok(Response::new(ListHackerboardDmMessagesResponse {
+                messages: vec![],
+                error_message: "peer_username is required".to_string(),
+            }));
+        }
+        let peer = match self.player_service.get_by_username(peer_username).await {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                return Ok(Response::new(ListHackerboardDmMessagesResponse {
+                    messages: vec![],
+                    error_message: "Player not found".to_string(),
+                }));
+            }
+            Err(e) => return Err(Status::internal(e.to_string())),
+        };
+        let before = if req.before_message_id.trim().is_empty() {
+            None
+        } else {
+            match Uuid::parse_str(req.before_message_id.trim()) {
+                Ok(u) => Some(u),
+                Err(_) => {
+                    return Ok(Response::new(ListHackerboardDmMessagesResponse {
+                        messages: vec![],
+                        error_message: "before_message_id must be a valid UUID".to_string(),
+                    }));
+                }
+            }
+        };
+        let lim = if req.limit <= 0 { 50 } else { req.limit as i64 };
+        match self
+            .hackerboard_dm_service
+            .list_messages(player_id, peer.id, before, lim)
+            .await
+        {
+            Ok(rows) => {
+                let messages = rows
+                    .into_iter()
+                    .map(|m| HackerboardDmMessageEntry {
+                        id: m.id.to_string(),
+                        from_player_id: m.from_player_id.to_string(),
+                        body: m.body,
+                        created_at_ms: m.created_at.timestamp_millis(),
+                    })
+                    .collect();
+                Ok(Response::new(ListHackerboardDmMessagesResponse {
+                    messages,
+                    error_message: String::new(),
+                }))
+            }
+            Err(msg) => Ok(Response::new(ListHackerboardDmMessagesResponse {
+                messages: vec![],
+                error_message: msg,
+            })),
+        }
+    }
+
+    async fn send_hackerboard_faction_message(
+        &self,
+        request: Request<SendHackerboardFactionMessageRequest>,
+    ) -> Result<Response<SendHackerboardFactionMessageResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let from_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let body = request.into_inner().body;
+        match self
+            .hackerboard_faction_chat_service
+            .send_message(from_id, &body)
+            .await
+        {
+            Ok(id) => Ok(Response::new(SendHackerboardFactionMessageResponse {
+                message_id: id.to_string(),
+                error_message: String::new(),
+            })),
+            Err(msg) => Ok(Response::new(SendHackerboardFactionMessageResponse {
+                message_id: String::new(),
+                error_message: msg,
+            })),
+        }
+    }
+
+    async fn list_hackerboard_faction_messages(
+        &self,
+        request: Request<ListHackerboardFactionMessagesRequest>,
+    ) -> Result<Response<ListHackerboardFactionMessagesResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let req = request.into_inner();
+        let before = if req.before_message_id.trim().is_empty() {
+            None
+        } else {
+            match Uuid::parse_str(req.before_message_id.trim()) {
+                Ok(u) => Some(u),
+                Err(_) => {
+                    return Ok(Response::new(ListHackerboardFactionMessagesResponse {
+                        messages: vec![],
+                        error_message: "before_message_id must be a valid UUID".to_string(),
+                    }));
+                }
+            }
+        };
+        let lim = if req.limit <= 0 { 50 } else { req.limit as i64 };
+        match self
+            .hackerboard_faction_chat_service
+            .list_messages(player_id, before, lim)
+            .await
+        {
+            Ok(rows) => {
+                let messages = rows
+                    .into_iter()
+                    .map(|m| HackerboardFactionMessageEntry {
+                        id: m.id.to_string(),
+                        from_player_id: m.from_player_id.to_string(),
+                        from_username: m.from_username,
+                        body: m.body,
+                        created_at_ms: m.created_at.timestamp_millis(),
+                    })
+                    .collect();
+                Ok(Response::new(ListHackerboardFactionMessagesResponse {
+                    messages,
+                    error_message: String::new(),
+                }))
+            }
+            Err(msg) => Ok(Response::new(ListHackerboardFactionMessagesResponse {
+                messages: vec![],
+                error_message: msg,
+            })),
+        }
     }
 
     async fn list_feed_posts(
@@ -2800,8 +3397,12 @@ async fn vm_and_owner(
 mod tests {
     use super::super::db::{
         self, codelab_service::CodelabService, email_account_service::EmailAccountService,
-        email_service::EmailService, faction_service::FactionService, feed_service::FeedService,
-        fs_service::FsService, player_service::PlayerService, shortcuts_service::ShortcutsService,
+        email_service::EmailService,         faction_invite_service::FactionInviteService,
+        faction_service::FactionService, feed_service::FeedService,
+        hackerboard_dm_service::HackerboardDmService,
+        hackerboard_faction_chat_service::HackerboardFactionChatService,
+        fs_service::FsService, player_block_service::PlayerBlockService,
+        player_service::PlayerService, shortcuts_service::ShortcutsService,
         user_service::UserService, vm_service::{VmConfig, VmService}, wallet_service::WalletService,
         wallet_card_service::WalletCardService,
     };
@@ -2823,6 +3424,10 @@ mod tests {
             Arc::new(FsService::new(pool.clone())),
             Arc::new(UserService::new(pool.clone())),
             Arc::new(FactionService::new(pool.clone())),
+            Arc::new(FactionInviteService::new(pool.clone())),
+            Arc::new(PlayerBlockService::new(pool.clone())),
+            Arc::new(HackerboardDmService::new(pool.clone())),
+            Arc::new(HackerboardFactionChatService::new(pool.clone())),
             Arc::new(ShortcutsService::new(pool.clone())),
             Arc::new(EmailService::new(pool.clone())),
             Arc::new(EmailAccountService::new(pool.clone())),
@@ -2851,6 +3456,10 @@ mod tests {
             Arc::new(FsService::new(pool.clone())),
             Arc::new(UserService::new(pool.clone())),
             Arc::new(FactionService::new(pool.clone())),
+            Arc::new(FactionInviteService::new(pool.clone())),
+            Arc::new(PlayerBlockService::new(pool.clone())),
+            Arc::new(HackerboardDmService::new(pool.clone())),
+            Arc::new(HackerboardFactionChatService::new(pool.clone())),
             Arc::new(ShortcutsService::new(pool.clone())),
             Arc::new(EmailService::new(pool.clone())),
             Arc::new(EmailAccountService::new(pool.clone())),
@@ -3158,6 +3767,188 @@ mod tests {
             .insert("authorization", format!("Bearer {}", token).parse().unwrap());
         let get_res = svc.get_wallet_cards(get_req).await.unwrap();
         assert_eq!(get_res.into_inner().cards[0].credit_limit, 20_000);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_faction_invite_send_list_accept() {
+        let pool = db::test_pool().await;
+        let players = PlayerService::new(pool.clone());
+        let factions = FactionService::new(pool.clone());
+        let name_a = format!("invgrpc_a_{}", Uuid::new_v4());
+        let name_b = format!("invgrpc_b_{}", Uuid::new_v4());
+        let pa = players.create_player(&name_a, "pw").await.unwrap();
+        let pb = players.create_player(&name_b, "pw").await.unwrap();
+        let fac = factions.create("Grpc Fac", pa.id).await.unwrap();
+        players
+            .set_faction_id(pa.id, Some(fac.id))
+            .await
+            .unwrap();
+
+        let svc = test_cluster_game_service(&pool);
+        let token_a = auth::generate_token(pa.id, &name_a, &auth::get_jwt_secret()).unwrap();
+        let token_b = auth::generate_token(pb.id, &name_b, &auth::get_jwt_secret()).unwrap();
+
+        let mut send_req = Request::new(SendFactionInviteRequest {
+            target_username: name_b.clone(),
+        });
+        send_req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token_a).parse().unwrap(),
+        );
+        let send_out = svc
+            .send_faction_invite(send_req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(
+            send_out.error_message.is_empty(),
+            "send invite: {}",
+            send_out.error_message
+        );
+        assert!(!send_out.invite_id.is_empty());
+
+        let mut list_req = Request::new(ListFactionInvitesRequest {});
+        list_req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token_b).parse().unwrap(),
+        );
+        let list_out = svc
+            .list_faction_invites(list_req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(list_out.error_message.is_empty(), "{}", list_out.error_message);
+        assert_eq!(list_out.invites.len(), 1);
+        assert_eq!(list_out.invites[0].faction_name, "Grpc Fac");
+
+        let invite_id = list_out.invites[0].invite_id.clone();
+        let mut acc_req = Request::new(AcceptFactionInviteRequest { invite_id });
+        acc_req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token_b).parse().unwrap(),
+        );
+        let acc_out = svc
+            .accept_faction_invite(acc_req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(acc_out.success, "accept: {}", acc_out.error_message);
+
+        let pb_after = players.get_by_id(pb.id).await.unwrap().unwrap();
+        assert_eq!(pb_after.faction_id, Some(fac.id));
+    }
+
+    #[tokio::test]
+    async fn test_grpc_hackerboard_dm_send_threads_messages() {
+        let pool = db::test_pool().await;
+        let players = PlayerService::new(pool.clone());
+        let name_a = format!("dmgrpc_a_{}", Uuid::new_v4());
+        let name_b = format!("dmgrpc_b_{}", Uuid::new_v4());
+        let pa = players.create_player(&name_a, "pw").await.unwrap();
+        let _pb = players.create_player(&name_b, "pw").await.unwrap();
+
+        let svc = test_cluster_game_service(&pool);
+        let token_a = auth::generate_token(pa.id, &name_a, &auth::get_jwt_secret()).unwrap();
+
+        let mut dm_req = Request::new(SendHackerboardDmRequest {
+            target_username: name_b.clone(),
+            body: "hello grpc".to_string(),
+        });
+        dm_req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token_a).parse().unwrap(),
+        );
+        let dm_out = svc.send_hackerboard_dm(dm_req).await.unwrap().into_inner();
+        assert!(dm_out.error_message.is_empty(), "{}", dm_out.error_message);
+        assert!(!dm_out.message_id.is_empty());
+
+        let mut threads_req = Request::new(ListHackerboardDmThreadsRequest { limit: 20 });
+        threads_req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token_a).parse().unwrap(),
+        );
+        let threads_out = svc
+            .list_hackerboard_dm_threads(threads_req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(threads_out.error_message.is_empty());
+        assert_eq!(threads_out.threads.len(), 1);
+        assert_eq!(threads_out.threads[0].peer_username, name_b);
+
+        let mut msgs_req = Request::new(ListHackerboardDmMessagesRequest {
+            peer_username: name_b.clone(),
+            before_message_id: String::new(),
+            limit: 50,
+        });
+        msgs_req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token_a).parse().unwrap(),
+        );
+        let msgs_out = svc
+            .list_hackerboard_dm_messages(msgs_req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(msgs_out.error_message.is_empty(), "{}", msgs_out.error_message);
+        assert_eq!(msgs_out.messages.len(), 1);
+        assert_eq!(msgs_out.messages[0].body, "hello grpc");
+    }
+
+    #[tokio::test]
+    async fn test_grpc_hackerboard_faction_chat_send_list() {
+        let pool = db::test_pool().await;
+        let players = PlayerService::new(pool.clone());
+        let factions = FactionService::new(pool.clone());
+        let name_a = format!("fcgrpc_a_{}", Uuid::new_v4());
+        let name_b = format!("fcgrpc_b_{}", Uuid::new_v4());
+        let pa = players.create_player(&name_a, "pw").await.unwrap();
+        let pb = players.create_player(&name_b, "pw").await.unwrap();
+        let fac = factions.create("Grpc FC", pa.id).await.unwrap();
+        players
+            .set_faction_id(pa.id, Some(fac.id))
+            .await
+            .unwrap();
+        players
+            .set_faction_id(pb.id, Some(fac.id))
+            .await
+            .unwrap();
+
+        let svc = test_cluster_game_service(&pool);
+        let token_a = auth::generate_token(pa.id, &name_a, &auth::get_jwt_secret()).unwrap();
+        let token_b = auth::generate_token(pb.id, &name_b, &auth::get_jwt_secret()).unwrap();
+
+        let mut send_req = Request::new(SendHackerboardFactionMessageRequest {
+            body: "room hello".to_string(),
+        });
+        send_req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token_a).parse().unwrap(),
+        );
+        let send_out = svc
+            .send_hackerboard_faction_message(send_req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(send_out.error_message.is_empty(), "{}", send_out.error_message);
+
+        let mut list_req = Request::new(ListHackerboardFactionMessagesRequest {
+            before_message_id: String::new(),
+            limit: 50,
+        });
+        list_req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token_b).parse().unwrap(),
+        );
+        let list_out = svc
+            .list_hackerboard_faction_messages(list_req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(list_out.error_message.is_empty(), "{}", list_out.error_message);
+        assert_eq!(list_out.messages.len(), 1);
+        assert_eq!(list_out.messages[0].body, "room hello");
+        assert_eq!(list_out.messages[0].from_username, name_a);
     }
 
     #[tokio::test]

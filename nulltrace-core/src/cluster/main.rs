@@ -28,6 +28,10 @@ mod vm_worker;
 use dashmap::DashMap;
 use db::email_account_service::EmailAccountService;
 use db::email_service::EmailService;
+use db::faction_invite_service::FactionInviteService;
+use db::hackerboard_dm_service::HackerboardDmService;
+use db::player_block_service::PlayerBlockService;
+use db::hackerboard_faction_chat_service::HackerboardFactionChatService;
 use db::faction_service::FactionService;
 use db::fs_service::FsService;
 use db::player_service::PlayerService;
@@ -129,6 +133,10 @@ async fn main() {
     let user_service = Arc::new(UserService::new(pool.clone()));
     let player_service = Arc::new(PlayerService::new(pool.clone()));
     let faction_service = Arc::new(FactionService::new(pool.clone()));
+    let faction_invite_service = Arc::new(FactionInviteService::new(pool.clone()));
+    let player_block_service = Arc::new(PlayerBlockService::new(pool.clone()));
+    let hackerboard_dm_service = Arc::new(HackerboardDmService::new(pool.clone()));
+    let hackerboard_faction_chat_service = Arc::new(HackerboardFactionChatService::new(pool.clone()));
     let shortcuts_service = Arc::new(ShortcutsService::new(pool.clone()));
     let email_service = Arc::new(EmailService::new(pool.clone()));
     let email_account_service = Arc::new(EmailAccountService::new(pool.clone()));
@@ -249,6 +257,10 @@ async fn main() {
         fs_service.clone(),
         user_service.clone(),
         faction_service.clone(),
+        faction_invite_service.clone(),
+        player_block_service.clone(),
+        hackerboard_dm_service.clone(),
+        hackerboard_faction_chat_service.clone(),
         shortcuts_service.clone(),
         email_service.clone(),
         email_account_service.clone(),

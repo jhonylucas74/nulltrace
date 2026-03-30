@@ -91,6 +91,11 @@ impl FeedService {
                         )
                     )
                 )
+                AND NOT EXISTS (
+                    SELECT 1 FROM player_blocks blk
+                    WHERE (blk.blocker_id = $2 AND blk.blocked_id = fp.author_id)
+                       OR (blk.blocker_id = fp.author_id AND blk.blocked_id = $2)
+                )
                 ORDER BY fp.created_at DESC
                 LIMIT $3
                 "#,
@@ -137,6 +142,11 @@ impl FeedService {
                         )
                     )
                 )
+                AND NOT EXISTS (
+                    SELECT 1 FROM player_blocks blk
+                    WHERE (blk.blocker_id = $2 AND blk.blocked_id = fp.author_id)
+                       OR (blk.blocker_id = fp.author_id AND blk.blocked_id = $2)
+                )
                   AND (fp.created_at, fp.id) < (
                       SELECT created_at, id FROM feed_posts WHERE id = $4
                   )
@@ -177,6 +187,11 @@ impl FeedService {
                     FROM feed_post_likes
                     WHERE player_id = $1
                 ) ml ON ml.post_id = fp.id
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM player_blocks blk
+                    WHERE (blk.blocker_id = $1 AND blk.blocked_id = fp.author_id)
+                       OR (blk.blocker_id = fp.author_id AND blk.blocked_id = $1)
+                )
                 ORDER BY fp.created_at DESC
                 LIMIT $2
                 "#,
@@ -212,7 +227,12 @@ impl FeedService {
                     FROM feed_post_likes
                     WHERE player_id = $1
                 ) ml ON ml.post_id = fp.id
-                WHERE (fp.created_at, fp.id) < (
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM player_blocks blk
+                    WHERE (blk.blocker_id = $1 AND blk.blocked_id = fp.author_id)
+                       OR (blk.blocker_id = fp.author_id AND blk.blocked_id = $1)
+                )
+                AND (fp.created_at, fp.id) < (
                     SELECT created_at, id FROM feed_posts WHERE id = $3
                 )
                 ORDER BY fp.created_at DESC
@@ -304,6 +324,11 @@ impl FeedService {
                 WHERE player_id = $2
             ) ml ON ml.post_id = fp.id
             WHERE fp.id = $1
+            AND NOT EXISTS (
+                SELECT 1 FROM player_blocks blk
+                WHERE (blk.blocker_id = $2 AND blk.blocked_id = fp.author_id)
+                   OR (blk.blocker_id = fp.author_id AND blk.blocked_id = $2)
+            )
             "#,
         )
         .bind(id)

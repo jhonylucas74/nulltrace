@@ -14,6 +14,10 @@ export interface Faction {
   id: string;
   name: string;
   memberIds: string[];
+  /** Faction creator player id; used for invite permission UI. */
+  creatorId: string | null;
+  /** When false, only `creatorId` may send invites (server-enforced). */
+  allowMemberInvites: boolean;
 }
 
 export type FeedPostType = "hacked" | "mission" | "system" | "user";
@@ -46,6 +50,24 @@ export interface DMMessage {
   factionName?: string;
   invitedByUserId?: string;
   accepted?: boolean;
+}
+
+/** Pending invite from ListFactionInvites (cluster). */
+export interface ServerFactionInvite {
+  inviteId: string;
+  factionId: string;
+  factionName: string;
+  fromUsername: string;
+  createdAtMs: number;
+}
+
+/** Pending invite sent by the viewer's faction (cluster). */
+export interface ServerFactionInviteOutgoing {
+  inviteId: string;
+  toUsername: string;
+  fromUsername: string;
+  fromPlayerId: string;
+  createdAtMs: number;
 }
 
 export interface FactionGroupMessage {
@@ -81,10 +103,32 @@ const MOCK_HACKERS: Hacker[] = [
 ];
 
 /** Mock factions. */
+/** Page size for cluster-backed Hackerboard DM and faction chat lists. */
+const HACKERBOARD_DM_PAGE_LIMIT = 50;
+const HACKERBOARD_FACTION_PAGE_LIMIT = 50;
+
 const MOCK_FACTIONS: Faction[] = [
-  { id: "f1", name: "Zero Day Collective", memberIds: ["h1", "h2", "h6", "h11"] },
-  { id: "f2", name: "Null Protocol", memberIds: ["h3", "h5", "h10", "h14"] },
-  { id: "f3", name: "Deep Signal", memberIds: ["h7", "h9", "h13"] },
+  {
+    id: "f1",
+    name: "Zero Day Collective",
+    memberIds: ["h1", "h2", "h6", "h11"],
+    creatorId: "h1",
+    allowMemberInvites: true,
+  },
+  {
+    id: "f2",
+    name: "Null Protocol",
+    memberIds: ["h3", "h5", "h10", "h14"],
+    creatorId: "h3",
+    allowMemberInvites: true,
+  },
+  {
+    id: "f3",
+    name: "Deep Signal",
+    memberIds: ["h7", "h9", "h13"],
+    creatorId: "h7",
+    allowMemberInvites: true,
+  },
 ];
 
 function mapApiEntryToFeedPost(p: {
@@ -125,6 +169,30 @@ type FeedListRow = Parameters<typeof mapApiEntryToFeedPost>[0];
 /** Canonical conversation id for a pair of hackers. */
 export function getConversationId(userId1: string, userId2: string): string {
   return `dm-${[userId1, userId2].sort().join("-")}`;
+}
+
+function mockBlockedStorageKey(playerId: string): string {
+  return `nulltrace.hackerboard.blockedIds.${playerId}`;
+}
+
+function readMockBlockedIds(playerId: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(mockBlockedStorageKey(playerId));
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((x): x is string => typeof x === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function writeMockBlockedIds(playerId: string, ids: Set<string>) {
+  try {
+    localStorage.setItem(mockBlockedStorageKey(playerId), JSON.stringify([...ids]));
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Build initial DM conversations (h10 = hacker default user with a few threads). */
@@ -202,6 +270,12 @@ interface HackerboardContextValue {
   feedRefreshing: boolean;
   feedHasMore: boolean;
   feedError: string | null;
+  /** True when ranking was loaded from the cluster (live Hackerboard backend). */
+  clusterRankingActive: boolean;
+  /** Set when logged in but `grpc_get_ranking` failed; UI shows mock ranking. Empty when OK or not logged in. */
+  rankingError: string | null;
+  /** Bump to re-fetch ranking (e.g. after "Retry"). */
+  retryRanking: () => void;
   refreshFeed: () => void;
   loadMoreFeed: () => Promise<void>;
   searchHackers: (query: string) => HackerWithRank[];
@@ -210,15 +284,54 @@ interface HackerboardContextValue {
   toggleLike: (postId: string, currentlyLiked: boolean) => Promise<void>;
   getDmConversations: (currentUserId: string) => DmConversationItem[];
   getDmMessages: (conversationId: string) => DMMessage[];
-  sendDm: (senderId: string, otherParticipantId: string, body: string) => void;
+  sendDm: (
+    senderId: string,
+    otherParticipantId: string,
+    body: string
+  ) => Promise<{ success: boolean; errorMessage?: string }>;
+  /** Reload server-backed DM threads and messages for the open peer (cluster only). */
+  refreshDmConversation: (currentUserId: string, otherParticipantId: string) => Promise<void>;
+  /** Reload DM threads + faction chat from the cluster (e.g. when opening Messages / Group). */
+  refreshHackerboardMessaging: () => Promise<void>;
+  /** Whether more older DM messages can be loaded for this conversation (cluster path). */
+  hasMoreOlderDmMessages: (conversationId: string) => boolean;
+  loadOlderDmMessages: (currentUserId: string, otherParticipantId: string) => Promise<void>;
+  hasMoreOlderFactionMessages: (factionId: string) => boolean;
+  loadOlderFactionMessages: (factionId: string) => Promise<void>;
   getFactionGroupMessages: (factionId: string) => FactionGroupMessage[];
-  sendFactionGroupMessage: (factionId: string, senderId: string, body: string) => void;
+  sendFactionGroupMessage: (
+    factionId: string,
+    senderId: string,
+    body: string
+  ) => Promise<{ success: boolean; errorMessage?: string }>;
   getEffectiveFactionId: (userId: string) => string | null;
   createFaction: (name: string, creatorUserId: string) => Promise<Faction | null>;
   leaveFaction: (userId: string) => void | Promise<void>;
-  sendFactionInvite: (fromUserId: string, toUserId: string, factionId: string) => void;
+  factionInvitesIncoming: ServerFactionInvite[];
+  sendFactionInvite: (
+    fromUserId: string,
+    toUserId: string,
+    factionId: string
+  ) => Promise<{ success: boolean; errorMessage?: string }>;
   acceptFactionInvite: (messageId: string, acceptingUserId: string) => void;
   declineFactionInvite: (messageId: string) => void;
+  acceptServerFactionInvite: (inviteId: string) => Promise<{ success: boolean; errorMessage?: string }>;
+  declineServerFactionInvite: (inviteId: string) => Promise<{ success: boolean; errorMessage?: string }>;
+  /** Player ids the current user has blocked (cluster list or mock localStorage). */
+  blockedPlayerIds: ReadonlySet<string>;
+  isBlockedByMe: (playerId: string) => boolean;
+  blockPlayer: (targetUsername: string) => Promise<{ success: boolean; errorMessage?: string }>;
+  unblockPlayer: (targetUsername: string) => Promise<{ success: boolean; errorMessage?: string }>;
+  /** Whether the viewer may invite `targetPlayerId` to their faction (cluster rules + mock). */
+  canSendFactionInvite: (viewerPlayerId: string, targetPlayerId: string) => boolean;
+  sendFactionInviteByUsername: (
+    username: string
+  ) => Promise<{ success: boolean; errorMessage?: string }>;
+  factionInvitesOutgoing: ServerFactionInviteOutgoing[];
+  refreshFactionInvitesOutgoing: () => Promise<void>;
+  cancelFactionInviteOutgoing: (
+    inviteId: string
+  ) => Promise<{ success: boolean; errorMessage?: string }>;
 }
 
 const HackerboardContext = createContext<HackerboardContextValue | null>(null);
@@ -239,7 +352,7 @@ function computeFactionsWithRank(hackers: Hacker[], factions: Faction[]): Factio
 }
 
 export function HackerboardProvider({ children }: { children: React.ReactNode }) {
-  const { token } = useAuth();
+  const { token, playerId } = useAuth();
   const { i18n } = useTranslation("hackerboard");
   const [feed, setFeed] = useState<FeedPost[]>([]);
   const [feedLanguageFilter, setFeedLanguageFilterState] = useState<FeedLanguageFilter>("all");
@@ -266,13 +379,35 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
   const [membershipOverlay, setMembershipOverlay] = useState<Record<string, string | null>>({});
 
   const [apiRanking, setApiRanking] = useState<{ hackers: Hacker[]; factions: Faction[] } | null>(null);
+  const [rankingError, setRankingError] = useState<string | null>(null);
   const [rankingRefreshTrigger, setRankingRefreshTrigger] = useState(0);
+  const [factionInvitesIncoming, setFactionInvitesIncoming] = useState<ServerFactionInvite[]>([]);
+  const [factionInvitesOutgoing, setFactionInvitesOutgoing] = useState<ServerFactionInviteOutgoing[]>([]);
+  const [blockedPlayerIds, setBlockedPlayerIds] = useState<Set<string>>(() => new Set());
+  const [serverDmThreads, setServerDmThreads] = useState<
+    { peerPlayerId: string; peerUsername: string; lastCreatedAtMs: number }[]
+  >([]);
+  const [serverDmMessages, setServerDmMessages] = useState<Record<string, DMMessage[]>>({});
+  const [serverFactionMessages, setServerFactionMessages] = useState<Record<string, FactionGroupMessage[]>>({});
+  const [serverDmHasOlder, setServerDmHasOlder] = useState<Record<string, boolean>>({});
+  const [serverFactionHasOlder, setServerFactionHasOlder] = useState<Record<string, boolean>>({});
+
+  const serverDmMessagesRef = useRef<Record<string, DMMessage[]>>({});
+  serverDmMessagesRef.current = serverDmMessages;
+  const serverDmHasOlderRef = useRef<Record<string, boolean>>({});
+  serverDmHasOlderRef.current = serverDmHasOlder;
+  const serverFactionMessagesRef = useRef<Record<string, FactionGroupMessage[]>>({});
+  serverFactionMessagesRef.current = serverFactionMessages;
+  const serverFactionHasOlderRef = useRef<Record<string, boolean>>({});
+  serverFactionHasOlderRef.current = serverFactionHasOlder;
 
   const fetchRanking = useCallback(async () => {
     if (!token) {
       setApiRanking(null);
+      setRankingError(null);
       return;
     }
+    setRankingError(null);
     try {
       const res = await invoke<{
         entries: Array<{
@@ -282,11 +417,14 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
           points: number;
           faction_id: string;
           faction_name: string;
+          faction_creator_id: string;
+          faction_allow_member_invites: boolean;
         }>;
         error_message: string;
       }>("grpc_get_ranking", { token });
       if (res.error_message) {
         setApiRanking(null);
+        setRankingError(res.error_message);
         return;
       }
       const hackersFromApi: Hacker[] = res.entries.map((e) => ({
@@ -295,30 +433,412 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
         points: e.points,
         factionId: e.faction_id || null,
       }));
-      const factionMap = new Map<string, { name: string; memberIds: string[] }>();
+      const factionMap = new Map<
+        string,
+        { name: string; memberIds: string[]; creatorId: string; allowMemberInvites: boolean }
+      >();
       for (const e of res.entries) {
         if (!e.faction_id) continue;
         const cur = factionMap.get(e.faction_id);
+        const creatorId = (e.faction_creator_id ?? "").trim();
+        const allowMemberInvites = e.faction_allow_member_invites !== false;
         if (cur) {
           cur.memberIds.push(e.player_id);
+          if (!cur.creatorId && creatorId) cur.creatorId = creatorId;
         } else {
-          factionMap.set(e.faction_id, { name: e.faction_name || "Faction", memberIds: [e.player_id] });
+          factionMap.set(e.faction_id, {
+            name: e.faction_name || "Faction",
+            memberIds: [e.player_id],
+            creatorId,
+            allowMemberInvites,
+          });
         }
       }
       const factionsFromApi: Faction[] = Array.from(factionMap.entries()).map(([id, v]) => ({
         id,
         name: v.name,
         memberIds: v.memberIds,
+        creatorId: v.creatorId || null,
+        allowMemberInvites: v.allowMemberInvites,
       }));
       setApiRanking({ hackers: hackersFromApi, factions: factionsFromApi });
+      setRankingError(null);
     } catch {
       setApiRanking(null);
+      setRankingError("__ranking_network__");
     }
   }, [token]);
+
+  const retryRanking = useCallback(() => {
+    setRankingRefreshTrigger((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     fetchRanking();
   }, [fetchRanking, rankingRefreshTrigger]);
+
+  const loadFactionInvites = useCallback(async () => {
+    if (!token) {
+      setFactionInvitesIncoming([]);
+      return;
+    }
+    try {
+      const res = await invoke<{
+        invites: Array<{
+          invite_id: string;
+          faction_id: string;
+          faction_name: string;
+          from_username: string;
+          created_at_ms: number;
+        }>;
+        error_message: string;
+      }>("grpc_list_faction_invites", { token });
+      if (res.error_message) {
+        setFactionInvitesIncoming([]);
+        return;
+      }
+      setFactionInvitesIncoming(
+        res.invites.map((i) => ({
+          inviteId: i.invite_id,
+          factionId: i.faction_id,
+          factionName: i.faction_name,
+          fromUsername: i.from_username,
+          createdAtMs: i.created_at_ms,
+        }))
+      );
+    } catch {
+      setFactionInvitesIncoming([]);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void loadFactionInvites();
+  }, [token, rankingRefreshTrigger, loadFactionInvites]);
+
+  const loadBlockedPlayers = useCallback(async () => {
+    if (!playerId) {
+      setBlockedPlayerIds(new Set());
+      return;
+    }
+    if (token && apiRanking) {
+      try {
+        const res = await invoke<{
+          blocked: Array<{ player_id: string; username: string }>;
+          error_message: string;
+        }>("grpc_list_blocked_players", { token });
+        if (res.error_message) {
+          setBlockedPlayerIds(new Set());
+          return;
+        }
+        setBlockedPlayerIds(new Set(res.blocked.map((b) => b.player_id)));
+      } catch {
+        setBlockedPlayerIds(new Set());
+      }
+      return;
+    }
+    if (token) {
+      setBlockedPlayerIds(readMockBlockedIds(playerId));
+    } else {
+      setBlockedPlayerIds(new Set());
+    }
+  }, [token, apiRanking, playerId]);
+
+  useEffect(() => {
+    void loadBlockedPlayers();
+  }, [loadBlockedPlayers, rankingRefreshTrigger]);
+
+  const loadFactionInvitesOutgoing = useCallback(async () => {
+    if (!token || !apiRanking) {
+      setFactionInvitesOutgoing([]);
+      return;
+    }
+    try {
+      const res = await invoke<{
+        invites: Array<{
+          invite_id: string;
+          to_username: string;
+          from_username: string;
+          from_player_id: string;
+          created_at_ms: number;
+        }>;
+        error_message: string;
+      }>("grpc_list_outgoing_faction_invites", { token });
+      if (res.error_message) {
+        setFactionInvitesOutgoing([]);
+        return;
+      }
+      setFactionInvitesOutgoing(
+        res.invites.map((i) => ({
+          inviteId: i.invite_id,
+          toUsername: i.to_username,
+          fromUsername: i.from_username,
+          fromPlayerId: i.from_player_id,
+          createdAtMs: i.created_at_ms,
+        }))
+      );
+    } catch {
+      setFactionInvitesOutgoing([]);
+    }
+  }, [token, apiRanking]);
+
+  useEffect(() => {
+    void loadFactionInvitesOutgoing();
+  }, [loadFactionInvitesOutgoing, rankingRefreshTrigger]);
+
+  const loadDmThreads = useCallback(async () => {
+    if (!token || !apiRanking) {
+      setServerDmThreads([]);
+      return;
+    }
+    try {
+      const res = await invoke<{
+        threads: Array<{
+          peer_player_id: string;
+          peer_username: string;
+          last_message_id: string;
+          last_body: string;
+          last_created_at_ms: number;
+        }>;
+        error_message: string;
+      }>("grpc_list_hackerboard_dm_threads", { token, limit: 50 });
+      if (res.error_message) {
+        setServerDmThreads([]);
+        return;
+      }
+      setServerDmThreads(
+        res.threads.map((t) => ({
+          peerPlayerId: t.peer_player_id,
+          peerUsername: t.peer_username,
+          lastCreatedAtMs: t.last_created_at_ms,
+        }))
+      );
+    } catch {
+      setServerDmThreads([]);
+    }
+  }, [token, apiRanking]);
+
+  const loadDmMessagesForPair = useCallback(
+    async (currentUserId: string, otherParticipantId: string) => {
+      if (!token || !apiRanking) return;
+      const other = apiRanking.hackers.find((h) => h.id === otherParticipantId);
+      if (!other) return;
+      const cid = getConversationId(currentUserId, otherParticipantId);
+      try {
+        const res = await invoke<{
+          messages: Array<{
+            id: string;
+            from_player_id: string;
+            body: string;
+            created_at_ms: number;
+          }>;
+          error_message: string;
+        }>("grpc_list_hackerboard_dm_messages", {
+          token,
+          peerUsername: other.username,
+          beforeMessageId: "",
+          limit: HACKERBOARD_DM_PAGE_LIMIT,
+        });
+        if (res.error_message) return;
+        const mapped: DMMessage[] = res.messages.map((m) => ({
+          id: m.id,
+          senderId: m.from_player_id,
+          body: m.body,
+          timestamp: m.created_at_ms,
+          type: "text" as const,
+        }));
+        setServerDmMessages((prev) => ({ ...prev, [cid]: mapped }));
+        setServerDmHasOlder((prev) => ({
+          ...prev,
+          [cid]: mapped.length >= HACKERBOARD_DM_PAGE_LIMIT,
+        }));
+      } catch {
+        /* ignore */
+      }
+    },
+    [token, apiRanking]
+  );
+
+  const loadOlderDmMessages = useCallback(
+    async (currentUserId: string, otherParticipantId: string) => {
+      if (!token || !apiRanking) return;
+      const other = apiRanking.hackers.find((h) => h.id === otherParticipantId);
+      if (!other) return;
+      const cid = getConversationId(currentUserId, otherParticipantId);
+      if (!serverDmHasOlderRef.current[cid]) return;
+      const existing = serverDmMessagesRef.current[cid] ?? [];
+      if (existing.length === 0) return;
+      const oldestId = existing[0].id;
+      try {
+        const res = await invoke<{
+          messages: Array<{
+            id: string;
+            from_player_id: string;
+            body: string;
+            created_at_ms: number;
+          }>;
+          error_message: string;
+        }>("grpc_list_hackerboard_dm_messages", {
+          token,
+          peerUsername: other.username,
+          beforeMessageId: oldestId,
+          limit: HACKERBOARD_DM_PAGE_LIMIT,
+        });
+        if (res.error_message) return;
+        const mapped: DMMessage[] = res.messages.map((m) => ({
+          id: m.id,
+          senderId: m.from_player_id,
+          body: m.body,
+          timestamp: m.created_at_ms,
+          type: "text" as const,
+        }));
+        if (mapped.length === 0) {
+          setServerDmHasOlder((prev) => ({ ...prev, [cid]: false }));
+          return;
+        }
+        setServerDmMessages((prev) => ({
+          ...prev,
+          [cid]: [...mapped, ...(prev[cid] ?? [])],
+        }));
+        setServerDmHasOlder((prev) => ({
+          ...prev,
+          [cid]: mapped.length >= HACKERBOARD_DM_PAGE_LIMIT,
+        }));
+      } catch {
+        /* ignore */
+      }
+    },
+    [token, apiRanking]
+  );
+
+  const loadFactionRoomMessages = useCallback(
+    async (factionId: string) => {
+      if (!token) return;
+      try {
+        const res = await invoke<{
+          messages: Array<{
+            id: string;
+            from_player_id: string;
+            from_username: string;
+            body: string;
+            created_at_ms: number;
+          }>;
+          error_message: string;
+        }>("grpc_list_hackerboard_faction_messages", {
+          token,
+          beforeMessageId: "",
+          limit: HACKERBOARD_FACTION_PAGE_LIMIT,
+        });
+        if (res.error_message) return;
+        const mapped: FactionGroupMessage[] = res.messages.map((m) => ({
+          id: m.id,
+          factionId,
+          senderId: m.from_player_id,
+          body: m.body,
+          timestamp: m.created_at_ms,
+        }));
+        setServerFactionMessages((prev) => ({ ...prev, [factionId]: mapped }));
+        setServerFactionHasOlder((prev) => ({
+          ...prev,
+          [factionId]: mapped.length >= HACKERBOARD_FACTION_PAGE_LIMIT,
+        }));
+      } catch {
+        /* ignore */
+      }
+    },
+    [token]
+  );
+
+  const loadOlderFactionMessages = useCallback(
+    async (factionId: string) => {
+      if (!token) return;
+      if (!serverFactionHasOlderRef.current[factionId]) return;
+      const existing = serverFactionMessagesRef.current[factionId] ?? [];
+      if (existing.length === 0) return;
+      const oldestId = existing[0].id;
+      try {
+        const res = await invoke<{
+          messages: Array<{
+            id: string;
+            from_player_id: string;
+            from_username: string;
+            body: string;
+            created_at_ms: number;
+          }>;
+          error_message: string;
+        }>("grpc_list_hackerboard_faction_messages", {
+          token,
+          beforeMessageId: oldestId,
+          limit: HACKERBOARD_FACTION_PAGE_LIMIT,
+        });
+        if (res.error_message) return;
+        const mapped: FactionGroupMessage[] = res.messages.map((m) => ({
+          id: m.id,
+          factionId,
+          senderId: m.from_player_id,
+          body: m.body,
+          timestamp: m.created_at_ms,
+        }));
+        if (mapped.length === 0) {
+          setServerFactionHasOlder((prev) => ({ ...prev, [factionId]: false }));
+          return;
+        }
+        setServerFactionMessages((prev) => ({
+          ...prev,
+          [factionId]: [...mapped, ...(prev[factionId] ?? [])],
+        }));
+        setServerFactionHasOlder((prev) => ({
+          ...prev,
+          [factionId]: mapped.length >= HACKERBOARD_FACTION_PAGE_LIMIT,
+        }));
+      } catch {
+        /* ignore */
+      }
+    },
+    [token]
+  );
+
+  const refreshDmConversation = useCallback(
+    async (currentUserId: string, otherParticipantId: string) => {
+      if (!token || !apiRanking) return;
+      await loadDmMessagesForPair(currentUserId, otherParticipantId);
+      await loadDmThreads();
+    },
+    [token, apiRanking, loadDmMessagesForPair, loadDmThreads]
+  );
+
+  const refreshHackerboardMessaging = useCallback(async () => {
+    await loadDmThreads();
+    if (!token || !apiRanking || !playerId) return;
+    const me = apiRanking.hackers.find((h) => h.id === playerId);
+    if (me?.factionId) {
+      await loadFactionRoomMessages(me.factionId);
+    }
+  }, [token, apiRanking, playerId, loadDmThreads, loadFactionRoomMessages]);
+
+  useEffect(() => {
+    if (!token || !apiRanking) {
+      setServerDmThreads([]);
+      setServerDmMessages({});
+      setServerDmHasOlder({});
+      return;
+    }
+    void loadDmThreads();
+  }, [token, apiRanking, rankingRefreshTrigger, loadDmThreads]);
+
+  useEffect(() => {
+    if (!token || !apiRanking || !playerId) {
+      setServerFactionMessages({});
+      setServerFactionHasOlder({});
+      return;
+    }
+    const me = apiRanking.hackers.find((h) => h.id === playerId);
+    if (!me?.factionId) {
+      setServerFactionMessages({});
+      setServerFactionHasOlder({});
+      return;
+    }
+    void loadFactionRoomMessages(me.factionId);
+  }, [token, apiRanking, playerId, rankingRefreshTrigger, loadFactionRoomMessages]);
 
   const schedulePersistHackerboardPrefs = useCallback(() => {
     if (!token) return;
@@ -572,13 +1092,25 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
           );
           if (res.error_message) return null;
           setRankingRefreshTrigger((t) => t + 1);
-          return { id: res.faction_id, name: res.name, memberIds: [creatorUserId] };
+          return {
+            id: res.faction_id,
+            name: res.name,
+            memberIds: [creatorUserId],
+            creatorId: creatorUserId,
+            allowMemberInvites: true,
+          };
         } catch {
           return null;
         }
       }
       const id = `f-${Date.now()}`;
-      const faction: Faction = { id, name, memberIds: [creatorUserId] };
+      const faction: Faction = {
+        id,
+        name,
+        memberIds: [creatorUserId],
+        creatorId: creatorUserId,
+        allowMemberInvites: true,
+      };
       setFactions((prev) => [...prev, faction]);
       setMembershipOverlay((prev) => ({ ...prev, [creatorUserId]: id }));
       return faction;
@@ -608,7 +1140,35 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
   );
 
   const sendFactionInvite = useCallback(
-    (fromUserId: string, toUserId: string, factionId: string) => {
+    async (
+      fromUserId: string,
+      toUserId: string,
+      factionId: string
+    ): Promise<{ success: boolean; errorMessage?: string }> => {
+      const hackersList = apiRanking?.hackers ?? MOCK_HACKERS;
+      const target = hackersList.find((h) => h.id === toUserId);
+      const targetUsername = target?.username;
+      if (!targetUsername) {
+        return { success: false, errorMessage: "Player not found" };
+      }
+
+      if (token && apiRanking) {
+        try {
+          const res = await invoke<{ invite_id: string; error_message: string }>("grpc_send_faction_invite", {
+            targetUsername,
+            token,
+          });
+          if (res.error_message) {
+            return { success: false, errorMessage: res.error_message };
+          }
+          void loadFactionInvites();
+          void loadFactionInvitesOutgoing();
+          return { success: true };
+        } catch {
+          return { success: false, errorMessage: "Failed to send invite" };
+        }
+      }
+
       const faction = factions.find((f) => f.id === factionId);
       const factionName = faction?.name ?? "Faction";
       const conversationId = getConversationId(fromUserId, toUserId);
@@ -626,8 +1186,193 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
         ...prev,
         [conversationId]: [...(prev[conversationId] ?? []), message],
       }));
+      return { success: true };
     },
-    [factions]
+    [token, apiRanking, factions, loadFactionInvites, loadFactionInvitesOutgoing]
+  );
+
+  const acceptServerFactionInvite = useCallback(
+    async (inviteId: string): Promise<{ success: boolean; errorMessage?: string }> => {
+      if (!token || !apiRanking) {
+        return { success: false, errorMessage: "Not available offline" };
+      }
+      try {
+        const res = await invoke<{ success: boolean; error_message: string }>("grpc_accept_faction_invite", {
+          inviteId,
+          token,
+        });
+        if (!res.success) {
+          return { success: false, errorMessage: res.error_message };
+        }
+        setRankingRefreshTrigger((t) => t + 1);
+        void loadFactionInvites();
+        return { success: true };
+      } catch {
+        return { success: false, errorMessage: "Failed to accept invite" };
+      }
+    },
+    [token, apiRanking, loadFactionInvites]
+  );
+
+  const declineServerFactionInvite = useCallback(
+    async (inviteId: string): Promise<{ success: boolean; errorMessage?: string }> => {
+      if (!token || !apiRanking) {
+        return { success: false, errorMessage: "Not available offline" };
+      }
+      try {
+        const res = await invoke<{ success: boolean; error_message: string }>("grpc_decline_faction_invite", {
+          inviteId,
+          token,
+        });
+        if (!res.success) {
+          return { success: false, errorMessage: res.error_message };
+        }
+        void loadFactionInvites();
+        return { success: true };
+      } catch {
+        return { success: false, errorMessage: "Failed to decline invite" };
+      }
+    },
+    [token, apiRanking, loadFactionInvites]
+  );
+
+  const isBlockedByMe = useCallback((pid: string) => blockedPlayerIds.has(pid), [blockedPlayerIds]);
+
+  const blockPlayer = useCallback(
+    async (targetUsername: string): Promise<{ success: boolean; errorMessage?: string }> => {
+      const u = targetUsername.trim();
+      if (!u) return { success: false, errorMessage: "Username is required" };
+      if (token && apiRanking) {
+        try {
+          const res = await invoke<{ error_message: string }>("grpc_block_hackerboard_player", {
+            targetUsername: u,
+            token,
+          });
+          if (res.error_message) return { success: false, errorMessage: res.error_message };
+          await loadBlockedPlayers();
+          return { success: true };
+        } catch {
+          return { success: false, errorMessage: "__network__" };
+        }
+      }
+      if (!playerId) return { success: false, errorMessage: "Not signed in" };
+      const target = MOCK_HACKERS.find((h) => h.username.toLowerCase() === u.toLowerCase());
+      if (!target) return { success: false, errorMessage: "Player not found" };
+      if (target.id === playerId) return { success: false, errorMessage: "Cannot block yourself" };
+      setBlockedPlayerIds((prev) => {
+        const next = new Set(prev);
+        next.add(target.id);
+        writeMockBlockedIds(playerId, next);
+        return next;
+      });
+      return { success: true };
+    },
+    [token, apiRanking, playerId, loadBlockedPlayers]
+  );
+
+  const unblockPlayer = useCallback(
+    async (targetUsername: string): Promise<{ success: boolean; errorMessage?: string }> => {
+      const u = targetUsername.trim();
+      if (!u) return { success: false, errorMessage: "Username is required" };
+      if (token && apiRanking) {
+        try {
+          const res = await invoke<{ error_message: string }>("grpc_unblock_hackerboard_player", {
+            targetUsername: u,
+            token,
+          });
+          if (res.error_message) return { success: false, errorMessage: res.error_message };
+          await loadBlockedPlayers();
+          return { success: true };
+        } catch {
+          return { success: false, errorMessage: "__network__" };
+        }
+      }
+      if (!playerId) return { success: false, errorMessage: "Not signed in" };
+      const target = MOCK_HACKERS.find((h) => h.username.toLowerCase() === u.toLowerCase());
+      if (!target) return { success: false, errorMessage: "Player not found" };
+      setBlockedPlayerIds((prev) => {
+        const next = new Set(prev);
+        next.delete(target.id);
+        writeMockBlockedIds(playerId, next);
+        return next;
+      });
+      return { success: true };
+    },
+    [token, apiRanking, playerId, loadBlockedPlayers]
+  );
+
+  const canSendFactionInvite = useCallback(
+    (viewerPlayerId: string, targetPlayerId: string): boolean => {
+      if (viewerPlayerId === targetPlayerId) return false;
+      if (blockedPlayerIds.has(targetPlayerId)) return false;
+      const hackersList = apiRanking?.hackers ?? MOCK_HACKERS;
+      const target = hackersList.find((h) => h.id === targetPlayerId);
+      if (!target || target.factionId) return false;
+      const fid = getEffectiveFactionId(viewerPlayerId);
+      if (!fid) return false;
+      const facList = apiRanking?.factions ?? factions;
+      const fac = facList.find((f) => f.id === fid);
+      if (!fac || !fac.memberIds.includes(viewerPlayerId)) return false;
+      if (!fac.allowMemberInvites) return fac.creatorId === viewerPlayerId;
+      return true;
+    },
+    [apiRanking, factions, getEffectiveFactionId, blockedPlayerIds]
+  );
+
+  const sendFactionInviteByUsername = useCallback(
+    async (username: string): Promise<{ success: boolean; errorMessage?: string }> => {
+      const u = username.trim();
+      if (!u) return { success: false, errorMessage: "__invite_username_empty__" };
+      if (token && apiRanking) {
+        try {
+          const res = await invoke<{ invite_id: string; error_message: string }>("grpc_send_faction_invite", {
+            targetUsername: u,
+            token,
+          });
+          if (res.error_message) return { success: false, errorMessage: res.error_message };
+          void loadFactionInvites();
+          void loadFactionInvitesOutgoing();
+          return { success: true };
+        } catch {
+          return { success: false, errorMessage: "__network__" };
+        }
+      }
+      if (!playerId) return { success: false, errorMessage: "Not signed in" };
+      const target = MOCK_HACKERS.find((h) => h.username.toLowerCase() === u.toLowerCase());
+      if (!target) return { success: false, errorMessage: "Player not found" };
+      const fid = getEffectiveFactionId(playerId);
+      if (!fid) return { success: false, errorMessage: "You are not in a faction" };
+      return sendFactionInvite(playerId, target.id, fid);
+    },
+    [
+      token,
+      apiRanking,
+      playerId,
+      getEffectiveFactionId,
+      loadFactionInvites,
+      loadFactionInvitesOutgoing,
+      sendFactionInvite,
+    ]
+  );
+
+  const cancelFactionInviteOutgoing = useCallback(
+    async (inviteId: string): Promise<{ success: boolean; errorMessage?: string }> => {
+      if (!token || !apiRanking) {
+        return { success: false, errorMessage: "Not available offline" };
+      }
+      try {
+        const res = await invoke<{ success: boolean; error_message: string }>("grpc_cancel_faction_invite", {
+          inviteId,
+          token,
+        });
+        if (!res.success) return { success: false, errorMessage: res.error_message };
+        void loadFactionInvitesOutgoing();
+        return { success: true };
+      } catch {
+        return { success: false, errorMessage: "__network__" };
+      }
+    },
+    [token, apiRanking, loadFactionInvitesOutgoing]
   );
 
   const acceptFactionInvite = useCallback(
@@ -764,6 +1509,15 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
 
   const getDmConversations = useCallback(
     (currentUserId: string): DmConversationItem[] => {
+      if (token && apiRanking) {
+        return [...serverDmThreads]
+          .filter((t) => !blockedPlayerIds.has(t.peerPlayerId))
+          .sort((a, b) => b.lastCreatedAtMs - a.lastCreatedAtMs)
+          .map((t) => ({
+            conversationId: getConversationId(currentUserId, t.peerPlayerId),
+            otherParticipantId: t.peerPlayerId,
+          }));
+      }
       const items: DmConversationItem[] = [];
       Object.keys(dmConversations).forEach((conversationId) => {
         const parts = conversationId.replace(/^dm-/, "").split("-");
@@ -775,61 +1529,131 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
           }
         }
       });
-      return items.sort((a, b) => {
-        const msgsA = dmConversations[a.conversationId] ?? [];
-        const msgsB = dmConversations[b.conversationId] ?? [];
-        const lastA = msgsA[msgsA.length - 1]?.timestamp ?? 0;
-        const lastB = msgsB[msgsB.length - 1]?.timestamp ?? 0;
-        return lastB - lastA;
-      });
+      return items
+        .filter((it) => !blockedPlayerIds.has(it.otherParticipantId))
+        .sort((a, b) => {
+          const msgsA = dmConversations[a.conversationId] ?? [];
+          const msgsB = dmConversations[b.conversationId] ?? [];
+          const lastA = msgsA[msgsA.length - 1]?.timestamp ?? 0;
+          const lastB = msgsB[msgsB.length - 1]?.timestamp ?? 0;
+          return lastB - lastA;
+        });
     },
-    [dmConversations]
+    [token, apiRanking, serverDmThreads, dmConversations, blockedPlayerIds]
   );
 
   const getDmMessages = useCallback(
     (conversationId: string): DMMessage[] => {
+      if (token && apiRanking) {
+        const msgs = serverDmMessages[conversationId] ?? [];
+        return [...msgs].sort((a, b) => a.timestamp - b.timestamp);
+      }
       const msgs = dmConversations[conversationId] ?? [];
       return [...msgs].sort((a, b) => a.timestamp - b.timestamp);
     },
-    [dmConversations]
+    [token, apiRanking, serverDmMessages, dmConversations]
   );
 
-  const sendDm = useCallback((senderId: string, otherParticipantId: string, body: string) => {
-    const conversationId = getConversationId(senderId, otherParticipantId);
-    const message: DMMessage = {
-      id: `dm-msg-${Date.now()}`,
-      senderId,
-      body,
-      timestamp: Date.now(),
-      type: "text",
-    };
-    setDmConversations((prev) => ({
-      ...prev,
-      [conversationId]: [...(prev[conversationId] ?? []), message],
-    }));
-  }, []);
+  const sendDm = useCallback(
+    async (
+      senderId: string,
+      otherParticipantId: string,
+      body: string
+    ): Promise<{ success: boolean; errorMessage?: string }> => {
+      if (token && apiRanking) {
+        const other = apiRanking.hackers.find((h) => h.id === otherParticipantId);
+        if (!other) return { success: false, errorMessage: "__peer_unavailable__" };
+        if (blockedPlayerIds.has(otherParticipantId)) {
+          return { success: false, errorMessage: "__dm_blocked__" };
+        }
+        try {
+          const res = await invoke<{ message_id: string; error_message: string }>("grpc_send_hackerboard_dm", {
+            token,
+            targetUsername: other.username,
+            body: body.trim(),
+          });
+          if (res.error_message) return { success: false, errorMessage: res.error_message };
+        } catch {
+          return { success: false, errorMessage: "__network__" };
+        }
+        await refreshDmConversation(senderId, otherParticipantId);
+        return { success: true };
+      }
+      if (blockedPlayerIds.has(otherParticipantId)) {
+        return { success: false, errorMessage: "__dm_blocked__" };
+      }
+      const conversationId = getConversationId(senderId, otherParticipantId);
+      const message: DMMessage = {
+        id: `dm-msg-${Date.now()}`,
+        senderId,
+        body,
+        timestamp: Date.now(),
+        type: "text",
+      };
+      setDmConversations((prev) => ({
+        ...prev,
+        [conversationId]: [...(prev[conversationId] ?? []), message],
+      }));
+      return { success: true };
+    },
+    [token, apiRanking, refreshDmConversation, blockedPlayerIds]
+  );
 
   const getFactionGroupMessages = useCallback(
     (factionId: string): FactionGroupMessage[] => {
+      if (token && apiRanking) {
+        const msgs = serverFactionMessages[factionId] ?? [];
+        return [...msgs].sort((a, b) => a.timestamp - b.timestamp);
+      }
       const msgs = factionGroupMessages[factionId] ?? [];
       return [...msgs].sort((a, b) => a.timestamp - b.timestamp);
     },
-    [factionGroupMessages]
+    [token, apiRanking, serverFactionMessages, factionGroupMessages]
   );
 
-  const sendFactionGroupMessage = useCallback((factionId: string, senderId: string, body: string) => {
-    const message: FactionGroupMessage = {
-      id: `fg-${Date.now()}`,
-      factionId,
-      senderId,
-      body,
-      timestamp: Date.now(),
-    };
-    setFactionGroupMessages((prev) => ({
-      ...prev,
-      [factionId]: [...(prev[factionId] ?? []), message],
-    }));
-  }, []);
+  const sendFactionGroupMessage = useCallback(
+    async (
+      factionId: string,
+      senderId: string,
+      body: string
+    ): Promise<{ success: boolean; errorMessage?: string }> => {
+      if (token && apiRanking) {
+        try {
+          const res = await invoke<{ message_id: string; error_message: string }>(
+            "grpc_send_hackerboard_faction_message",
+            { token, body: body.trim() }
+          );
+          if (res.error_message) return { success: false, errorMessage: res.error_message };
+        } catch {
+          return { success: false, errorMessage: "__network__" };
+        }
+        await loadFactionRoomMessages(factionId);
+        return { success: true };
+      }
+      const message: FactionGroupMessage = {
+        id: `fg-${Date.now()}`,
+        factionId,
+        senderId,
+        body,
+        timestamp: Date.now(),
+      };
+      setFactionGroupMessages((prev) => ({
+        ...prev,
+        [factionId]: [...(prev[factionId] ?? []), message],
+      }));
+      return { success: true };
+    },
+    [token, apiRanking, loadFactionRoomMessages]
+  );
+
+  const hasMoreOlderDmMessages = useCallback(
+    (conversationId: string) => !!serverDmHasOlder[conversationId],
+    [serverDmHasOlder]
+  );
+  const hasMoreOlderFactionMessages = useCallback(
+    (factionId: string) => !!serverFactionHasOlder[factionId],
+    [serverFactionHasOlder]
+  );
 
   const value: HackerboardContextValue = useMemo(
     () => ({
@@ -846,6 +1670,9 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       feedRefreshing,
       feedHasMore,
       feedError,
+      clusterRankingActive: apiRanking !== null,
+      rankingError,
+      retryRanking,
       refreshFeed,
       loadMoreFeed,
       searchHackers: (query: string) => {
@@ -863,14 +1690,32 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       getDmConversations,
       getDmMessages,
       sendDm,
+      refreshDmConversation,
+      refreshHackerboardMessaging,
+      hasMoreOlderDmMessages,
+      loadOlderDmMessages,
+      hasMoreOlderFactionMessages,
+      loadOlderFactionMessages,
       getFactionGroupMessages,
       sendFactionGroupMessage,
       getEffectiveFactionId,
       createFaction,
       leaveFaction,
+      factionInvitesIncoming,
       sendFactionInvite,
       acceptFactionInvite,
       declineFactionInvite,
+      acceptServerFactionInvite,
+      declineServerFactionInvite,
+      blockedPlayerIds,
+      isBlockedByMe,
+      blockPlayer,
+      unblockPlayer,
+      canSendFactionInvite,
+      sendFactionInviteByUsername,
+      factionInvitesOutgoing,
+      refreshFactionInvitesOutgoing: loadFactionInvitesOutgoing,
+      cancelFactionInviteOutgoing,
     }),
     [
       hackers,
@@ -884,6 +1729,9 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       feedRefreshing,
       feedHasMore,
       feedError,
+      apiRanking,
+      rankingError,
+      retryRanking,
       refreshFeed,
       loadMoreFeed,
       addFeedPost,
@@ -893,14 +1741,32 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       getDmConversations,
       getDmMessages,
       sendDm,
+      refreshDmConversation,
+      refreshHackerboardMessaging,
+      hasMoreOlderDmMessages,
+      loadOlderDmMessages,
+      hasMoreOlderFactionMessages,
+      loadOlderFactionMessages,
       getFactionGroupMessages,
       sendFactionGroupMessage,
       getEffectiveFactionId,
       createFaction,
       leaveFaction,
+      factionInvitesIncoming,
       sendFactionInvite,
       acceptFactionInvite,
       declineFactionInvite,
+      acceptServerFactionInvite,
+      declineServerFactionInvite,
+      blockedPlayerIds,
+      isBlockedByMe,
+      blockPlayer,
+      unblockPlayer,
+      canSendFactionInvite,
+      sendFactionInviteByUsername,
+      factionInvitesOutgoing,
+      loadFactionInvitesOutgoing,
+      cancelFactionInviteOutgoing,
     ]
   );
 

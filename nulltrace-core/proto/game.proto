@@ -32,6 +32,20 @@ service GameService {
   rpc SetHackerboardLanguagePreferences (SetHackerboardLanguagePreferencesRequest) returns (SetHackerboardLanguagePreferencesResponse);
   rpc CreateFaction (CreateFactionRequest) returns (CreateFactionResponse);
   rpc LeaveFaction (LeaveFactionRequest) returns (LeaveFactionResponse);
+  rpc SendFactionInvite (SendFactionInviteRequest) returns (SendFactionInviteResponse);
+  rpc ListFactionInvites (ListFactionInvitesRequest) returns (ListFactionInvitesResponse);
+  rpc AcceptFactionInvite (AcceptFactionInviteRequest) returns (AcceptFactionInviteResponse);
+  rpc DeclineFactionInvite (DeclineFactionInviteRequest) returns (DeclineFactionInviteResponse);
+  rpc ListOutgoingFactionInvites (ListOutgoingFactionInvitesRequest) returns (ListOutgoingFactionInvitesResponse);
+  rpc CancelFactionInvite (CancelFactionInviteRequest) returns (CancelFactionInviteResponse);
+  rpc BlockHackerboardPlayer (BlockHackerboardPlayerRequest) returns (BlockHackerboardPlayerResponse);
+  rpc UnblockHackerboardPlayer (UnblockHackerboardPlayerRequest) returns (UnblockHackerboardPlayerResponse);
+  rpc ListBlockedPlayers (ListBlockedPlayersRequest) returns (ListBlockedPlayersResponse);
+  rpc SendHackerboardDm (SendHackerboardDmRequest) returns (SendHackerboardDmResponse);
+  rpc ListHackerboardDmThreads (ListHackerboardDmThreadsRequest) returns (ListHackerboardDmThreadsResponse);
+  rpc ListHackerboardDmMessages (ListHackerboardDmMessagesRequest) returns (ListHackerboardDmMessagesResponse);
+  rpc SendHackerboardFactionMessage (SendHackerboardFactionMessageRequest) returns (SendHackerboardFactionMessageResponse);
+  rpc ListHackerboardFactionMessages (ListHackerboardFactionMessagesRequest) returns (ListHackerboardFactionMessagesResponse);
   rpc ListFeedPosts (ListFeedPostsRequest) returns (ListFeedPostsResponse);
   rpc CreateFeedPost (CreateFeedPostRequest) returns (CreateFeedPostResponse);
   rpc ToggleFeedPostLike (ToggleFeedPostLikeRequest) returns (ToggleFeedPostLikeResponse);
@@ -426,6 +440,8 @@ message RankingEntry {
   int32 points = 4;
   string faction_id = 5;
   string faction_name = 6;
+  string faction_creator_id = 7;  // empty if no faction; for invite permission UI
+  bool faction_allow_member_invites = 8;  // true when no faction; else from DB
 }
 
 message GetRankingResponse {
@@ -489,6 +505,176 @@ message LeaveFactionRequest {}
 
 message LeaveFactionResponse {
   bool success = 1;
+  string error_message = 2;
+}
+
+message SendFactionInviteRequest {
+  string target_username = 1;
+}
+
+message SendFactionInviteResponse {
+  string invite_id = 1;
+  string error_message = 2;
+}
+
+message ListFactionInvitesRequest {}
+
+message FactionInviteEntry {
+  string invite_id = 1;
+  string faction_id = 2;
+  string faction_name = 3;
+  string from_username = 4;
+  int64 created_at_ms = 5;
+}
+
+message ListFactionInvitesResponse {
+  repeated FactionInviteEntry invites = 1;
+  string error_message = 2;
+}
+
+message AcceptFactionInviteRequest {
+  string invite_id = 1;
+}
+
+message AcceptFactionInviteResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message DeclineFactionInviteRequest {
+  string invite_id = 1;
+}
+
+message DeclineFactionInviteResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message ListOutgoingFactionInvitesRequest {}
+
+message OutgoingFactionInviteEntry {
+  string invite_id = 1;
+  string to_username = 2;
+  string from_username = 3;
+  string from_player_id = 4;
+  int64 created_at_ms = 5;
+}
+
+message ListOutgoingFactionInvitesResponse {
+  repeated OutgoingFactionInviteEntry invites = 1;
+  string error_message = 2;
+}
+
+message CancelFactionInviteRequest {
+  string invite_id = 1;
+}
+
+message CancelFactionInviteResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message BlockHackerboardPlayerRequest {
+  string target_username = 1;
+}
+
+message BlockHackerboardPlayerResponse {
+  string error_message = 1;
+}
+
+message UnblockHackerboardPlayerRequest {
+  string target_username = 1;
+}
+
+message UnblockHackerboardPlayerResponse {
+  string error_message = 1;
+}
+
+message ListBlockedPlayersRequest {}
+
+message BlockedPlayerEntry {
+  string player_id = 1;
+  string username = 2;
+}
+
+message ListBlockedPlayersResponse {
+  repeated BlockedPlayerEntry blocked = 1;
+  string error_message = 2;
+}
+
+// ── Hackerboard DMs (Phase 2.1) ─────────────────────────────────────────────
+
+message SendHackerboardDmRequest {
+  string target_username = 1;
+  string body = 2;
+}
+
+message SendHackerboardDmResponse {
+  string message_id = 1;
+  string error_message = 2;
+}
+
+message ListHackerboardDmThreadsRequest {
+  int32 limit = 1;  // default 50, max 100
+}
+
+message HackerboardDmThreadEntry {
+  string peer_player_id = 1;
+  string peer_username = 2;
+  string last_message_id = 3;
+  string last_body = 4;
+  int64 last_created_at_ms = 5;
+}
+
+message ListHackerboardDmThreadsResponse {
+  repeated HackerboardDmThreadEntry threads = 1;
+  string error_message = 2;
+}
+
+message ListHackerboardDmMessagesRequest {
+  string peer_username = 1;
+  string before_message_id = 2;  // empty = newest page
+  int32 limit = 3;               // default 50, max 200
+}
+
+message HackerboardDmMessageEntry {
+  string id = 1;
+  string from_player_id = 2;
+  string body = 3;
+  int64 created_at_ms = 4;
+}
+
+message ListHackerboardDmMessagesResponse {
+  repeated HackerboardDmMessageEntry messages = 1;
+  string error_message = 2;
+}
+
+// ── Hackerboard faction chat (Phase 2.2) ────────────────────────────────────
+
+message SendHackerboardFactionMessageRequest {
+  string body = 1;
+}
+
+message SendHackerboardFactionMessageResponse {
+  string message_id = 1;
+  string error_message = 2;
+}
+
+message ListHackerboardFactionMessagesRequest {
+  string before_message_id = 1;  // empty = newest page
+  int32 limit = 2;               // default 50, max 200
+}
+
+message HackerboardFactionMessageEntry {
+  string id = 1;
+  string from_player_id = 2;
+  string from_username = 3;
+  string body = 4;
+  int64 created_at_ms = 5;
+}
+
+message ListHackerboardFactionMessagesResponse {
+  repeated HackerboardFactionMessageEntry messages = 1;
   string error_message = 2;
 }
 

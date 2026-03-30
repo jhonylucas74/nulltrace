@@ -4,6 +4,9 @@ pub mod fs_service;
 pub mod user_service;
 pub mod player_service;
 pub mod faction_service;
+pub mod faction_invite_service;
+pub mod hackerboard_dm_service;
+pub mod hackerboard_faction_chat_service;
 pub mod shortcuts_service;
 pub mod email_service;
 pub mod email_account_service;
@@ -15,6 +18,7 @@ pub mod wallet_card_service;
 pub mod card_invoice_service;
 pub mod codelab_service;
 pub mod feed_service;
+pub mod player_block_service;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -126,6 +130,21 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
     sqlx::raw_sql(include_str!("../../../migrations/032_add_player_hackerboard_language_prefs.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/033_create_faction_invites.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/034_hackerboard_direct_messages.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/035_hackerboard_faction_chat.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/036_player_blocks.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/037_faction_invite_permissions.sql"))
         .execute(pool)
         .await?;
     Ok(())

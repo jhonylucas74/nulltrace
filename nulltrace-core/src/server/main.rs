@@ -6,6 +6,20 @@ use game::{
     GetRankingRequest, GetRankingResponse, GetSysinfoRequest, GetSysinfoResponse,
     UpgradeVmRequest, UpgradeVmResponse, HelloRequest, HelloResponse, LeaveFactionRequest,
     LeaveFactionResponse, ListFsRequest, ListFsResponse, LoginRequest, LoginResponse,
+    SendFactionInviteRequest, SendFactionInviteResponse,
+    ListFactionInvitesRequest, ListFactionInvitesResponse,
+    AcceptFactionInviteRequest, AcceptFactionInviteResponse,
+    DeclineFactionInviteRequest, DeclineFactionInviteResponse,
+    ListOutgoingFactionInvitesRequest, ListOutgoingFactionInvitesResponse,
+    CancelFactionInviteRequest, CancelFactionInviteResponse,
+    BlockHackerboardPlayerRequest, BlockHackerboardPlayerResponse,
+    UnblockHackerboardPlayerRequest, UnblockHackerboardPlayerResponse,
+    ListBlockedPlayersRequest, ListBlockedPlayersResponse,
+    ListHackerboardDmMessagesRequest, ListHackerboardDmMessagesResponse,
+    ListHackerboardDmThreadsRequest, ListHackerboardDmThreadsResponse,
+    ListHackerboardFactionMessagesRequest, ListHackerboardFactionMessagesResponse,
+    SendHackerboardDmRequest, SendHackerboardDmResponse,
+    SendHackerboardFactionMessageRequest, SendHackerboardFactionMessageResponse,
     MovePathRequest, MovePathResponse, PingRequest, PingResponse, ProcessSpyClientMessage,
     ProcessSpyServerMessage,     RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest,
     RenamePathResponse, RunProcessRequest, RunProcessResponse, RestoreDiskRequest, RestoreDiskResponse,     SetPreferredThemeRequest,
@@ -415,6 +429,144 @@ impl GameService for MyGameService {
         Ok(Response::new(LeaveFactionResponse {
             success: false,
             error_message: "Use the unified cluster binary for factions".to_string(),
+        }))
+    }
+
+    async fn send_faction_invite(
+        &self,
+        _request: Request<SendFactionInviteRequest>,
+    ) -> Result<Response<SendFactionInviteResponse>, Status> {
+        Ok(Response::new(SendFactionInviteResponse {
+            invite_id: String::new(),
+            error_message: "Use the unified cluster binary for factions".to_string(),
+        }))
+    }
+
+    async fn list_faction_invites(
+        &self,
+        _request: Request<ListFactionInvitesRequest>,
+    ) -> Result<Response<ListFactionInvitesResponse>, Status> {
+        Ok(Response::new(ListFactionInvitesResponse {
+            invites: vec![],
+            error_message: "Use the unified cluster binary for factions".to_string(),
+        }))
+    }
+
+    async fn accept_faction_invite(
+        &self,
+        _request: Request<AcceptFactionInviteRequest>,
+    ) -> Result<Response<AcceptFactionInviteResponse>, Status> {
+        Ok(Response::new(AcceptFactionInviteResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for factions".to_string(),
+        }))
+    }
+
+    async fn decline_faction_invite(
+        &self,
+        _request: Request<DeclineFactionInviteRequest>,
+    ) -> Result<Response<DeclineFactionInviteResponse>, Status> {
+        Ok(Response::new(DeclineFactionInviteResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for factions".to_string(),
+        }))
+    }
+
+    async fn list_outgoing_faction_invites(
+        &self,
+        _request: Request<ListOutgoingFactionInvitesRequest>,
+    ) -> Result<Response<ListOutgoingFactionInvitesResponse>, Status> {
+        Ok(Response::new(ListOutgoingFactionInvitesResponse {
+            invites: vec![],
+            error_message: "Use the unified cluster binary for factions".to_string(),
+        }))
+    }
+
+    async fn cancel_faction_invite(
+        &self,
+        _request: Request<CancelFactionInviteRequest>,
+    ) -> Result<Response<CancelFactionInviteResponse>, Status> {
+        Ok(Response::new(CancelFactionInviteResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for factions".to_string(),
+        }))
+    }
+
+    async fn block_hackerboard_player(
+        &self,
+        _request: Request<BlockHackerboardPlayerRequest>,
+    ) -> Result<Response<BlockHackerboardPlayerResponse>, Status> {
+        Ok(Response::new(BlockHackerboardPlayerResponse {
+            error_message: "Use the unified cluster binary for Hackerboard".to_string(),
+        }))
+    }
+
+    async fn unblock_hackerboard_player(
+        &self,
+        _request: Request<UnblockHackerboardPlayerRequest>,
+    ) -> Result<Response<UnblockHackerboardPlayerResponse>, Status> {
+        Ok(Response::new(UnblockHackerboardPlayerResponse {
+            error_message: "Use the unified cluster binary for Hackerboard".to_string(),
+        }))
+    }
+
+    async fn list_blocked_players(
+        &self,
+        _request: Request<ListBlockedPlayersRequest>,
+    ) -> Result<Response<ListBlockedPlayersResponse>, Status> {
+        Ok(Response::new(ListBlockedPlayersResponse {
+            blocked: vec![],
+            error_message: "Use the unified cluster binary for Hackerboard".to_string(),
+        }))
+    }
+
+    async fn send_hackerboard_dm(
+        &self,
+        _request: Request<SendHackerboardDmRequest>,
+    ) -> Result<Response<SendHackerboardDmResponse>, Status> {
+        Ok(Response::new(SendHackerboardDmResponse {
+            message_id: String::new(),
+            error_message: "Use the unified cluster binary for Hackerboard messaging".to_string(),
+        }))
+    }
+
+    async fn list_hackerboard_dm_threads(
+        &self,
+        _request: Request<ListHackerboardDmThreadsRequest>,
+    ) -> Result<Response<ListHackerboardDmThreadsResponse>, Status> {
+        Ok(Response::new(ListHackerboardDmThreadsResponse {
+            threads: vec![],
+            error_message: "Use the unified cluster binary for Hackerboard messaging".to_string(),
+        }))
+    }
+
+    async fn list_hackerboard_dm_messages(
+        &self,
+        _request: Request<ListHackerboardDmMessagesRequest>,
+    ) -> Result<Response<ListHackerboardDmMessagesResponse>, Status> {
+        Ok(Response::new(ListHackerboardDmMessagesResponse {
+            messages: vec![],
+            error_message: "Use the unified cluster binary for Hackerboard messaging".to_string(),
+        }))
+    }
+
+    async fn send_hackerboard_faction_message(
+        &self,
+        _request: Request<SendHackerboardFactionMessageRequest>,
+    ) -> Result<Response<SendHackerboardFactionMessageResponse>, Status> {
+        Ok(Response::new(SendHackerboardFactionMessageResponse {
+            message_id: String::new(),
+            error_message: "Use the unified cluster binary for Hackerboard messaging".to_string(),
+        }))
+    }
+
+    async fn list_hackerboard_faction_messages(
+        &self,
+        _request: Request<ListHackerboardFactionMessagesRequest>,
+    ) -> Result<Response<ListHackerboardFactionMessagesResponse>, Status> {
+        Ok(Response::new(ListHackerboardFactionMessagesResponse {
+            messages: vec![],
+            error_message: "Use the unified cluster binary for Hackerboard messaging".to_string(),
         }))
     }
 

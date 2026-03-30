@@ -9,6 +9,7 @@ pub struct Faction {
     pub id: Uuid,
     pub name: String,
     pub creator_id: Option<Uuid>,
+    pub allow_member_invites: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -27,7 +28,7 @@ impl FactionService {
             r#"
             INSERT INTO factions (id, name, creator_id)
             VALUES (gen_random_uuid(), $1, $2)
-            RETURNING id, name, creator_id, created_at, updated_at
+            RETURNING id, name, creator_id, allow_member_invites, created_at, updated_at
             "#,
         )
         .bind(name)
@@ -40,7 +41,7 @@ impl FactionService {
     pub async fn get_by_id(&self, id: Uuid) -> Result<Option<Faction>, sqlx::Error> {
         let rec = sqlx::query_as::<_, Faction>(
             r#"
-            SELECT id, name, creator_id, created_at, updated_at
+            SELECT id, name, creator_id, allow_member_invites, created_at, updated_at
             FROM factions WHERE id = $1
             "#,
         )
