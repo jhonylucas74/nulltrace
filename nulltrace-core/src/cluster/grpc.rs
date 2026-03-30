@@ -1908,9 +1908,18 @@ impl GameService for ClusterGameService {
             ));
         };
         let limit = if req.limit <= 0 { 50 } else { req.limit };
+        let before_trim = req.before_post_id.trim();
+        let before_post_id = if before_trim.is_empty() {
+            None
+        } else {
+            Some(
+                Uuid::parse_str(before_trim)
+                    .map_err(|_| Status::invalid_argument("before_post_id must be a valid UUID"))?,
+            )
+        };
         let rows = self
             .feed_service
-            .list_posts(filter_opt, limit, player_id)
+            .list_posts(filter_opt, limit, player_id, before_post_id)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         let posts = rows.into_iter().map(feed_post_row_to_proto).collect();

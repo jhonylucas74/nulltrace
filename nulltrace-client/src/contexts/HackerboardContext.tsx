@@ -115,6 +115,13 @@ function mapApiEntryToFeedPost(p: {
   };
 }
 
+/** Page size for ListFeedPosts (server max 100). */
+const FEED_PAGE_SIZE = 25;
+/** Cap merged + infinite-scroll feed length in memory (oldest trimmed after merge). */
+const FEED_MAX_IN_MEMORY = 300;
+
+type FeedListRow = Parameters<typeof mapApiEntryToFeedPost>[0];
+
 /** Canonical conversation id for a pair of hackers. */
 export function getConversationId(userId1: string, userId2: string): string {
   return `dm-${[userId1, userId2].sort().join("-")}`;
@@ -191,12 +198,16 @@ interface HackerboardContextValue {
   composePostLanguage: FeedPostLanguage;
   setComposePostLanguage: (l: FeedPostLanguage) => void;
   feedLoading: boolean;
+  feedLoadingMore: boolean;
+  feedRefreshing: boolean;
+  feedHasMore: boolean;
   feedError: string | null;
   refreshFeed: () => void;
+  loadMoreFeed: () => Promise<void>;
   searchHackers: (query: string) => HackerWithRank[];
   searchFactions: (query: string) => FactionWithRank[];
   addFeedPost: (post: Omit<FeedPost, "id" | "timestamp"> & { language: FeedPostLanguage }) => Promise<void>;
-  toggleLike: (postId: string) => Promise<void>;
+  toggleLike: (postId: string, currentlyLiked: boolean) => Promise<void>;
   getDmConversations: (currentUserId: string) => DmConversationItem[];
   getDmMessages: (conversationId: string) => DMMessage[];
   sendDm: (senderId: string, otherParticipantId: string, body: string) => void;
@@ -241,6 +252,10 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
   feedFilterRef.current = feedLanguageFilter;
   composeRef.current = composePostLanguage;
   const [feedLoading, setFeedLoading] = useState(false);
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false);
+  const [feedRefreshing, setFeedRefreshing] = useState(false);
+  const feedRefreshingRef = useRef(false);
+  const [feedHasMore, setFeedHasMore] = useState(true);
   const [feedError, setFeedError] = useState<string | null>(null);
   const [userLikedPostIds, setUserLikedPostIds] = useState<Set<string>>(new Set());
   const [dmConversations, setDmConversations] = useState<Record<string, DMMessage[]>>(buildInitialDmConversations);
@@ -343,6 +358,8 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
     if (!token) {
       setFeedLanguageFilterState("all");
       setComposePostLanguageState(i18nLangToComposeDefault(i18n.language));
+      setFeedHasMore(true);
+      setFeedLoadingMore(false);
     }
   }, [token, i18n.language]);
 
@@ -377,41 +394,41 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
     };
   }, [token]);
 
-  const fetchFeed = useCallback(async () => {
+  const fetchFeedPage = useCallback(
+    async (beforePostId: string) => {
+      if (!token) {
+        throw new Error("Not authenticated");
+      }
+      const language_filter = feedLanguageFilter === "all" ? "" : feedLanguageFilter;
+      return invoke<{ posts: FeedListRow[]; error_message: string }>("grpc_list_feed_posts", {
+        token,
+        languageFilter: language_filter,
+        limit: FEED_PAGE_SIZE,
+        beforePostId,
+      });
+    },
+    [token, feedLanguageFilter]
+  );
+
+  const loadFeedInitial = useCallback(async () => {
     if (!token) {
       setFeed([]);
       setUserLikedPostIds(new Set());
       setFeedError(null);
       setFeedLoading(false);
+      setFeedLoadingMore(false);
+      setFeedHasMore(true);
       return;
     }
     setFeedLoading(true);
     setFeedError(null);
     try {
-      const language_filter = feedLanguageFilter === "all" ? "" : feedLanguageFilter;
-      const res = await invoke<{
-        posts: Array<{
-          id: string;
-          author_id: string;
-          author_username: string;
-          body: string;
-          language: string;
-          created_at_ms: number;
-          reply_to_id: string;
-          post_type: string;
-          like_count: number;
-          liked_by_me: boolean;
-        }>;
-        error_message: string;
-      }>("grpc_list_feed_posts", {
-        token,
-        languageFilter: language_filter,
-        limit: 100,
-      });
+      const res = await fetchFeedPage("");
       if (res.error_message) {
         setFeed([]);
         setUserLikedPostIds(new Set());
         setFeedError(res.error_message);
+        setFeedHasMore(false);
         return;
       }
       const mapped = res.posts.map((p) => mapApiEntryToFeedPost(p));
@@ -421,22 +438,108 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
         if (p.liked_by_me) liked.add(p.id);
       }
       setUserLikedPostIds(liked);
+      setFeedHasMore(res.posts.length === FEED_PAGE_SIZE);
     } catch {
       setFeed([]);
       setUserLikedPostIds(new Set());
       setFeedError("Failed to load feed");
+      setFeedHasMore(false);
     } finally {
       setFeedLoading(false);
     }
-  }, [token, feedLanguageFilter]);
+  }, [token, fetchFeedPage]);
 
-  useEffect(() => {
-    void fetchFeed();
-  }, [fetchFeed]);
+  const loadMoreFeed = useCallback(async () => {
+    if (!token || !feedHasMore || feedLoadingMore || feedLoading) return;
+    const oldestId = feed[feed.length - 1]?.id;
+    if (!oldestId) return;
+    setFeedLoadingMore(true);
+    try {
+      const res = await fetchFeedPage(oldestId);
+      if (res.error_message) {
+        return;
+      }
+      const mapped = res.posts.map((p) => mapApiEntryToFeedPost(p));
+      setFeed((prev) => {
+        const ids = new Set(prev.map((p) => p.id));
+        const extra = mapped.filter((p) => !ids.has(p.id));
+        return [...prev, ...extra];
+      });
+      setUserLikedPostIds((prev) => {
+        const next = new Set(prev);
+        for (const p of res.posts) {
+          if (p.liked_by_me) next.add(p.id);
+          else next.delete(p.id);
+        }
+        return next;
+      });
+      setFeedHasMore(res.posts.length === FEED_PAGE_SIZE);
+    } catch {
+      /* ignore */
+    } finally {
+      setFeedLoadingMore(false);
+    }
+  }, [token, feedHasMore, feedLoadingMore, feedLoading, feed, fetchFeedPage]);
+
+  const refreshFeedMerge = useCallback(async () => {
+    if (!token) return;
+    if (feedRefreshingRef.current) return;
+    feedRefreshingRef.current = true;
+    setFeedRefreshing(true);
+    const startedAt = Date.now();
+    const MIN_REFRESH_MS = 450;
+    const endRefreshing = () => {
+      const wait = Math.max(0, MIN_REFRESH_MS - (Date.now() - startedAt));
+      if (wait > 0) {
+        window.setTimeout(() => {
+          feedRefreshingRef.current = false;
+          setFeedRefreshing(false);
+        }, wait);
+      } else {
+        feedRefreshingRef.current = false;
+        setFeedRefreshing(false);
+      }
+    };
+    try {
+      const res = await fetchFeedPage("");
+      if (res.error_message) {
+        setFeedError(res.error_message);
+        return;
+      }
+      setFeedError(null);
+      setFeed((prev) => {
+        const map = new Map(prev.map((p) => [p.id, p]));
+        for (const row of res.posts) {
+          map.set(row.id, mapApiEntryToFeedPost(row));
+        }
+        let arr = Array.from(map.values()).sort((a, b) => b.timestamp - a.timestamp);
+        if (arr.length > FEED_MAX_IN_MEMORY) {
+          arr = arr.slice(0, FEED_MAX_IN_MEMORY);
+        }
+        return arr;
+      });
+      setUserLikedPostIds((prev) => {
+        const next = new Set(prev);
+        for (const p of res.posts) {
+          if (p.liked_by_me) next.add(p.id);
+          else next.delete(p.id);
+        }
+        return next;
+      });
+    } catch {
+      setFeedError("Failed to load feed");
+    } finally {
+      endRefreshing();
+    }
+  }, [token, fetchFeedPage]);
 
   const refreshFeed = useCallback(() => {
-    void fetchFeed();
-  }, [fetchFeed]);
+    void refreshFeedMerge();
+  }, [refreshFeedMerge]);
+
+  useEffect(() => {
+    void loadFeedInitial();
+  }, [loadFeedInitial]);
 
   const hackers = useMemo(() => {
     const list = apiRanking?.hackers ?? MOCK_HACKERS;
@@ -574,7 +677,7 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
   const addFeedPost = useCallback(
     async (post: Omit<FeedPost, "id" | "timestamp"> & { language: FeedPostLanguage }) => {
       if (!token) return;
-      const res = await invoke<{ post: unknown; error_message: string }>("grpc_create_feed_post", {
+      const res = await invoke<{ post: FeedListRow | null; error_message: string }>("grpc_create_feed_post", {
         token,
         body: post.body,
         language: post.language,
@@ -583,14 +686,49 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       if (res.error_message) {
         throw new Error(res.error_message);
       }
-      await fetchFeed();
+      if (res.post) {
+        const mapped = mapApiEntryToFeedPost(res.post);
+        setFeed((prev) => {
+          const byId = new Map(prev.map((p) => [p.id, p]));
+          byId.set(mapped.id, mapped);
+          let arr = Array.from(byId.values()).sort((a, b) => b.timestamp - a.timestamp);
+          if (arr.length > FEED_MAX_IN_MEMORY) {
+            arr = arr.slice(0, FEED_MAX_IN_MEMORY);
+          }
+          return arr;
+        });
+        setUserLikedPostIds((prev) => {
+          const next = new Set(prev);
+          if (res.post!.liked_by_me) next.add(res.post!.id);
+          return next;
+        });
+        setFeedError(null);
+        return;
+      }
+      await loadFeedInitial();
     },
-    [token, fetchFeed]
+    [token, loadFeedInitial]
   );
 
-  const toggleLike = useCallback(
-    async (postId: string) => {
-      if (!token) return;
+  const toggleLike = useCallback(async (postId: string, currentlyLiked: boolean) => {
+    if (!token) return;
+
+    const wasLiked = currentlyLiked;
+    setUserLikedPostIds((prev) => {
+      const next = new Set(prev);
+      if (wasLiked) next.delete(postId);
+      else next.add(postId);
+      return next;
+    });
+    setFeed((prev) =>
+      prev.map((p) => {
+        if (p.id !== postId) return p;
+        const count = p.likeCount ?? 0;
+        return { ...p, likeCount: Math.max(0, wasLiked ? count - 1 : count + 1) };
+      })
+    );
+
+    try {
       const res = await invoke<{ liked: boolean; like_count: number; error_message: string }>(
         "grpc_toggle_feed_post_like",
         { token, postId }
@@ -607,9 +745,22 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
         else next.delete(postId);
         return next;
       });
-    },
-    [token]
-  );
+    } catch {
+      setUserLikedPostIds((prev) => {
+        const next = new Set(prev);
+        if (wasLiked) next.add(postId);
+        else next.delete(postId);
+        return next;
+      });
+      setFeed((prev) =>
+        prev.map((p) => {
+          if (p.id !== postId) return p;
+          const count = p.likeCount ?? 0;
+          return { ...p, likeCount: Math.max(0, wasLiked ? count + 1 : count - 1) };
+        })
+      );
+    }
+  }, [token]);
 
   const getDmConversations = useCallback(
     (currentUserId: string): DmConversationItem[] => {
@@ -691,8 +842,12 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       composePostLanguage,
       setComposePostLanguage,
       feedLoading,
+      feedLoadingMore,
+      feedRefreshing,
+      feedHasMore,
       feedError,
       refreshFeed,
+      loadMoreFeed,
       searchHackers: (query: string) => {
         const q = query.trim().toLowerCase();
         if (!q) return hackers;
@@ -725,8 +880,12 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       feedLanguageFilter,
       composePostLanguage,
       feedLoading,
+      feedLoadingMore,
+      feedRefreshing,
+      feedHasMore,
       feedError,
       refreshFeed,
+      loadMoreFeed,
       addFeedPost,
       setFeedLanguageFilter,
       setComposePostLanguage,

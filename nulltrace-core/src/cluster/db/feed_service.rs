@@ -44,17 +44,20 @@ impl FeedService {
     }
 
     /// `language_filter` None = all posts; Some("en") / Some("pt-br") = filter.
+    /// `before_post_id` None = first page; Some(id) = posts strictly older than that row (keyset).
     pub async fn list_posts(
         &self,
         language_filter: Option<&str>,
         limit: i32,
         current_player_id: Uuid,
+        before_post_id: Option<Uuid>,
     ) -> Result<Vec<FeedPostRow>, sqlx::Error> {
         let lim = limit.clamp(1, 100) as i64;
 
-        let rows = if let Some(lang) = language_filter {
-            sqlx::query_as::<_, FeedPostRowSql>(
-                r#"
+        let rows = match (language_filter, before_post_id) {
+            (Some(lang), None) => {
+                sqlx::query_as::<_, FeedPostRowSql>(
+                    r#"
                 SELECT
                     fp.id,
                     fp.author_id,
@@ -78,19 +81,79 @@ impl FeedService {
                     FROM feed_post_likes
                     WHERE player_id = $2
                 ) ml ON ml.post_id = fp.id
-                WHERE fp.language = $1
+                WHERE (
+                    (fp.reply_to_id IS NULL AND fp.language = $1)
+                    OR (
+                        fp.reply_to_id IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1 FROM feed_posts parent
+                            WHERE parent.id = fp.reply_to_id AND parent.language = $1
+                        )
+                    )
+                )
                 ORDER BY fp.created_at DESC
                 LIMIT $3
                 "#,
-            )
-            .bind(lang)
-            .bind(current_player_id)
-            .bind(lim)
-            .fetch_all(&self.pool)
-            .await?
-        } else {
-            sqlx::query_as::<_, FeedPostRowSql>(
-                r#"
+                )
+                .bind(lang)
+                .bind(current_player_id)
+                .bind(lim)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            (Some(lang), Some(cursor)) => {
+                sqlx::query_as::<_, FeedPostRowSql>(
+                    r#"
+                SELECT
+                    fp.id,
+                    fp.author_id,
+                    p.username AS author_username,
+                    fp.body,
+                    fp.language,
+                    fp.reply_to_id,
+                    fp.post_type,
+                    fp.created_at,
+                    COALESCE(lc.cnt, 0)::int AS like_count,
+                    COALESCE(ml.liked, false) AS liked_by_me
+                FROM feed_posts fp
+                INNER JOIN players p ON p.id = fp.author_id
+                LEFT JOIN (
+                    SELECT post_id, COUNT(*)::bigint AS cnt
+                    FROM feed_post_likes
+                    GROUP BY post_id
+                ) lc ON lc.post_id = fp.id
+                LEFT JOIN (
+                    SELECT post_id, true AS liked
+                    FROM feed_post_likes
+                    WHERE player_id = $2
+                ) ml ON ml.post_id = fp.id
+                WHERE (
+                    (fp.reply_to_id IS NULL AND fp.language = $1)
+                    OR (
+                        fp.reply_to_id IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1 FROM feed_posts parent
+                            WHERE parent.id = fp.reply_to_id AND parent.language = $1
+                        )
+                    )
+                )
+                  AND (fp.created_at, fp.id) < (
+                      SELECT created_at, id FROM feed_posts WHERE id = $4
+                  )
+                ORDER BY fp.created_at DESC
+                LIMIT $3
+                "#,
+                )
+                .bind(lang)
+                .bind(current_player_id)
+                .bind(lim)
+                .bind(cursor)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            (None, None) => {
+                sqlx::query_as::<_, FeedPostRowSql>(
+                    r#"
                 SELECT
                     fp.id,
                     fp.author_id,
@@ -117,11 +180,51 @@ impl FeedService {
                 ORDER BY fp.created_at DESC
                 LIMIT $2
                 "#,
-            )
-            .bind(current_player_id)
-            .bind(lim)
-            .fetch_all(&self.pool)
-            .await?
+                )
+                .bind(current_player_id)
+                .bind(lim)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            (None, Some(cursor)) => {
+                sqlx::query_as::<_, FeedPostRowSql>(
+                    r#"
+                SELECT
+                    fp.id,
+                    fp.author_id,
+                    p.username AS author_username,
+                    fp.body,
+                    fp.language,
+                    fp.reply_to_id,
+                    fp.post_type,
+                    fp.created_at,
+                    COALESCE(lc.cnt, 0)::int AS like_count,
+                    COALESCE(ml.liked, false) AS liked_by_me
+                FROM feed_posts fp
+                INNER JOIN players p ON p.id = fp.author_id
+                LEFT JOIN (
+                    SELECT post_id, COUNT(*)::bigint AS cnt
+                    FROM feed_post_likes
+                    GROUP BY post_id
+                ) lc ON lc.post_id = fp.id
+                LEFT JOIN (
+                    SELECT post_id, true AS liked
+                    FROM feed_post_likes
+                    WHERE player_id = $1
+                ) ml ON ml.post_id = fp.id
+                WHERE (fp.created_at, fp.id) < (
+                    SELECT created_at, id FROM feed_posts WHERE id = $3
+                )
+                ORDER BY fp.created_at DESC
+                LIMIT $2
+                "#,
+                )
+                .bind(current_player_id)
+                .bind(lim)
+                .bind(cursor)
+                .fetch_all(&self.pool)
+                .await?
+            }
         };
 
         Ok(rows.into_iter().map(|r| r.into_row()).collect())
@@ -318,7 +421,7 @@ mod tests {
         assert_eq!(row.author_id, p.id);
         assert_eq!(row.author_username, name);
 
-        let listed = feed.list_posts(None, 50, p.id).await.unwrap();
+        let listed = feed.list_posts(None, 50, p.id, None).await.unwrap();
         assert!(listed.iter().any(|r| r.id == row.id));
     }
 
@@ -352,23 +455,66 @@ mod tests {
             .await
             .unwrap();
 
-        let all = feed.list_posts(None, 50, p.id).await.unwrap();
+        let all = feed.list_posts(None, 50, p.id, None).await.unwrap();
         let en_count = all.iter().filter(|r| r.language == FEED_LANG_EN).count();
         let pt_count = all.iter().filter(|r| r.language == FEED_LANG_PT_BR).count();
         assert!(en_count >= 1);
         assert!(pt_count >= 1);
 
         let en_only = feed
-            .list_posts(Some(FEED_LANG_EN), 50, p.id)
+            .list_posts(Some(FEED_LANG_EN), 50, p.id, None)
             .await
             .unwrap();
-        assert!(en_only.iter().all(|r| r.language == FEED_LANG_EN));
+        assert!(en_only
+            .iter()
+            .filter(|r| r.reply_to_id.is_none())
+            .all(|r| r.language == FEED_LANG_EN));
+        assert!(!en_only.iter().any(|r| r.body == "So português"));
 
         let pt_only = feed
-            .list_posts(Some(FEED_LANG_PT_BR), 50, p.id)
+            .list_posts(Some(FEED_LANG_PT_BR), 50, p.id, None)
             .await
             .unwrap();
-        assert!(pt_only.iter().all(|r| r.language == FEED_LANG_PT_BR));
+        assert!(pt_only
+            .iter()
+            .filter(|r| r.reply_to_id.is_none())
+            .all(|r| r.language == FEED_LANG_PT_BR));
+        assert!(!pt_only.iter().any(|r| r.body == "English only"));
+    }
+
+    #[tokio::test]
+    async fn test_list_posts_language_filter_includes_replies_by_parent_language() {
+        let pool = test_pool().await;
+        let players = PlayerService::new(pool.clone());
+        let feed = FeedService::new(pool);
+        let name = format!("feed_reply_lang_{}", Uuid::new_v4());
+        let p = players.create_player(&name, "pw").await.unwrap();
+
+        let root = feed
+            .create_post(p.id, "root en", FEED_LANG_EN, None)
+            .await
+            .unwrap();
+        feed.create_post(p.id, "reply in pt", FEED_LANG_PT_BR, Some(root.id))
+            .await
+            .unwrap();
+
+        let en_feed = feed
+            .list_posts(Some(FEED_LANG_EN), 50, p.id, None)
+            .await
+            .unwrap();
+        assert!(
+            en_feed.iter().any(|r| r.body == "reply in pt"),
+            "reply should appear when parent matches filter language"
+        );
+
+        let pt_feed = feed
+            .list_posts(Some(FEED_LANG_PT_BR), 50, p.id, None)
+            .await
+            .unwrap();
+        assert!(
+            !pt_feed.iter().any(|r| r.body == "reply in pt"),
+            "reply should not appear when parent language does not match filter"
+        );
     }
 
     #[tokio::test]
@@ -416,7 +562,7 @@ mod tests {
         assert!(liked1);
         assert_eq!(count1, 1);
 
-        let listed = feed.list_posts(None, 10, pb.id).await.unwrap();
+        let listed = feed.list_posts(None, 10, pb.id, None).await.unwrap();
         let row = listed.iter().find(|r| r.id == post.id).expect("post in list");
         assert!(row.liked_by_me);
         assert_eq!(row.like_count, 1);
@@ -425,9 +571,42 @@ mod tests {
         assert!(!liked2);
         assert_eq!(count2, 0);
 
-        let listed2 = feed.list_posts(None, 10, pb.id).await.unwrap();
+        let listed2 = feed.list_posts(None, 10, pb.id, None).await.unwrap();
         let row2 = listed2.iter().find(|r| r.id == post.id).expect("post in list");
         assert!(!row2.liked_by_me);
         assert_eq!(row2.like_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_list_posts_keyset_pagination() {
+        let pool = test_pool().await;
+        let players = PlayerService::new(pool.clone());
+        let feed = FeedService::new(pool);
+        let name = format!("feed_page_{}", Uuid::new_v4());
+        let p = players.create_player(&name, "pw").await.unwrap();
+
+        for i in 0..3 {
+            feed.create_post(p.id, &format!("post {i}"), FEED_LANG_EN, None)
+                .await
+                .unwrap();
+        }
+
+        let page1 = feed.list_posts(None, 2, p.id, None).await.unwrap();
+        assert_eq!(page1.len(), 2);
+        let p1_last = page1.last().unwrap();
+
+        let page2 = feed
+            .list_posts(None, 2, p.id, Some(p1_last.id))
+            .await
+            .unwrap();
+        assert!(!page2.is_empty(), "second page should return older rows");
+        let p1_set: std::collections::HashSet<_> = page1.iter().map(|r| r.id).collect();
+        for r in &page2 {
+            assert!(!p1_set.contains(&r.id), "no overlap between pages");
+            assert!(
+                (r.created_at, r.id) < (p1_last.created_at, p1_last.id),
+                "keyset: page2 rows strictly older than cursor"
+            );
+        }
     }
 }

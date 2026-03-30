@@ -510,6 +510,7 @@ message FeedPostEntry {
 message ListFeedPostsRequest {
   string language_filter = 1;  // empty = all; "en" or "pt-br" to filter
   int32 limit = 2;             // default 50, max 100
+  string before_post_id = 3;   // empty = first page; UUID of oldest loaded post for older pages
 }
 
 message ListFeedPostsResponse {

@@ -735,6 +735,7 @@ pub async fn grpc_list_feed_posts(
     token: String,
     language_filter: String,
     limit: i32,
+    before_post_id: String,
 ) -> Result<ListFeedPostsCommandResponse, String> {
     let url = grpc_url();
     let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
@@ -742,6 +743,7 @@ pub async fn grpc_list_feed_posts(
     let mut request = tonic::Request::new(ListFeedPostsRequest {
         language_filter,
         limit,
+        before_post_id,
     });
     request.metadata_mut().insert(
         "authorization",

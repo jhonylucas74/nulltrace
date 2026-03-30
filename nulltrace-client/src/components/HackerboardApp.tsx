@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
   MessageSquare,
@@ -15,6 +15,8 @@ import {
   ArrowLeft,
   Loader2,
   Globe,
+  RotateCw,
+  ShieldAlert,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import {
@@ -24,6 +26,7 @@ import {
   type FactionWithRank,
   getConversationId,
 } from "../contexts/HackerboardContext";
+import Modal from "./Modal";
 import styles from "./HackerboardApp.module.css";
 
 type Section = "feed" | "rankings" | "messages" | "group" | "profile";
@@ -31,6 +34,12 @@ type RankTab = "hackers" | "factions";
 
 /** Matches non-cluster server stub (`nulltrace-core/src/server/main.rs`). */
 const FEED_CLUSTER_STUB_ERROR = "Use the unified cluster binary for Hackerboard feed";
+
+const REPORT_REASON_VALUES = ["spam", "harassment", "hate_or_abuse", "other"] as const;
+
+function reportedPostIdsStorageKey(playerId: string): string {
+  return `nulltrace.hackerboard.reportedPostIds.${playerId}`;
+}
 
 function resolveFeedErrorDisplay(
   feedError: string | null,
@@ -262,7 +271,7 @@ function PostIcon({ type }: { type: FeedPost["type"] }) {
 
 export default function HackerboardApp() {
   const { t } = useTranslation("hackerboard");
-  const { username, token } = useAuth();
+  const { username, token, playerId } = useAuth();
   const {
     hackers,
     factions,
@@ -277,7 +286,12 @@ export default function HackerboardApp() {
     composePostLanguage,
     setComposePostLanguage,
     feedLoading,
+    feedLoadingMore,
+    feedRefreshing,
+    feedHasMore,
     feedError,
+    refreshFeed,
+    loadMoreFeed,
     getDmConversations,
     getDmMessages,
     sendDm,
@@ -297,7 +311,6 @@ export default function HackerboardApp() {
   const [composeText, setComposeText] = useState("");
   const [feedLangMenuOpen, setFeedLangMenuOpen] = useState(false);
   const feedLangMenuRef = useRef<HTMLDivElement>(null);
-  const [threadReplyLanguage, setThreadReplyLanguage] = useState<FeedPostLanguage>("en");
   const [expandedThreadId, setExpandedThreadId] = useState<string | null>(null);
   const [threadReplyText, setThreadReplyText] = useState("");
   const [selectedDmConversationId, setSelectedDmConversationId] = useState<string | null>(null);
@@ -308,6 +321,54 @@ export default function HackerboardApp() {
   const composeTextareaRef = useRef<HTMLTextAreaElement>(null);
   const dmMessageListRef = useRef<HTMLDivElement>(null);
   const groupMessageListRef = useRef<HTMLDivElement>(null);
+  const feedAreaRef = useRef<HTMLDivElement>(null);
+  const feedLoadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  /** Clears heart animation classes after keyframes finish (per post). */
+  const heartAnimTimersRef = useRef<Record<string, number>>({});
+  const [heartAnimByPost, setHeartAnimByPost] = useState<Record<string, "like" | "unlike">>({});
+  const [reportedPostIds, setReportedPostIds] = useState<Set<string>>(() => new Set());
+  const [reportModalPost, setReportModalPost] = useState<FeedPost | null>(null);
+  const [reportReason, setReportReason] = useState<string>("");
+
+  useEffect(() => {
+    if (!playerId) {
+      setReportedPostIds(new Set());
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(reportedPostIdsStorageKey(playerId));
+      if (!raw) {
+        setReportedPostIds(new Set());
+        return;
+      }
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) {
+        setReportedPostIds(new Set());
+        return;
+      }
+      setReportedPostIds(new Set(parsed.filter((x): x is string => typeof x === "string")));
+    } catch {
+      setReportedPostIds(new Set());
+    }
+  }, [playerId]);
+
+  const triggerHeartAnim = useCallback((postId: string, kind: "like" | "unlike") => {
+    const timers = heartAnimTimersRef.current;
+    const prev = timers[postId];
+    if (prev !== undefined) window.clearTimeout(prev);
+    setHeartAnimByPost((s) => ({ ...s, [postId]: kind }));
+    timers[postId] = window.setTimeout(() => {
+      setHeartAnimByPost((s) => {
+        const rest = { ...s };
+        delete rest[postId];
+        return rest;
+      });
+      delete timers[postId];
+    }, 500);
+  }, []);
+  const isScrollingRef = useRef(false);
+  const scrollIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isNearTopRef = useRef(true);
 
   const currentUserHacker = useMemo(
     () => (username ? hackers.find((h) => h.username === username) ?? null : null),
@@ -345,13 +406,53 @@ export default function HackerboardApp() {
     };
   }, [feedLangMenuOpen]);
 
+  const onFeedAreaScroll = useCallback(() => {
+    const el = feedAreaRef.current;
+    if (el) {
+      isNearTopRef.current = el.scrollTop <= 8;
+    }
+    isScrollingRef.current = true;
+    if (scrollIdleTimerRef.current) clearTimeout(scrollIdleTimerRef.current);
+    scrollIdleTimerRef.current = setTimeout(() => {
+      isScrollingRef.current = false;
+      scrollIdleTimerRef.current = null;
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scrollIdleTimerRef.current) clearTimeout(scrollIdleTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const timers = heartAnimTimersRef.current;
+    return () => {
+      Object.values(timers).forEach((id) => window.clearTimeout(id));
+    };
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (!token || section !== "feed") return;
+      if (!isNearTopRef.current || isScrollingRef.current || feedLoading || feedLoadingMore || feedRefreshing) return;
+      refreshFeed();
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [token, section, feedLoading, feedLoadingMore, feedRefreshing, refreshFeed]);
+
+  const visibleFeed = useMemo(
+    () => feed.filter((p) => !reportedPostIds.has(p.id)),
+    [feed, reportedPostIds]
+  );
+
   /** Only root posts (no replyToId) appear in the main feed. */
-  const rootPosts = useMemo(() => feed.filter((p) => !p.replyToId), [feed]);
+  const rootPosts = useMemo(() => visibleFeed.filter((p) => !p.replyToId), [visibleFeed]);
 
   /** Replies per root post id, sorted by time. */
   const repliesByRootId = useMemo(() => {
     const map = new Map<string, FeedPost[]>();
-    feed.forEach((p) => {
+    visibleFeed.forEach((p) => {
       if (p.replyToId) {
         const list = map.get(p.replyToId) ?? [];
         list.push(p);
@@ -360,7 +461,22 @@ export default function HackerboardApp() {
     });
     map.forEach((list) => list.sort((a, b) => a.timestamp - b.timestamp));
     return map;
-  }, [feed]);
+  }, [visibleFeed]);
+
+  useEffect(() => {
+    if (section !== "feed" || !feedHasMore || feedLoading || !token) return;
+    const root = feedAreaRef.current;
+    const target = feedLoadMoreSentinelRef.current;
+    if (!root || !target) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMoreFeed();
+      },
+      { root, rootMargin: "120px", threshold: 0 }
+    );
+    obs.observe(target);
+    return () => obs.disconnect();
+  }, [section, feedHasMore, feedLoading, token, loadMoreFeed, rootPosts.length]);
 
   async function handlePostSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -383,7 +499,6 @@ export default function HackerboardApp() {
     setExpandedThreadId((prev) => {
       const next = prev === postId ? null : postId;
       if (next) {
-        setThreadReplyLanguage(composePostLanguage);
         setTimeout(() => threadReplyInputRef.current?.focus(), 100);
       }
       return next;
@@ -401,7 +516,7 @@ export default function HackerboardApp() {
         body,
         authorId: currentUserHacker.id,
         replyToId: rootPostId,
-        language: threadReplyLanguage,
+        language: composePostLanguage,
       });
       setThreadReplyText("");
     } catch {
@@ -436,10 +551,38 @@ export default function HackerboardApp() {
   const profilePosts = useMemo(
     () =>
       selectedProfileUserId
-        ? feed.filter((p) => p.authorId === selectedProfileUserId && !p.replyToId && p.type === "user")
+        ? visibleFeed.filter((p) => p.authorId === selectedProfileUserId && !p.replyToId && p.type === "user")
         : [],
-    [selectedProfileUserId, feed]
+    [selectedProfileUserId, visibleFeed]
   );
+
+  function openReportModal(post: FeedPost) {
+    setReportReason("");
+    setReportModalPost(post);
+  }
+
+  function closeReportModal() {
+    setReportModalPost(null);
+    setReportReason("");
+  }
+
+  function submitReport() {
+    if (!reportModalPost || !reportReason || !playerId) return;
+    setReportedPostIds((prev) => {
+      const next = new Set(prev);
+      next.add(reportModalPost.id);
+      try {
+        localStorage.setItem(reportedPostIdsStorageKey(playerId), JSON.stringify([...next]));
+      } catch {
+        /* ignore quota / private mode */
+      }
+      return next;
+    });
+    if (expandedThreadId === reportModalPost.id) {
+      setExpandedThreadId(null);
+    }
+    closeReportModal();
+  }
 
   useEffect(() => {
     dmMessageListRef.current?.scrollTo({ top: dmMessageListRef.current.scrollHeight, behavior: "smooth" });
@@ -535,15 +678,28 @@ export default function HackerboardApp() {
       </aside>
       <main className={styles.main}>
         {section === "feed" && (
-          <div className={styles.feedArea}>
+          <div className={styles.feedArea} ref={feedAreaRef} onScroll={onFeedAreaScroll}>
             <div className={styles.feedHeader}>
               <h2 className={styles.feedTitle}>{t("feed")}</h2>
-              <span className={styles.feedLive}>
-                <span className={styles.feedLiveDot} />
-                {t("live")}
-              </span>
               <div className={styles.feedHeaderSpacer} aria-hidden />
-              <div className={styles.feedLangMenuWrap} ref={feedLangMenuRef}>
+              <div className={styles.feedHeaderActions}>
+                <button
+                  type="button"
+                  className={styles.feedRefreshBtn}
+                  onClick={() => refreshFeed()}
+                  disabled={!token || feedLoading || feedLoadingMore}
+                  aria-busy={feedRefreshing}
+                  aria-label={t("refreshFeedAria")}
+                  title={t("refreshFeed")}
+                >
+                  <span
+                    className={feedRefreshing ? styles.feedRefreshIconSpin : undefined}
+                    aria-hidden
+                  >
+                    <RotateCw size={18} aria-hidden />
+                  </span>
+                </button>
+                <div className={styles.feedLangMenuWrap} ref={feedLangMenuRef}>
                 <button
                   type="button"
                   className={`${styles.feedLangMenuBtn} ${feedLangMenuOpen ? styles.feedLangMenuBtnOpen : ""}`}
@@ -584,8 +740,20 @@ export default function HackerboardApp() {
                     ))}
                   </div>
                 ) : null}
+                </div>
               </div>
             </div>
+            {feedRefreshing ? (
+              <div className={styles.feedRefreshProgressWrap} role="status" aria-live="polite">
+                <div
+                  className={styles.feedRefreshProgress}
+                  role="progressbar"
+                  aria-label={t("refreshFeedInProgress")}
+                  aria-valuetext={t("refreshFeedInProgress")}
+                />
+                <span className={styles.feedRefreshProgressLabel}>{t("refreshFeedInProgress")}</span>
+              </div>
+            ) : null}
             <form className={styles.compose} onSubmit={(e) => void handlePostSubmit(e)}>
               {feedErrorDisplay ? (
                 <p
@@ -642,7 +810,8 @@ export default function HackerboardApp() {
             ) : rootPosts.length === 0 ? (
               <p className={styles.emptyState}>{t("noPosts")}</p>
             ) : (
-              rootPosts.map((post) => {
+              <>
+                {rootPosts.map((post) => {
                 const authorHandle = getAuthorHandle(post, hackers);
                 const likeCount = post.likeCount ?? 0;
                 const isLiked = userLikedPostIds.has(post.id);
@@ -691,30 +860,59 @@ export default function HackerboardApp() {
                         </p>
                         <p className={styles.postBody}>{post.body}</p>
                         <div className={styles.postActions}>
-                          <button
-                            type="button"
-                            className={`${styles.postActionBtn} ${isExpanded ? styles.postActionBtnActive : ""}`}
-                            onClick={() => toggleThread(post.id)}
-                            title={t("comments")}
-                            aria-label={t("comments")}
-                          >
-                            <MessageCircle size={16} />
-                            <span>{replyCount > 0 ? replyCount : t("reply")}</span>
-                          </button>
-                          <button
-                            type="button"
-                            className={`${styles.postActionBtn} ${isLiked ? styles.postActionBtnLiked : ""}`}
-                            onClick={() => void toggleLike(post.id)}
-                            title={isLiked ? t("unlike") : t("like")}
-                            aria-label={isLiked ? t("unlike") : t("like")}
-                          >
-                            <Heart size={16} fill={isLiked ? "currentColor" : "none"} />
-                            <span>{likeCount > 0 ? likeCount : t("like")}</span>
-                          </button>
+                          <div className={styles.postActionsCluster}>
+                            <button
+                              type="button"
+                              className={`${styles.postActionBtn} ${isExpanded ? styles.postActionBtnActive : ""}`}
+                              onClick={() => toggleThread(post.id)}
+                              title={t("comments")}
+                              aria-label={t("comments")}
+                            >
+                              <MessageCircle size={16} />
+                              <span>{replyCount > 0 ? replyCount : t("reply")}</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={`${styles.postActionBtn} ${isLiked ? styles.postActionBtnLiked : ""}`}
+                              onClick={() => {
+                                triggerHeartAnim(post.id, isLiked ? "unlike" : "like");
+                                void toggleLike(post.id, isLiked);
+                              }}
+                              title={isLiked ? t("unlike") : t("like")}
+                              aria-label={isLiked ? t("unlike") : t("like")}
+                            >
+                              <span
+                                className={
+                                  heartAnimByPost[post.id] === "like"
+                                    ? styles.heartIconAnimLike
+                                    : heartAnimByPost[post.id] === "unlike"
+                                      ? styles.heartIconAnimUnlike
+                                      : styles.heartIconWrap
+                                }
+                              >
+                                <Heart size={16} fill={isLiked ? "currentColor" : "none"} />
+                              </span>
+                              <span>{likeCount > 0 ? likeCount : t("like")}</span>
+                            </button>
+                          </div>
+                          {token &&
+                          post.authorId &&
+                          currentUserHacker &&
+                          post.authorId !== currentUserHacker.id ? (
+                            <button
+                              type="button"
+                              className={styles.postActionReportBtn}
+                              onClick={() => openReportModal(post)}
+                              title={t("reportPostAria")}
+                              aria-label={t("reportPostAria")}
+                            >
+                              <ShieldAlert size={16} aria-hidden />
+                            </button>
+                          ) : null}
                         </div>
                       </div>
                     </div>
-                    {isExpanded && (
+                    {(replies.length > 0 || isExpanded) ? (
                       <div className={styles.thread}>
                         {replies.map((reply) => {
                           const replyAuthor = getAuthorHandle(reply, hackers);
@@ -727,53 +925,54 @@ export default function HackerboardApp() {
                             </div>
                           );
                         })}
-                        <form
-                          className={styles.threadReplyForm}
-                          onSubmit={(e) => void handleThreadReplySubmit(e, post.id)}
-                        >
-                          {token ? (
-                            <>
-                              <div className={styles.threadReplyLangRow}>
-                                <label className={styles.composeLangInline} htmlFor={`hackerboard-reply-lang-${post.id}`}>
-                                  <span className={styles.composeLangInlineLabel}>{t("composeLanguageShort")}</span>
-                                  <select
-                                    id={`hackerboard-reply-lang-${post.id}`}
-                                    className={styles.composeLangSelectCompact}
-                                    value={threadReplyLanguage}
-                                    onChange={(e) => setThreadReplyLanguage(e.target.value as FeedPostLanguage)}
-                                    aria-label={t("composeLanguage")}
-                                  >
-                                  <option value="en">{t("langEn")}</option>
-                                  <option value="pt-br">{t("langPtBr")}</option>
-                                </select>
-                                </label>
-                              </div>
-                              <textarea
-                                ref={expandedThreadId === post.id ? threadReplyInputRef : undefined}
-                                className={styles.threadReplyInput}
-                                placeholder={`Reply to @${authorHandle}...`}
-                                value={expandedThreadId === post.id ? threadReplyText : ""}
-                                onChange={(e) => setThreadReplyText(e.target.value)}
-                                rows={2}
-                                aria-label="Reply"
-                              />
-                              <button
-                                type="submit"
-                                className={styles.threadReplyBtn}
-                                disabled={!threadReplyText.trim() || !currentUserHacker || feedLoading}
-                              >
-                                {t("reply")}
-                              </button>
-                            </>
-                          ) : (
-                            <p className={styles.emptyState}>{t("signInFeed")}</p>
-                          )}
-                        </form>
+                        {isExpanded ? (
+                          <form
+                            className={styles.threadReplyForm}
+                            onSubmit={(e) => void handleThreadReplySubmit(e, post.id)}
+                          >
+                            {token ? (
+                              <>
+                                <textarea
+                                  ref={expandedThreadId === post.id ? threadReplyInputRef : undefined}
+                                  className={styles.threadReplyInput}
+                                  placeholder={`Reply to @${authorHandle}...`}
+                                  value={expandedThreadId === post.id ? threadReplyText : ""}
+                                  onChange={(e) => setThreadReplyText(e.target.value)}
+                                  rows={2}
+                                  aria-label="Reply"
+                                />
+                                <button
+                                  type="submit"
+                                  className={styles.threadReplyBtn}
+                                  disabled={
+                                    !threadReplyText.trim() || !currentUserHacker || feedLoading || feedLoadingMore
+                                  }
+                                >
+                                  {t("reply")}
+                                </button>
+                              </>
+                            ) : (
+                              <p className={styles.emptyState}>{t("signInFeed")}</p>
+                            )}
+                          </form>
+                        ) : null}
                       </div>
-                    )}
+                    ) : null}
                   </article>
                 );
-              })
+              })}
+                <div
+                  ref={feedLoadMoreSentinelRef}
+                  className={styles.feedLoadMoreSentinel}
+                  aria-hidden
+                />
+                {feedLoadingMore ? (
+                  <div className={styles.feedLoadMoreRow}>
+                    <span className={styles.feedLoadMoreText}>{t("loadingMoreFeed")}</span>
+                    <Loader2 size={22} className={styles.feedLoadMoreSpinner} aria-hidden />
+                  </div>
+                ) : null}
+              </>
             )}
           </div>
         )}
@@ -1067,6 +1266,36 @@ export default function HackerboardApp() {
           </div>
         )}
       </main>
+      <Modal
+        open={reportModalPost !== null}
+        onClose={closeReportModal}
+        title={t("reportPostTitle")}
+        secondaryButton={{ label: t("reportPostCancel"), onClick: closeReportModal }}
+        primaryButton={{
+          label: t("reportPostSubmit"),
+          onClick: submitReport,
+          disabled: !reportReason,
+        }}
+      >
+        <p className={styles.reportPostModalIntro}>{t("reportPostIntro")}</p>
+        <fieldset className={styles.reportPostModalFieldset}>
+          <legend className={styles.reportPostModalLegend}>{t("reportPostReason")}</legend>
+          <div className={styles.reportPostModalRadioList}>
+            {REPORT_REASON_VALUES.map((v) => (
+              <label key={v} className={styles.reportPostModalRadioRow}>
+                <input
+                  type="radio"
+                  name="hackerboard-report-reason"
+                  value={v}
+                  checked={reportReason === v}
+                  onChange={() => setReportReason(v)}
+                />
+                <span className={styles.reportPostModalRadioLabel}>{t(`reportReason_${v}`)}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </Modal>
     </div>
   );
 }

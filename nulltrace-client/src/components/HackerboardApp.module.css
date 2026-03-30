@@ -84,27 +84,6 @@
   border-bottom: 1px solid var(--border-color);
 }
 
-.feedLive {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.75rem;
-  color: var(--term-green, #50fa7b);
-}
-
-.feedLiveDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: feedPulse 1.5s ease-in-out infinite;
-}
-
-@keyframes feedPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
 .feedTitle {
   margin: 0;
   font-size: 1rem;
@@ -115,6 +94,95 @@
 .feedHeaderSpacer {
   flex: 1;
   min-width: 4px;
+}
+
+.feedHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.feedRefreshBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.feedRefreshBtn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.feedRefreshBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.feedRefreshIconSpin {
+  display: inline-flex;
+  line-height: 0;
+  color: var(--accent);
+  animation: feedRefreshIconRotate 0.75s linear infinite;
+}
+
+@keyframes feedRefreshIconRotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.feedRefreshProgressWrap {
+  margin: 0 0 0.65rem;
+}
+
+.feedRefreshProgressLabel {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.feedRefreshProgress {
+  height: 3px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+  position: relative;
+}
+
+.feedRefreshProgress::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 38%;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: feedRefreshIndeterminate 0.95s ease-in-out infinite;
+}
+
+@keyframes feedRefreshIndeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(320%);
+  }
 }
 
 .feedLangMenuWrap {
@@ -194,14 +262,6 @@
   background: var(--bg-tertiary);
   color: var(--accent);
   font-weight: 500;
-}
-
-.threadReplyLangRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
-  margin-bottom: 0.5rem;
 }
 
 .composeLangInline {
@@ -288,6 +348,32 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+.feedLoadMoreSentinel {
+  width: 100%;
+  height: 1px;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.feedLoadMoreRow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem 0 1.25rem;
+  color: var(--text-muted);
+}
+
+.feedLoadMoreText {
+  font-size: 0.8rem;
+}
+
+.feedLoadMoreSpinner {
+  animation: feedSpin 1s linear infinite;
+  color: var(--text-muted);
 }
 
 .feedError {
@@ -509,10 +595,37 @@
 .postActions {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
   margin-top: 0.5rem;
   padding-top: 0.35rem;
   border-top: 1px solid var(--border-color);
+}
+
+.postActionsCluster {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.postActionReportBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0.25rem 0;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.postActionReportBtn:hover {
+  color: var(--accent);
 }
 
 .postActionBtn {
@@ -543,6 +656,105 @@
 
 .postActionBtnActive {
   color: var(--accent);
+}
+
+.reportPostModalIntro {
+  margin: 0 0 1rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.reportPostModalFieldset {
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+
+.reportPostModalLegend {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.65rem;
+  padding: 0;
+}
+
+.reportPostModalRadioList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.reportPostModalRadioRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+
+.reportPostModalRadioRow input[type="radio"] {
+  margin: 0.22rem 0 0;
+  width: 1.05rem;
+  height: 1.05rem;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.reportPostModalRadioLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+.heartIconWrap {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.heartIconAnimLike {
+  display: inline-flex;
+  line-height: 0;
+  animation: heartPopLike 0.48s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.heartIconAnimUnlike {
+  display: inline-flex;
+  line-height: 0;
+  animation: heartPopUnlike 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes heartPopLike {
+  0% {
+    transform: scale(1);
+  }
+  28% {
+    transform: scale(1.38);
+  }
+  55% {
+    transform: scale(0.94);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes heartPopUnlike {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(0.78);
+  }
+  70% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* Thread (replies under a post) */
