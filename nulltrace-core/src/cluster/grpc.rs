@@ -5,6 +5,7 @@ use super::bin_programs;
 use super::db::email_account_service::EmailAccountService;
 use super::db::email_service::EmailService;
 use super::db::faction_invite_service::FactionInviteService;
+use super::db::faction_member_service::FactionMemberService;
 use super::db::faction_service::FactionService;
 use super::db::fs_service::FsService;
 use super::db::player_service::PlayerService;
@@ -53,6 +54,10 @@ use game::{
     SendFactionInviteRequest, SendFactionInviteResponse,
     ListOutgoingFactionInvitesRequest, ListOutgoingFactionInvitesResponse,
     OutgoingFactionInviteEntry, CancelFactionInviteRequest, CancelFactionInviteResponse,
+    KickFactionMemberRequest, KickFactionMemberResponse,
+    UnbanFactionMemberRequest, UnbanFactionMemberResponse,
+    ListFactionBannedMembersRequest, ListFactionBannedMembersResponse,
+    FactionBannedMemberEntry,
     BlockHackerboardPlayerRequest, BlockHackerboardPlayerResponse,
     UnblockHackerboardPlayerRequest, UnblockHackerboardPlayerResponse,
     ListBlockedPlayersRequest, ListBlockedPlayersResponse, BlockedPlayerEntry,
@@ -111,6 +116,7 @@ pub struct ClusterGameService {
     user_service: Arc<UserService>,
     faction_service: Arc<FactionService>,
     faction_invite_service: Arc<FactionInviteService>,
+    faction_member_service: Arc<FactionMemberService>,
     player_block_service: Arc<PlayerBlockService>,
     hackerboard_dm_service: Arc<HackerboardDmService>,
     hackerboard_faction_chat_service: Arc<HackerboardFactionChatService>,
@@ -140,6 +146,7 @@ impl ClusterGameService {
         user_service: Arc<UserService>,
         faction_service: Arc<FactionService>,
         faction_invite_service: Arc<FactionInviteService>,
+        faction_member_service: Arc<FactionMemberService>,
         player_block_service: Arc<PlayerBlockService>,
         hackerboard_dm_service: Arc<HackerboardDmService>,
         hackerboard_faction_chat_service: Arc<HackerboardFactionChatService>,
@@ -166,6 +173,7 @@ impl ClusterGameService {
             user_service,
             faction_service,
             faction_invite_service,
+            faction_member_service,
             player_block_service,
             hackerboard_dm_service,
             hackerboard_faction_chat_service,
@@ -2178,6 +2186,103 @@ impl GameService for ClusterGameService {
         }
     }
 
+    async fn kick_faction_member(
+        &self,
+        request: Request<KickFactionMemberRequest>,
+    ) -> Result<Response<KickFactionMemberResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let creator_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let inner = request.into_inner();
+        let target_username = inner.target_username.trim().to_string();
+        if target_username.is_empty() {
+            return Ok(Response::new(KickFactionMemberResponse {
+                success: false,
+                error_message: "Username is required".to_string(),
+            }));
+        }
+
+        match self
+            .faction_member_service
+            .kick_member(creator_id, &target_username, inner.ban_from_rejoin)
+            .await
+        {
+            Ok(()) => Ok(Response::new(KickFactionMemberResponse {
+                success: true,
+                error_message: String::new(),
+            })),
+            Err(msg) => Ok(Response::new(KickFactionMemberResponse {
+                success: false,
+                error_message: msg,
+            })),
+        }
+    }
+
+    async fn unban_faction_member(
+        &self,
+        request: Request<UnbanFactionMemberRequest>,
+    ) -> Result<Response<UnbanFactionMemberResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let creator_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let target_username = request.into_inner().target_username.trim().to_string();
+        if target_username.is_empty() {
+            return Ok(Response::new(UnbanFactionMemberResponse {
+                success: false,
+                error_message: "Username is required".to_string(),
+            }));
+        }
+
+        match self
+            .faction_member_service
+            .unban_member(creator_id, &target_username)
+            .await
+        {
+            Ok(()) => Ok(Response::new(UnbanFactionMemberResponse {
+                success: true,
+                error_message: String::new(),
+            })),
+            Err(msg) => Ok(Response::new(UnbanFactionMemberResponse {
+                success: false,
+                error_message: msg,
+            })),
+        }
+    }
+
+    async fn list_faction_banned_members(
+        &self,
+        request: Request<ListFactionBannedMembersRequest>,
+    ) -> Result<Response<ListFactionBannedMembersResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let creator_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let _ = request.into_inner();
+
+        match self
+            .faction_member_service
+            .list_banned_members(creator_id)
+            .await
+        {
+            Ok(rows) => {
+                let entries: Vec<FactionBannedMemberEntry> = rows
+                    .into_iter()
+                    .map(|r| FactionBannedMemberEntry {
+                        player_id: r.player_id.to_string(),
+                        username: r.username,
+                    })
+                    .collect();
+                Ok(Response::new(ListFactionBannedMembersResponse {
+                    entries,
+                    error_message: String::new(),
+                }))
+            }
+            Err(msg) => Ok(Response::new(ListFactionBannedMembersResponse {
+                entries: vec![],
+                error_message: msg,
+            })),
+        }
+    }
+
     async fn block_hackerboard_player(
         &self,
         request: Request<BlockHackerboardPlayerRequest>,
@@ -3398,6 +3503,7 @@ mod tests {
     use super::super::db::{
         self, codelab_service::CodelabService, email_account_service::EmailAccountService,
         email_service::EmailService,         faction_invite_service::FactionInviteService,
+        faction_member_service::FactionMemberService,
         faction_service::FactionService, feed_service::FeedService,
         hackerboard_dm_service::HackerboardDmService,
         hackerboard_faction_chat_service::HackerboardFactionChatService,
@@ -3425,6 +3531,7 @@ mod tests {
             Arc::new(UserService::new(pool.clone())),
             Arc::new(FactionService::new(pool.clone())),
             Arc::new(FactionInviteService::new(pool.clone())),
+            Arc::new(FactionMemberService::new(pool.clone())),
             Arc::new(PlayerBlockService::new(pool.clone())),
             Arc::new(HackerboardDmService::new(pool.clone())),
             Arc::new(HackerboardFactionChatService::new(pool.clone())),
@@ -3457,6 +3564,7 @@ mod tests {
             Arc::new(UserService::new(pool.clone())),
             Arc::new(FactionService::new(pool.clone())),
             Arc::new(FactionInviteService::new(pool.clone())),
+            Arc::new(FactionMemberService::new(pool.clone())),
             Arc::new(PlayerBlockService::new(pool.clone())),
             Arc::new(HackerboardDmService::new(pool.clone())),
             Arc::new(HackerboardFactionChatService::new(pool.clone())),

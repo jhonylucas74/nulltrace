@@ -38,6 +38,9 @@ service GameService {
   rpc DeclineFactionInvite (DeclineFactionInviteRequest) returns (DeclineFactionInviteResponse);
   rpc ListOutgoingFactionInvites (ListOutgoingFactionInvitesRequest) returns (ListOutgoingFactionInvitesResponse);
   rpc CancelFactionInvite (CancelFactionInviteRequest) returns (CancelFactionInviteResponse);
+  rpc KickFactionMember (KickFactionMemberRequest) returns (KickFactionMemberResponse);
+  rpc UnbanFactionMember (UnbanFactionMemberRequest) returns (UnbanFactionMemberResponse);
+  rpc ListFactionBannedMembers (ListFactionBannedMembersRequest) returns (ListFactionBannedMembersResponse);
   rpc BlockHackerboardPlayer (BlockHackerboardPlayerRequest) returns (BlockHackerboardPlayerResponse);
   rpc UnblockHackerboardPlayer (UnblockHackerboardPlayerRequest) returns (UnblockHackerboardPlayerResponse);
   rpc ListBlockedPlayers (ListBlockedPlayersRequest) returns (ListBlockedPlayersResponse);
@@ -571,6 +574,37 @@ message CancelFactionInviteRequest {
 
 message CancelFactionInviteResponse {
   bool success = 1;
+  string error_message = 2;
+}
+
+message KickFactionMemberRequest {
+  string target_username = 1;
+  bool ban_from_rejoin = 2;
+}
+
+message KickFactionMemberResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message UnbanFactionMemberRequest {
+  string target_username = 1;
+}
+
+message UnbanFactionMemberResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message ListFactionBannedMembersRequest {}
+
+message FactionBannedMemberEntry {
+  string player_id = 1;
+  string username = 2;
+}
+
+message ListFactionBannedMembersResponse {
+  repeated FactionBannedMemberEntry entries = 1;
   string error_message = 2;
 }
 

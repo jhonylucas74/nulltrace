@@ -12,6 +12,9 @@ use game::{
     DeclineFactionInviteRequest, DeclineFactionInviteResponse,
     ListOutgoingFactionInvitesRequest, ListOutgoingFactionInvitesResponse,
     CancelFactionInviteRequest, CancelFactionInviteResponse,
+    KickFactionMemberRequest, KickFactionMemberResponse,
+    UnbanFactionMemberRequest, UnbanFactionMemberResponse,
+    ListFactionBannedMembersRequest, ListFactionBannedMembersResponse,
     BlockHackerboardPlayerRequest, BlockHackerboardPlayerResponse,
     UnblockHackerboardPlayerRequest, UnblockHackerboardPlayerResponse,
     ListBlockedPlayersRequest, ListBlockedPlayersResponse,
@@ -488,6 +491,36 @@ impl GameService for MyGameService {
     ) -> Result<Response<CancelFactionInviteResponse>, Status> {
         Ok(Response::new(CancelFactionInviteResponse {
             success: false,
+            error_message: "Use the unified cluster binary for factions".to_string(),
+        }))
+    }
+
+    async fn kick_faction_member(
+        &self,
+        _request: Request<KickFactionMemberRequest>,
+    ) -> Result<Response<KickFactionMemberResponse>, Status> {
+        Ok(Response::new(KickFactionMemberResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for factions".to_string(),
+        }))
+    }
+
+    async fn unban_faction_member(
+        &self,
+        _request: Request<UnbanFactionMemberRequest>,
+    ) -> Result<Response<UnbanFactionMemberResponse>, Status> {
+        Ok(Response::new(UnbanFactionMemberResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for factions".to_string(),
+        }))
+    }
+
+    async fn list_faction_banned_members(
+        &self,
+        _request: Request<ListFactionBannedMembersRequest>,
+    ) -> Result<Response<ListFactionBannedMembersResponse>, Status> {
+        Ok(Response::new(ListFactionBannedMembersResponse {
+            entries: vec![],
             error_message: "Use the unified cluster binary for factions".to_string(),
         }))
     }

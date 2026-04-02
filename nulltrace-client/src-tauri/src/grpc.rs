@@ -28,6 +28,7 @@ use game::{
     CreateFeedPostRequest, ListFeedPostsRequest, ToggleFeedPostLikeRequest,
     SendFactionInviteRequest,
     ListOutgoingFactionInvitesRequest, CancelFactionInviteRequest,
+    KickFactionMemberRequest, UnbanFactionMemberRequest, ListFactionBannedMembersRequest,
     BlockHackerboardPlayerRequest, UnblockHackerboardPlayerRequest, ListBlockedPlayersRequest,
     ListHackerboardDmMessagesRequest, ListHackerboardDmThreadsRequest,
     ListHackerboardFactionMessagesRequest, SendHackerboardDmRequest,
@@ -989,6 +990,137 @@ pub async fn grpc_cancel_faction_invite(
         .into_inner();
     Ok(CancelFactionInviteCommandResponse {
         success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct KickFactionMemberCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_kick_faction_member(
+    target_username: String,
+    ban_from_rejoin: bool,
+    token: String,
+) -> Result<KickFactionMemberCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(KickFactionMemberRequest {
+        target_username,
+        ban_from_rejoin,
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .kick_faction_member(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(KickFactionMemberCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct UnbanFactionMemberCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_unban_faction_member(
+    target_username: String,
+    token: String,
+) -> Result<UnbanFactionMemberCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(UnbanFactionMemberRequest { target_username });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .unban_faction_member(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(UnbanFactionMemberCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct FactionBannedMemberEntryResponse {
+    pub player_id: String,
+    pub username: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct ListFactionBannedMembersCommandResponse {
+    pub entries: Vec<FactionBannedMemberEntryResponse>,
+    pub error_message: String,
+}
+
+#[tauri::command]
+pub async fn grpc_list_faction_banned_members(
+    token: String,
+) -> Result<ListFactionBannedMembersCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(ListFactionBannedMembersRequest {});
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .list_faction_banned_members(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    let entries = response
+        .entries
+        .into_iter()
+        .map(|e| FactionBannedMemberEntryResponse {
+            player_id: e.player_id,
+            username: e.username,
+        })
+        .collect();
+    Ok(ListFactionBannedMembersCommandResponse {
+        entries,
         error_message: response.error_message,
     })
 }

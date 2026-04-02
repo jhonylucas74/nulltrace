@@ -102,6 +102,24 @@ impl FactionInviteService {
             return Err("Player is already in a faction".to_string());
         }
 
+        let banned = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM faction_member_bans
+                WHERE faction_id = $1 AND banned_player_id = $2
+            )
+            "#,
+        )
+        .bind(faction_id)
+        .bind(to_player_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        if banned {
+            return Err("That player is banned from this faction".to_string());
+        }
+
         let exists = sqlx::query_scalar::<_, bool>(
             r#"
             SELECT EXISTS(
@@ -193,6 +211,24 @@ impl FactionInviteService {
         }
         if status != "pending" {
             return Err("Invite is no longer pending".to_string());
+        }
+
+        let banned = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM faction_member_bans
+                WHERE faction_id = $1 AND banned_player_id = $2
+            )
+            "#,
+        )
+        .bind(faction_id)
+        .bind(to_player_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        if banned {
+            return Err("That player is banned from this faction".to_string());
         }
 
         let current_faction = sqlx::query_scalar::<_, Option<Uuid>>(

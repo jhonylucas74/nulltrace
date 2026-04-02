@@ -1762,15 +1762,104 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.35rem;
 }
 
-.memberItem {
-  padding: 0.4rem 0.6rem;
+.memberRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.45rem 0.6rem;
   font-size: 0.9rem;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
   border-radius: var(--border-radius-sm, 6px);
+}
+
+.memberItemName {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.memberKickRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+
+.kickConfirmLabel {
+  flex: 1 1 100%;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.kickMemberBtn,
+.kickBanMemberBtn,
+.kickConfirmBtn,
+.kickCancelBtn,
+.factionUnbanBtn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.78rem;
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}
+
+.kickMemberBtn:hover:not(:disabled),
+.kickBanMemberBtn:hover:not(:disabled),
+.kickConfirmBtn:hover:not(:disabled),
+.kickCancelBtn:hover:not(:disabled),
+.factionUnbanBtn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.kickBanMemberBtn {
+  color: var(--text-muted);
+}
+
+.kickConfirmBtn {
+  color: var(--bg-primary);
+  background: var(--term-red, #ff5555);
+  border-color: transparent;
+}
+
+.kickMemberBtn:disabled,
+.kickBanMemberBtn:disabled,
+.kickConfirmBtn:disabled,
+.kickCancelBtn:disabled,
+.factionUnbanBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.factionBannedList {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.factionBannedRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius-sm, 6px);
+  font-size: 0.85rem;
+}
+
+.factionBannedName {
+  color: var(--text-muted);
+  min-width: 0;
 }
 
 .usernameInviteForm {

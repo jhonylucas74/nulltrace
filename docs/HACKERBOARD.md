@@ -7,7 +7,7 @@ This document tracks what the **Hackerboard** in-game app already implements, wh
 | Layer | Done | Not done |
 |-------|------|----------|
 | **UI shell** | Full layout (feed, rankings, messages, group, profile); **Feed** uses `hackerboard` i18n namespace | Rankings / messages / group / profile still mostly hardcoded English |
-| **Rankings & factions (server)** | Cluster gRPC: ranking (per-viewer, block-filtered; `faction_creator_id` + `faction_allow_member_invites` on entries), create/leave faction, **faction invites** (send by username, list incoming, list outgoing, cancel, accept, decline); `factions.allow_member_invites` (default true; when false, only creator may `SendFactionInvite`); pending invites sent by a player are cancelled when they leave | Non-cluster server returns stubs only |
+| **Rankings & factions (server)** | Cluster gRPC: ranking (per-viewer, block-filtered; `faction_creator_id` + `faction_allow_member_invites` on entries), create/leave faction, **faction invites** (send by username, list incoming, list outgoing, cancel, accept, decline); **`038` `faction_member_bans`** — creator may **kick** members (`KickFactionMember` with optional `ban_from_rejoin`), **unban** (`UnbanFactionMember`), **list banned** (`ListFactionBannedMembers`); banned players cannot be invited or accept invites to that faction; `factions.allow_member_invites` (default true; when false, only creator may `SendFactionInvite`); pending invites sent by a player are cancelled when they leave | Non-cluster server returns stubs only |
 | **Social (feed, DMs, group chat)** | **Feed** (as above). **Player blocks** (`player_blocks`): symmetric hide in feed, ranking, DM threads, and DM send; gRPC `BlockHackerboardPlayer` / `UnblockHackerboardPlayer` / `ListBlockedPlayers` (`target_username` only; JWT identity). **Faction invites** + **DMs** + **faction group chat:** Postgres + cluster RPCs when `clusterRankingActive`; Tauri + `HackerboardContext`; poll on Messages/Group focus and after send (v1). **Mock** DMs / group chat / offline faction-invite bubbles when ranking is not from the cluster; mock block list in `localStorage` per player | Non-cluster **server** stub returns errors for feed, faction invites, blocks, **and Hackerboard messaging** RPCs (use unified cluster binary) |
 
 ---
@@ -65,6 +65,7 @@ Use these boxes to track progress. Checked items are **implemented in the repo t
 - [x] **Cluster gRPC `CreateFaction`** + **`grpc_create_faction`** — create faction + assign player
 - [x] **Cluster gRPC `LeaveFaction`** + **`grpc_leave_faction`** — clear player faction; cancels pending invites **sent by** the leaver
 - [x] **Faction invites (1.1):** `faction_invites` migration; `SendFactionInvite` / `ListFactionInvites` / `AcceptFactionInvite` / `DeclineFactionInvite` / `ListOutgoingFactionInvites` / `CancelFactionInvite`; `037` `factions.allow_member_invites`; Tauri commands; Hackerboard Messages inbox + group invite-by-username + outgoing list; profile “invite to my faction”; i18n keys for invites
+- [x] **Faction kick / ban-from-rejoin:** `038_faction_member_bans.sql`; `faction_member_service.rs`; invite + accept checks; gRPC `KickFactionMember` / `UnbanFactionMember` / `ListFactionBannedMembers`; Tauri `grpc_kick_faction_member`, `grpc_unban_faction_member`, `grpc_list_faction_banned_members`; `HackerboardContext` + Faction **Members** tab (creator-only kick, kick+ban, unban list)
 - [x] **Player blocks:** `036_player_blocks`; feed/ranking/DM filtering; `BlockHackerboardPlayer` / `UnblockHackerboardPlayer` / `ListBlockedPlayers`; Tauri; context + profile / DM header / client feed filter for defense-in-depth
 - [x] **DMs (2.1):** `hackerboard_dm_messages`; send / list threads / list messages RPCs; Tauri; Messages tab uses server when `clusterRankingActive`
 - [x] **Faction group chat (2.2):** `hackerboard_faction_messages`; send / list RPCs; Tauri; Group chat uses server when `clusterRankingActive` and user has a faction
@@ -72,7 +73,7 @@ Use these boxes to track progress. Checked items are **implemented in the repo t
 
 ### Not done yet
 
-- [ ] **Faction social:** kick member (and optional “request join” without invite) — invite/accept/join is **server-backed** (see 1.1)
+- [ ] **Faction social:** optional “request join” without invite — kick/ban-from-rejoin is **server-backed** (`faction_member_bans`, `KickFactionMember`, `UnbanFactionMember`, `ListFactionBannedMembers`; UI on Faction → Members for creator)
 - [ ] **Gameplay → Hackerboard:** events for hacks/missions → feed rows and/or points (pipeline)
 - [ ] **Points:** game systems updating `points` consistently (beyond ranking read)
 - [ ] **i18n:** replace remaining hardcoded English in `HackerboardApp` (rankings, messages, group, profile) with namespaces + `en` / `pt-br` JSON

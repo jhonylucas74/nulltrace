@@ -18,6 +18,7 @@ import {
   RotateCw,
   ShieldAlert,
   UserX,
+  UserCircle,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import {
@@ -112,6 +113,44 @@ function mapFactionInviteUiError(raw: string | undefined, t: (key: string) => st
     "Invite is not pending": "cancelInviteNotPending",
     "Invite not found": "cancelInviteNotFound",
     "Invalid invite id": "cancelInviteInvalidId",
+    "That player is banned from this faction": "inviteErrorBannedFromFaction",
+  };
+  const key = keys[raw];
+  if (key) return t(key);
+  return raw;
+}
+
+function mapKickFactionMemberError(raw: string | undefined, t: (key: string) => string): string {
+  if (!raw) return t("kickFactionFailed");
+  if (raw === "__invite_username_empty__") return t("inviteUsernameRequired");
+  if (raw === "__network__") return t("messagingNetworkError");
+  if (raw === "Not available offline") return t("kickFactionOffline");
+  const keys: Record<string, string> = {
+    "Username is required": "inviteUsernameRequired",
+    "Player not found": "dmErrorPlayerNotFound",
+    "You are not in a faction": "factionChatErrorNotInFaction",
+    "Faction has no creator": "kickFactionFailed",
+    "Only the faction creator can kick members": "kickFactionCreatorOnly",
+    "Cannot kick the faction leader": "kickFactionCannotKickLeader",
+    "That player is not in your faction": "kickFactionTargetNotMember",
+  };
+  const key = keys[raw];
+  if (key) return t(key);
+  return raw;
+}
+
+function mapUnbanFactionMemberError(raw: string | undefined, t: (key: string) => string): string {
+  if (!raw) return t("unbanFactionFailed");
+  if (raw === "__invite_username_empty__") return t("inviteUsernameRequired");
+  if (raw === "__network__") return t("messagingNetworkError");
+  if (raw === "Not available offline") return t("kickFactionOffline");
+  const keys: Record<string, string> = {
+    "Username is required": "inviteUsernameRequired",
+    "Player not found": "dmErrorPlayerNotFound",
+    "You are not in a faction": "factionChatErrorNotInFaction",
+    "Faction has no creator": "unbanFactionFailed",
+    "Only the faction creator can unban players": "unbanFactionCreatorOnly",
+    "That player is not banned from this faction": "unbanFactionNotBanned",
   };
   const key = keys[raw];
   if (key) return t(key);
@@ -245,8 +284,29 @@ function GroupWithFaction({
   clusterRankingActive: boolean;
 }) {
   const { t } = useTranslation("hackerboard");
+  const {
+    factionBannedMembers,
+    refreshFactionBannedMembers,
+    kickFactionMember,
+    unbanFactionMember,
+  } = useHackerboard();
   const [groupTab, setGroupTab] = useState<GroupTab>("chat");
   const [leaveConfirm, setLeaveConfirm] = useState(false);
+  const [kickConfirm, setKickConfirm] = useState<{ username: string; banFromRejoin: boolean } | null>(
+    null
+  );
+  const [kickBusy, setKickBusy] = useState(false);
+  const [unbanBusyUsername, setUnbanBusyUsername] = useState<string | null>(null);
+  const [factionMemberActionError, setFactionMemberActionError] = useState<string | null>(null);
+
+  const isFactionCreator =
+    !!currentUserFaction.creatorId && currentUserFaction.creatorId === currentUserHacker.id;
+
+  useEffect(() => {
+    if (groupTab === "members" && clusterRankingActive && isFactionCreator) {
+      void refreshFactionBannedMembers();
+    }
+  }, [groupTab, clusterRankingActive, isFactionCreator, refreshFactionBannedMembers]);
 
   return (
     <>
@@ -371,12 +431,126 @@ function GroupWithFaction({
             {t("membersTitle")}{" "}
             {currentUserFaction.memberIds.length > 0 ? `(${currentUserFaction.memberIds.length})` : ""}
           </h3>
+          {factionMemberActionError ? (
+            <p className={styles.inviteFeedbackError} role="alert">
+              {factionMemberActionError}
+            </p>
+          ) : null}
           <ul className={styles.memberList}>
             {currentUserFaction.memberIds.map((id) => {
               const h = hackers.find((x) => x.id === id);
-              return <li key={id} className={styles.memberItem}>{h?.username ?? id}</li>;
+              const uname = h?.username ?? "";
+              const showKick =
+                clusterRankingActive && isFactionCreator && id !== currentUserHacker.id && !!uname;
+              const isConfirming = kickConfirm?.username === uname;
+              return (
+                <li key={id} className={styles.memberRow}>
+                  <span className={styles.memberItemName}>{uname || id}</span>
+                  {showKick ? (
+                    <div className={styles.memberKickRow}>
+                      {isConfirming ? (
+                        <>
+                          <span className={styles.kickConfirmLabel}>
+                            {kickConfirm?.banFromRejoin
+                              ? t("factionKickConfirmBan")
+                              : t("factionKickConfirm")}
+                          </span>
+                          <button
+                            type="button"
+                            className={styles.kickConfirmBtn}
+                            disabled={kickBusy}
+                            onClick={() => {
+                              if (!kickConfirm) return;
+                              setKickBusy(true);
+                              setFactionMemberActionError(null);
+                              void (async () => {
+                                const r = await kickFactionMember(kickConfirm.username, {
+                                  banFromRejoin: kickConfirm.banFromRejoin,
+                                });
+                                setKickBusy(false);
+                                if (!r.success) {
+                                  setFactionMemberActionError(
+                                    mapKickFactionMemberError(r.errorMessage, t)
+                                  );
+                                  return;
+                                }
+                                setKickConfirm(null);
+                              })();
+                            }}
+                          >
+                            {t("factionKickConfirmYes")}
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.kickCancelBtn}
+                            disabled={kickBusy}
+                            onClick={() => setKickConfirm(null)}
+                          >
+                            {t("leaveFactionCancel")}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className={styles.kickMemberBtn}
+                            onClick={() => {
+                              setFactionMemberActionError(null);
+                              setKickConfirm({ username: uname, banFromRejoin: false });
+                            }}
+                          >
+                            {t("factionKickMember")}
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.kickBanMemberBtn}
+                            onClick={() => {
+                              setFactionMemberActionError(null);
+                              setKickConfirm({ username: uname, banFromRejoin: true });
+                            }}
+                          >
+                            {t("factionKickAndBanMember")}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ) : null}
+                </li>
+              );
             })}
           </ul>
+          {clusterRankingActive && isFactionCreator && factionBannedMembers.length > 0 ? (
+            <>
+              <h3 className={styles.membersSectionTitle}>{t("factionBannedSectionTitle")}</h3>
+              <ul className={styles.factionBannedList}>
+                {factionBannedMembers.map((b) => (
+                  <li key={b.playerId} className={styles.factionBannedRow}>
+                    <span className={styles.factionBannedName}>{b.username}</span>
+                    <button
+                      type="button"
+                      className={styles.factionUnbanBtn}
+                      disabled={unbanBusyUsername === b.username}
+                      onClick={() => {
+                        setFactionMemberActionError(null);
+                        setUnbanBusyUsername(b.username);
+                        void (async () => {
+                          const r = await unbanFactionMember(b.username);
+                          setUnbanBusyUsername(null);
+                          if (!r.success) {
+                            setFactionMemberActionError(
+                              mapUnbanFactionMemberError(r.errorMessage, t)
+                            );
+                          }
+                        })();
+                      }}
+                    >
+                      {t("factionUnbanMember")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
           <div className={styles.leaveFactionWrap}>
             {leaveConfirm ? (
               <>
@@ -1006,6 +1180,20 @@ export default function HackerboardApp() {
           </span>
           {t("group")}
         </button>
+        {token && playerId ? (
+          <button
+            type="button"
+            className={`${styles.navItem} ${
+              section === "profile" && selectedProfileUserId === playerId ? styles.navItemActive : ""
+            }`}
+            onClick={() => openProfile(playerId)}
+          >
+            <span className={styles.navIcon}>
+              <UserCircle size={18} />
+            </span>
+            {t("myProfile")}
+          </button>
+        ) : null}
       </aside>
       <main className={styles.main}>
         {token && rankingErrorDisplay ? (

@@ -70,6 +70,12 @@ export interface ServerFactionInviteOutgoing {
   createdAtMs: number;
 }
 
+/** Players banned from rejoining the viewer's faction (cluster; creator-only list). */
+export interface FactionBannedMember {
+  playerId: string;
+  username: string;
+}
+
 export interface FactionGroupMessage {
   id: string;
   factionId: string;
@@ -332,6 +338,15 @@ interface HackerboardContextValue {
   cancelFactionInviteOutgoing: (
     inviteId: string
   ) => Promise<{ success: boolean; errorMessage?: string }>;
+  factionBannedMembers: FactionBannedMember[];
+  refreshFactionBannedMembers: () => Promise<void>;
+  kickFactionMember: (
+    targetUsername: string,
+    options?: { banFromRejoin?: boolean }
+  ) => Promise<{ success: boolean; errorMessage?: string }>;
+  unbanFactionMember: (
+    targetUsername: string
+  ) => Promise<{ success: boolean; errorMessage?: string }>;
 }
 
 const HackerboardContext = createContext<HackerboardContextValue | null>(null);
@@ -383,6 +398,7 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
   const [rankingRefreshTrigger, setRankingRefreshTrigger] = useState(0);
   const [factionInvitesIncoming, setFactionInvitesIncoming] = useState<ServerFactionInvite[]>([]);
   const [factionInvitesOutgoing, setFactionInvitesOutgoing] = useState<ServerFactionInviteOutgoing[]>([]);
+  const [factionBannedMembers, setFactionBannedMembers] = useState<FactionBannedMember[]>([]);
   const [blockedPlayerIds, setBlockedPlayerIds] = useState<Set<string>>(() => new Set());
   const [serverDmThreads, setServerDmThreads] = useState<
     { peerPlayerId: string; peerUsername: string; lastCreatedAtMs: number }[]
@@ -584,6 +600,35 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     void loadFactionInvitesOutgoing();
   }, [loadFactionInvitesOutgoing, rankingRefreshTrigger]);
+
+  const loadFactionBannedMembers = useCallback(async () => {
+    if (!token || !apiRanking) {
+      setFactionBannedMembers([]);
+      return;
+    }
+    try {
+      const res = await invoke<{
+        entries: Array<{ player_id: string; username: string }>;
+        error_message: string;
+      }>("grpc_list_faction_banned_members", { token });
+      if (res.error_message) {
+        setFactionBannedMembers([]);
+        return;
+      }
+      setFactionBannedMembers(
+        res.entries.map((e) => ({
+          playerId: e.player_id,
+          username: e.username,
+        }))
+      );
+    } catch {
+      setFactionBannedMembers([]);
+    }
+  }, [token, apiRanking]);
+
+  useEffect(() => {
+    void loadFactionBannedMembers();
+  }, [loadFactionBannedMembers, rankingRefreshTrigger]);
 
   const loadDmThreads = useCallback(async () => {
     if (!token || !apiRanking) {
@@ -813,7 +858,8 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
     if (me?.factionId) {
       await loadFactionRoomMessages(me.factionId);
     }
-  }, [token, apiRanking, playerId, loadDmThreads, loadFactionRoomMessages]);
+    await loadFactionBannedMembers();
+  }, [token, apiRanking, playerId, loadDmThreads, loadFactionRoomMessages, loadFactionBannedMembers]);
 
   useEffect(() => {
     if (!token || !apiRanking) {
@@ -1375,6 +1421,56 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
     [token, apiRanking, loadFactionInvitesOutgoing]
   );
 
+  const kickFactionMember = useCallback(
+    async (
+      targetUsername: string,
+      options?: { banFromRejoin?: boolean }
+    ): Promise<{ success: boolean; errorMessage?: string }> => {
+      const u = targetUsername.trim();
+      if (!u) return { success: false, errorMessage: "__invite_username_empty__" };
+      if (!token || !apiRanking) {
+        return { success: false, errorMessage: "Not available offline" };
+      }
+      try {
+        const res = await invoke<{ success: boolean; error_message: string }>("grpc_kick_faction_member", {
+          targetUsername: u,
+          banFromRejoin: options?.banFromRejoin ?? false,
+          token,
+        });
+        if (!res.success) return { success: false, errorMessage: res.error_message };
+        setRankingRefreshTrigger((t) => t + 1);
+        void loadFactionBannedMembers();
+        void loadFactionInvitesOutgoing();
+        return { success: true };
+      } catch {
+        return { success: false, errorMessage: "__network__" };
+      }
+    },
+    [token, apiRanking, loadFactionBannedMembers, loadFactionInvitesOutgoing]
+  );
+
+  const unbanFactionMember = useCallback(
+    async (targetUsername: string): Promise<{ success: boolean; errorMessage?: string }> => {
+      const u = targetUsername.trim();
+      if (!u) return { success: false, errorMessage: "__invite_username_empty__" };
+      if (!token || !apiRanking) {
+        return { success: false, errorMessage: "Not available offline" };
+      }
+      try {
+        const res = await invoke<{ success: boolean; error_message: string }>("grpc_unban_faction_member", {
+          targetUsername: u,
+          token,
+        });
+        if (!res.success) return { success: false, errorMessage: res.error_message };
+        void loadFactionBannedMembers();
+        return { success: true };
+      } catch {
+        return { success: false, errorMessage: "__network__" };
+      }
+    },
+    [token, apiRanking, loadFactionBannedMembers]
+  );
+
   const acceptFactionInvite = useCallback(
     (messageId: string, acceptingUserId: string) => {
       let conversationId: string | null = null;
@@ -1716,6 +1812,10 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       factionInvitesOutgoing,
       refreshFactionInvitesOutgoing: loadFactionInvitesOutgoing,
       cancelFactionInviteOutgoing,
+      factionBannedMembers,
+      refreshFactionBannedMembers: loadFactionBannedMembers,
+      kickFactionMember,
+      unbanFactionMember,
     }),
     [
       hackers,
@@ -1767,6 +1867,10 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       factionInvitesOutgoing,
       loadFactionInvitesOutgoing,
       cancelFactionInviteOutgoing,
+      factionBannedMembers,
+      loadFactionBannedMembers,
+      kickFactionMember,
+      unbanFactionMember,
     ]
   );
 

@@ -5,6 +5,7 @@ pub mod user_service;
 pub mod player_service;
 pub mod faction_service;
 pub mod faction_invite_service;
+pub mod faction_member_service;
 pub mod hackerboard_dm_service;
 pub mod hackerboard_faction_chat_service;
 pub mod shortcuts_service;
@@ -145,6 +146,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
     sqlx::raw_sql(include_str!("../../../migrations/037_faction_invite_permissions.sql"))
+        .execute(pool)
+        .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/038_faction_member_bans.sql"))
         .execute(pool)
         .await?;
     Ok(())
