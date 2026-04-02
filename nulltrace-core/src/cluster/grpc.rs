@@ -24,6 +24,7 @@ use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
 use super::process_spy_hub::{ProcessSpyConnection, ProcessSpyDownstreamMsg, ProcessSpyHub};
 use super::resource_limits;
 use super::terminal_hub::{SessionReady, TerminalHub};
+use super::pixel_art_binary::validated_pixel_art_bytes;
 use super::vm_manager::ProcessSnapshot;
 use std::collections::HashMap;
 use dashmap::DashMap;
@@ -73,8 +74,11 @@ use game::{
     ProcessSpyError, KillProcess, LuaScriptSpawned, RankingEntry, RefreshTokenRequest, RefreshTokenResponse,
     SpawnLuaScript,
     CreateFolderRequest, CreateFolderResponse, RenamePathRequest, RenamePathResponse, RestoreDiskRequest, RestoreDiskResponse,     SetPreferredThemeRequest,
-    SetPreferredThemeResponse, SetHackerboardLanguagePreferencesRequest,
-    SetHackerboardLanguagePreferencesResponse, SetShortcutsRequest, SetShortcutsResponse, StdinChunk, StdinData,
+    SetPreferredThemeResponse,     SetHackerboardLanguagePreferencesRequest,
+    SetHackerboardLanguagePreferencesResponse,
+    SetHackerboardAvatarFromVmPathRequest, SetHackerboardAvatarFromVmPathResponse,
+    SetHackerboardFactionEmblemFromVmPathRequest, SetHackerboardFactionEmblemFromVmPathResponse,
+    SetShortcutsRequest, SetShortcutsResponse, StdinChunk, StdinData,
     PromptReady, StdoutData, SubscribePid, TerminalClientMessage, TerminalClosed, TerminalError, TerminalOpened,
     TerminalServerMessage, UnsubscribePid, WriteFileRequest, WriteFileResponse,
     ReadFileRequest, ReadFileResponse,
@@ -1682,7 +1686,18 @@ impl GameService for ClusterGameService {
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let mut entries = Vec::with_capacity(rows.len());
-        for (rank, id, username, points, faction_id, faction_creator_id, faction_allow_member_invites) in rows {
+        for (
+            rank,
+            id,
+            username,
+            points,
+            faction_id,
+            faction_creator_id,
+            faction_allow_member_invites,
+            avatar_pixel,
+            emblem_pixel,
+        ) in rows
+        {
             let faction_id_str = faction_id.map(|u| u.to_string()).unwrap_or_default();
             let faction_creator_str = faction_creator_id
                 .map(|u| u.to_string())
@@ -1706,6 +1721,8 @@ impl GameService for ClusterGameService {
                 faction_name,
                 faction_creator_id: faction_creator_str,
                 faction_allow_member_invites,
+                hackerboard_avatar_pixel: avatar_pixel.unwrap_or_default(),
+                faction_hackerboard_emblem_pixel: emblem_pixel.unwrap_or_default(),
             });
         }
 
@@ -1861,6 +1878,148 @@ impl GameService for ClusterGameService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(SetHackerboardLanguagePreferencesResponse {
+            success: true,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn set_hackerboard_avatar_from_vm_path(
+        &self,
+        request: Request<SetHackerboardAvatarFromVmPathRequest>,
+    ) -> Result<Response<SetHackerboardAvatarFromVmPathResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let SetHackerboardAvatarFromVmPathRequest { vm_path } = request.into_inner();
+        let path = vm_path.trim();
+        if path.is_empty() {
+            return Ok(Response::new(SetHackerboardAvatarFromVmPathResponse {
+                success: false,
+                error_message: "vm_path is required".to_string(),
+            }));
+        }
+        let (vm, owner) = vm_and_owner(&self, player_id).await?;
+        if !path_under_home(path, &owner.1) {
+            return Ok(Response::new(SetHackerboardAvatarFromVmPathResponse {
+                success: false,
+                error_message: "Path must be under home".to_string(),
+            }));
+        }
+        let data = match self.fs_service.read_file(vm.id, path).await {
+            Ok(Some((bytes, _))) => bytes,
+            Ok(None) => {
+                return Ok(Response::new(SetHackerboardAvatarFromVmPathResponse {
+                    success: false,
+                    error_message: "File not found".to_string(),
+                }));
+            }
+            Err(e) => {
+                return Ok(Response::new(SetHackerboardAvatarFromVmPathResponse {
+                    success: false,
+                    error_message: e.to_string(),
+                }));
+            }
+        };
+        let validated = match validated_pixel_art_bytes(&data) {
+            Ok(v) => v,
+            Err(e) => {
+                return Ok(Response::new(SetHackerboardAvatarFromVmPathResponse {
+                    success: false,
+                    error_message: e.to_string(),
+                }));
+            }
+        };
+        self.player_service
+            .set_hackerboard_avatar_pixel(player_id, Some(&validated))
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(SetHackerboardAvatarFromVmPathResponse {
+            success: true,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn set_hackerboard_faction_emblem_from_vm_path(
+        &self,
+        request: Request<SetHackerboardFactionEmblemFromVmPathRequest>,
+    ) -> Result<Response<SetHackerboardFactionEmblemFromVmPathResponse>, Status> {
+        let claims = self.authenticate_request(&request)?;
+        let player_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| Status::internal("Invalid player_id in token"))?;
+        let SetHackerboardFactionEmblemFromVmPathRequest { vm_path } = request.into_inner();
+        let path = vm_path.trim();
+        if path.is_empty() {
+            return Ok(Response::new(SetHackerboardFactionEmblemFromVmPathResponse {
+                success: false,
+                error_message: "vm_path is required".to_string(),
+            }));
+        }
+        let player = self
+            .player_service
+            .get_by_id(player_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found("Player not found"))?;
+        let faction_id = match player.faction_id {
+            Some(id) => id,
+            None => {
+                return Ok(Response::new(SetHackerboardFactionEmblemFromVmPathResponse {
+                    success: false,
+                    error_message: "Not in a faction".to_string(),
+                }));
+            }
+        };
+        let faction = self
+            .faction_service
+            .get_by_id(faction_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::internal("Faction not found"))?;
+        let creator = faction
+            .creator_id
+            .ok_or_else(|| Status::failed_precondition("Faction has no creator"))?;
+        if creator != player_id {
+            return Ok(Response::new(SetHackerboardFactionEmblemFromVmPathResponse {
+                success: false,
+                error_message: "Only the faction creator can set the emblem".to_string(),
+            }));
+        }
+        let (vm, owner) = vm_and_owner(&self, player_id).await?;
+        if !path_under_home(path, &owner.1) {
+            return Ok(Response::new(SetHackerboardFactionEmblemFromVmPathResponse {
+                success: false,
+                error_message: "Path must be under home".to_string(),
+            }));
+        }
+        let data = match self.fs_service.read_file(vm.id, path).await {
+            Ok(Some((bytes, _))) => bytes,
+            Ok(None) => {
+                return Ok(Response::new(SetHackerboardFactionEmblemFromVmPathResponse {
+                    success: false,
+                    error_message: "File not found".to_string(),
+                }));
+            }
+            Err(e) => {
+                return Ok(Response::new(SetHackerboardFactionEmblemFromVmPathResponse {
+                    success: false,
+                    error_message: e.to_string(),
+                }));
+            }
+        };
+        let validated = match validated_pixel_art_bytes(&data) {
+            Ok(v) => v,
+            Err(e) => {
+                return Ok(Response::new(SetHackerboardFactionEmblemFromVmPathResponse {
+                    success: false,
+                    error_message: e.to_string(),
+                }));
+            }
+        };
+        self.faction_service
+            .set_hackerboard_emblem_pixel(faction_id, Some(&validated))
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(SetHackerboardFactionEmblemFromVmPathResponse {
             success: true,
             error_message: String::new(),
         }))
@@ -3508,10 +3667,11 @@ mod tests {
         hackerboard_dm_service::HackerboardDmService,
         hackerboard_faction_chat_service::HackerboardFactionChatService,
         fs_service::FsService, player_block_service::PlayerBlockService,
-        player_service::PlayerService, shortcuts_service::ShortcutsService,
+        player_service::{Player, PlayerService}, shortcuts_service::ShortcutsService,
         user_service::UserService, vm_service::{VmConfig, VmService}, wallet_service::WalletService,
         wallet_card_service::WalletCardService,
     };
+    use super::super::pixel_art_binary::{PIXEL_ART_MAGIC, PIXEL_ART_MIME};
     use super::super::mailbox_hub;
     use super::super::process_run_hub::new_hub as new_process_run_hub;
     use super::super::process_spy_hub::new_hub as new_process_spy_hub;
@@ -4080,5 +4240,260 @@ mod tests {
         let cards = wallet_card_service.get_cards(player.id).await.unwrap();
         assert_eq!(cards.len(), 1, "default card must be created on first login");
         assert_eq!(cards[0].label.as_deref(), Some("Default"));
+    }
+
+    fn sample_ntpx_16() -> Vec<u8> {
+        let mut v = Vec::with_capacity(8 + 16 * 16 * 3);
+        v.extend_from_slice(PIXEL_ART_MAGIC);
+        v.extend_from_slice(&16u16.to_le_bytes());
+        v.extend_from_slice(&16u16.to_le_bytes());
+        v.resize(8 + 16 * 16 * 3, 0);
+        v[8] = 0xAB;
+        v[9] = 0xCD;
+        v[10] = 0xEF;
+        v
+    }
+
+    async fn setup_player_owned_vm(pool: &sqlx::PgPool) -> (Player, Uuid, FsService) {
+        let players = PlayerService::new(pool.clone());
+        let vm_service = VmService::new(pool.clone());
+        let fs_service = FsService::new(pool.clone());
+        let name = format!("pxvm_{}", Uuid::new_v4());
+        let player = players.create_player(&name, "pw").await.unwrap();
+        let vm_id = Uuid::new_v4();
+        vm_service
+            .create_vm(
+                vm_id,
+                VmConfig {
+                    hostname: "px-test-vm".to_string(),
+                    dns_name: None,
+                    cpu_cores: 1,
+                    memory_mb: 512,
+                    disk_mb: 10240,
+                    ip: None,
+                    subnet: None,
+                    gateway: None,
+                    mac: None,
+                    owner_id: Some(player.id),
+                    create_email_account: true,
+                },
+            )
+            .await
+            .unwrap();
+        fs_service.bootstrap_fs(vm_id).await.unwrap();
+        let home = format!("/home/{}", player.username);
+        fs_service.mkdir(vm_id, &home, "root").await.unwrap();
+        fs_service
+            .ensure_standard_home_subdirs(vm_id, &home, &player.username)
+            .await
+            .unwrap();
+        (player, vm_id, fs_service)
+    }
+
+    #[tokio::test]
+    async fn test_grpc_set_hackerboard_avatar_from_vm_path_success() {
+        let pool = db::test_pool().await;
+        let players = PlayerService::new(pool.clone());
+        let (player, vm_id, fs) = setup_player_owned_vm(&pool).await;
+        let pixel_path = format!("/home/{}/avatar.ntpixels", player.username);
+        let bytes = sample_ntpx_16();
+        fs.write_file(
+            vm_id,
+            &pixel_path,
+            &bytes,
+            Some(PIXEL_ART_MIME),
+            &player.username,
+        )
+        .await
+        .unwrap();
+
+        let svc = test_cluster_game_service(&pool);
+        let token =
+            auth::generate_token(player.id, &player.username, &auth::get_jwt_secret()).unwrap();
+        let mut req = Request::new(SetHackerboardAvatarFromVmPathRequest {
+            vm_path: pixel_path,
+        });
+        req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
+        let out = svc
+            .set_hackerboard_avatar_from_vm_path(req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(out.success, "{}", out.error_message);
+
+        let p = players.get_by_id(player.id).await.unwrap().unwrap();
+        assert_eq!(p.hackerboard_avatar_pixel.as_ref(), Some(&bytes));
+    }
+
+    #[tokio::test]
+    async fn test_grpc_set_hackerboard_avatar_from_vm_path_rejects_outside_home() {
+        let pool = db::test_pool().await;
+        let (player, _vm_id, _fs) = setup_player_owned_vm(&pool).await;
+        let svc = test_cluster_game_service(&pool);
+        let token =
+            auth::generate_token(player.id, &player.username, &auth::get_jwt_secret()).unwrap();
+        let mut req = Request::new(SetHackerboardAvatarFromVmPathRequest {
+            vm_path: "/etc/not-under-home.bin".to_string(),
+        });
+        req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
+        let out = svc
+            .set_hackerboard_avatar_from_vm_path(req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(!out.success);
+        assert_eq!(out.error_message, "Path must be under home");
+    }
+
+    #[tokio::test]
+    async fn test_grpc_set_hackerboard_avatar_from_vm_path_rejects_invalid_ntpx() {
+        let pool = db::test_pool().await;
+        let (player, vm_id, fs) = setup_player_owned_vm(&pool).await;
+        let pixel_path = format!("/home/{}/bad.ntpixels", player.username);
+        fs.write_file(
+            vm_id,
+            &pixel_path,
+            b"not-ntpx",
+            Some("application/octet-stream"),
+            &player.username,
+        )
+        .await
+        .unwrap();
+
+        let svc = test_cluster_game_service(&pool);
+        let token =
+            auth::generate_token(player.id, &player.username, &auth::get_jwt_secret()).unwrap();
+        let mut req = Request::new(SetHackerboardAvatarFromVmPathRequest {
+            vm_path: pixel_path,
+        });
+        req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
+        let out = svc
+            .set_hackerboard_avatar_from_vm_path(req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(!out.success);
+        assert!(
+            out.error_message.contains("magic") || out.error_message.contains("short"),
+            "unexpected message: {}",
+            out.error_message
+        );
+    }
+
+    #[tokio::test]
+    async fn test_grpc_set_hackerboard_faction_emblem_from_vm_path_success() {
+        let pool = db::test_pool().await;
+        let players = PlayerService::new(pool.clone());
+        let factions = FactionService::new(pool.clone());
+        let (player, vm_id, fs) = setup_player_owned_vm(&pool).await;
+        let fac = factions.create("Px Fac", player.id).await.unwrap();
+        players
+            .set_faction_id(player.id, Some(fac.id))
+            .await
+            .unwrap();
+
+        let pixel_path = format!("/home/{}/emblem.ntpixels", player.username);
+        let bytes = sample_ntpx_16();
+        fs.write_file(
+            vm_id,
+            &pixel_path,
+            &bytes,
+            Some(PIXEL_ART_MIME),
+            &player.username,
+        )
+        .await
+        .unwrap();
+
+        let svc = test_cluster_game_service(&pool);
+        let token =
+            auth::generate_token(player.id, &player.username, &auth::get_jwt_secret()).unwrap();
+        let mut req = Request::new(SetHackerboardFactionEmblemFromVmPathRequest {
+            vm_path: pixel_path,
+        });
+        req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
+        let out = svc
+            .set_hackerboard_faction_emblem_from_vm_path(req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(out.success, "{}", out.error_message);
+
+        let f = factions.get_by_id(fac.id).await.unwrap().unwrap();
+        assert_eq!(f.hackerboard_emblem_pixel.as_ref(), Some(&bytes));
+    }
+
+    #[tokio::test]
+    async fn test_grpc_set_hackerboard_faction_emblem_from_vm_path_not_creator() {
+        let pool = db::test_pool().await;
+        let players = PlayerService::new(pool.clone());
+        let factions = FactionService::new(pool.clone());
+        let (creator, _, _) = setup_player_owned_vm(&pool).await;
+        let name_m = format!("pxmem_{}", Uuid::new_v4());
+        let member = players.create_player(&name_m, "pw").await.unwrap();
+        let fac = factions.create("Px Fac M", creator.id).await.unwrap();
+        players
+            .set_faction_id(creator.id, Some(fac.id))
+            .await
+            .unwrap();
+        players
+            .set_faction_id(member.id, Some(fac.id))
+            .await
+            .unwrap();
+
+        let svc = test_cluster_game_service(&pool);
+        let token_m =
+            auth::generate_token(member.id, &member.username, &auth::get_jwt_secret()).unwrap();
+        let mut req = Request::new(SetHackerboardFactionEmblemFromVmPathRequest {
+            vm_path: "/home/x/emblem.ntpixels".to_string(),
+        });
+        req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token_m).parse().unwrap(),
+        );
+        let out = svc
+            .set_hackerboard_faction_emblem_from_vm_path(req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(!out.success);
+        assert_eq!(
+            out.error_message,
+            "Only the faction creator can set the emblem"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_grpc_set_hackerboard_faction_emblem_from_vm_path_not_in_faction() {
+        let pool = db::test_pool().await;
+        let (player, _, _) = setup_player_owned_vm(&pool).await;
+        let svc = test_cluster_game_service(&pool);
+        let token =
+            auth::generate_token(player.id, &player.username, &auth::get_jwt_secret()).unwrap();
+        let mut req = Request::new(SetHackerboardFactionEmblemFromVmPathRequest {
+            vm_path: format!("/home/{}/e.ntpixels", player.username),
+        });
+        req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
+        let out = svc
+            .set_hackerboard_faction_emblem_from_vm_path(req)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(!out.success);
+        assert_eq!(out.error_message, "Not in a faction");
     }
 }

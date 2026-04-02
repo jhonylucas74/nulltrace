@@ -10,6 +10,7 @@ use game::process_spy_server_message::Msg as ProcessSpyServerMsg;
 use game::terminal_client_message::Msg as TerminalClientMsg;
 use game::terminal_server_message::Msg as TerminalServerMsg;
 use game::run_process_response::Msg as RunProcessResponseMsg;
+use base64::{engine::general_purpose::STANDARD as B64_ENGINE, Engine as _};
 use game::{
     AcceptFactionInviteRequest, CopyPathRequest, CreateFolderRequest, CreateFactionRequest,
     DeclineFactionInviteRequest, GetDiskUsageRequest, GetHomePathRequest,
@@ -19,6 +20,8 @@ use game::{
     MovePathRequest, OpenCodeRun, OpenTerminal, PingRequest, ProcessListSnapshot, ProcessSpyClientMessage,
     ProcessSpyOpened, RenamePathRequest, RestoreDiskRequest, RunProcessRequest,     SetPreferredThemeRequest,
     SetHackerboardLanguagePreferencesRequest,
+    SetHackerboardAvatarFromVmPathRequest,
+    SetHackerboardFactionEmblemFromVmPathRequest,
     SetShortcutsRequest, SpawnLuaScript, StdinData, SubscribePid, TerminalClientMessage,
     TerminalOpened, UnsubscribePid, WriteFileRequest, ReadFileRequest, EmptyTrashRequest,
     GetInstalledStoreAppsRequest, InstallStoreAppRequest, UninstallStoreAppRequest,
@@ -416,6 +419,10 @@ pub struct RankingEntryResponse {
     pub faction_name: String,
     pub faction_creator_id: String,
     pub faction_allow_member_invites: bool,
+    /// Standard base64 (empty if no avatar).
+    pub hackerboard_avatar_pixel_b64: String,
+    /// Standard base64 (empty if no faction emblem).
+    pub faction_hackerboard_emblem_pixel_b64: String,
 }
 
 /// Response for grpc_get_ranking command.
@@ -462,6 +469,9 @@ pub async fn grpc_get_ranking(token: String) -> Result<GetRankingCommandResponse
                 faction_name: e.faction_name,
                 faction_creator_id: e.faction_creator_id,
                 faction_allow_member_invites: e.faction_allow_member_invites,
+                hackerboard_avatar_pixel_b64: B64_ENGINE.encode(&e.hackerboard_avatar_pixel),
+                faction_hackerboard_emblem_pixel_b64: B64_ENGINE
+                    .encode(&e.faction_hackerboard_emblem_pixel),
             })
             .collect(),
         error_message: response.error_message,
@@ -558,6 +568,84 @@ pub async fn grpc_set_hackerboard_language_preferences(
         })?
         .into_inner();
     Ok(SetHackerboardLanguagePreferencesCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct SetHackerboardAvatarFromVmPathCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri: copy validated NTPX pixel file from VM path into profile avatar (authenticated).
+#[tauri::command]
+pub async fn grpc_set_hackerboard_avatar_from_vm_path(
+    token: String,
+    vm_path: String,
+) -> Result<SetHackerboardAvatarFromVmPathCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(SetHackerboardAvatarFromVmPathRequest { vm_path });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .set_hackerboard_avatar_from_vm_path(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(SetHackerboardAvatarFromVmPathCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct SetHackerboardFactionEmblemFromVmPathCommandResponse {
+    pub success: bool,
+    pub error_message: String,
+}
+
+/// Tauri: copy validated NTPX file into faction emblem (creator only; authenticated).
+#[tauri::command]
+pub async fn grpc_set_hackerboard_faction_emblem_from_vm_path(
+    token: String,
+    vm_path: String,
+) -> Result<SetHackerboardFactionEmblemFromVmPathCommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(SetHackerboardFactionEmblemFromVmPathRequest { vm_path });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .set_hackerboard_faction_emblem_from_vm_path(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(SetHackerboardFactionEmblemFromVmPathCommandResponse {
         success: response.success,
         error_message: response.error_message,
     })
@@ -1930,6 +2018,46 @@ pub async fn grpc_write_file(
     })
 }
 
+/// Write binary file to VM (`content_base64` = standard base64 of raw bytes).
+#[tauri::command]
+pub async fn grpc_write_file_bytes(
+    path: String,
+    content_base64: String,
+    token: String,
+) -> Result<WriteFileCommandResponse, String> {
+    let raw = B64_ENGINE
+        .decode(content_base64.trim())
+        .map_err(|e| format!("Invalid base64: {}", e))?;
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(WriteFileRequest {
+        path: path.clone(),
+        content: raw,
+    });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .write_file(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+    Ok(WriteFileCommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+    })
+}
+
 #[derive(serde::Serialize)]
 pub struct WriteFileCommandResponse {
     pub success: bool,
@@ -2086,6 +2214,45 @@ pub async fn grpc_read_file(path: String, token: String) -> Result<ReadFileComma
         error_message: response.error_message,
         content,
     })
+}
+
+/// Read VM file as standard base64 (for binary pixel art, etc.).
+#[tauri::command]
+pub async fn grpc_read_file_base64(path: String, token: String) -> Result<ReadFileBase64CommandResponse, String> {
+    let url = grpc_url();
+    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+
+    let mut request = tonic::Request::new(ReadFileRequest { path: path.clone() });
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token)
+            .parse()
+            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    );
+
+    let response = client
+        .read_file(request)
+        .await
+        .map_err(|e| {
+            if e.code() == tonic::Code::Unauthenticated {
+                return "UNAUTHENTICATED".to_string();
+            }
+            e.to_string()
+        })?
+        .into_inner();
+
+    Ok(ReadFileBase64CommandResponse {
+        success: response.success,
+        error_message: response.error_message,
+        content_base64: B64_ENGINE.encode(&response.content),
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct ReadFileBase64CommandResponse {
+    pub success: bool,
+    pub error_message: String,
+    pub content_base64: String,
 }
 
 #[derive(serde::Serialize)]

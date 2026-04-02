@@ -30,6 +30,8 @@ service GameService {
   rpc SetPreferredTheme (SetPreferredThemeRequest) returns (SetPreferredThemeResponse);
   rpc SetShortcuts (SetShortcutsRequest) returns (SetShortcutsResponse);
   rpc SetHackerboardLanguagePreferences (SetHackerboardLanguagePreferencesRequest) returns (SetHackerboardLanguagePreferencesResponse);
+  rpc SetHackerboardAvatarFromVmPath (SetHackerboardAvatarFromVmPathRequest) returns (SetHackerboardAvatarFromVmPathResponse);
+  rpc SetHackerboardFactionEmblemFromVmPath (SetHackerboardFactionEmblemFromVmPathRequest) returns (SetHackerboardFactionEmblemFromVmPathResponse);
   rpc CreateFaction (CreateFactionRequest) returns (CreateFactionResponse);
   rpc LeaveFaction (LeaveFactionRequest) returns (LeaveFactionResponse);
   rpc SendFactionInvite (SendFactionInviteRequest) returns (SendFactionInviteResponse);
@@ -445,6 +447,8 @@ message RankingEntry {
   string faction_name = 6;
   string faction_creator_id = 7;  // empty if no faction; for invite permission UI
   bool faction_allow_member_invites = 8;  // true when no faction; else from DB
+  bytes hackerboard_avatar_pixel = 9;       // NTPX blob; empty if unset
+  bytes faction_hackerboard_emblem_pixel = 10; // faction emblem; empty if no faction or unset
 }
 
 message GetRankingResponse {
@@ -490,6 +494,24 @@ message SetHackerboardLanguagePreferencesRequest {
 }
 
 message SetHackerboardLanguagePreferencesResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message SetHackerboardAvatarFromVmPathRequest {
+  string vm_path = 1;
+}
+
+message SetHackerboardAvatarFromVmPathResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message SetHackerboardFactionEmblemFromVmPathRequest {
+  string vm_path = 1;
+}
+
+message SetHackerboardFactionEmblemFromVmPathResponse {
   bool success = 1;
   string error_message = 2;
 }

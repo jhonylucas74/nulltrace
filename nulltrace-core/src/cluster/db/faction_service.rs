@@ -10,6 +10,8 @@ pub struct Faction {
     pub name: String,
     pub creator_id: Option<Uuid>,
     pub allow_member_invites: bool,
+    /// NTPX binary blob for Hackerboard faction emblem (validated on set).
+    pub hackerboard_emblem_pixel: Option<Vec<u8>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -28,7 +30,7 @@ impl FactionService {
             r#"
             INSERT INTO factions (id, name, creator_id)
             VALUES (gen_random_uuid(), $1, $2)
-            RETURNING id, name, creator_id, allow_member_invites, created_at, updated_at
+            RETURNING id, name, creator_id, allow_member_invites, hackerboard_emblem_pixel, created_at, updated_at
             "#,
         )
         .bind(name)
@@ -41,7 +43,7 @@ impl FactionService {
     pub async fn get_by_id(&self, id: Uuid) -> Result<Option<Faction>, sqlx::Error> {
         let rec = sqlx::query_as::<_, Faction>(
             r#"
-            SELECT id, name, creator_id, allow_member_invites, created_at, updated_at
+            SELECT id, name, creator_id, allow_member_invites, hackerboard_emblem_pixel, created_at, updated_at
             FROM factions WHERE id = $1
             "#,
         )
@@ -75,5 +77,24 @@ impl FactionService {
         .fetch_one(&self.pool)
         .await?;
         Ok(row.0.unwrap_or(0))
+    }
+
+    /// Set Hackerboard emblem pixel blob (NTPX). Pass `None` to clear.
+    pub async fn set_hackerboard_emblem_pixel(
+        &self,
+        faction_id: Uuid,
+        data: Option<&[u8]>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE factions SET hackerboard_emblem_pixel = $2, updated_at = now()
+            WHERE id = $1
+            "#,
+        )
+        .bind(faction_id)
+        .bind(data)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }

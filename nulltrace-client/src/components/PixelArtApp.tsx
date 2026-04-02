@@ -1,10 +1,13 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import { Pencil, Eraser, Hand, PaintBucket, ChevronDown } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
 import { useFilePicker } from "../contexts/FilePickerContext";
 import { getDefaultInitialPath } from "../contexts/FilePickerContext";
 import { useWindowManager } from "../contexts/WindowManagerContext";
 import { PIXELART_EDITOR_SIZE } from "../contexts/WindowManagerContext";
-import { createFile, setFileContent } from "../lib/fileSystem";
+import { createFile, setFileContent, getFileContent } from "../lib/fileSystem";
 import {
   type PixelArtData,
   CANVAS_SIZES,
@@ -12,6 +15,12 @@ import {
   createEmptyData,
   serializePixelArt,
   renderPixelArtToDataUrl,
+  encodePixelArtBinary,
+  decodePixelArtFromBytes,
+  uint8ArrayToBase64,
+  base64ToUint8Array,
+  parsePixelArt,
+  PIXEL_ART_FILE_EXTENSION,
 } from "../lib/pixelArt";
 import { HexColorPicker } from "react-colorful";
 import Modal from "./Modal";
@@ -40,7 +49,11 @@ interface PixelArtAppProps {
 }
 
 export default function PixelArtApp({ windowId }: PixelArtAppProps) {
+  const { t } = useTranslation("pixelart");
+  const { token } = useAuth();
   const { resize, move } = useWindowManager();
+  const tauri = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+  const useGrpc = !!(token && tauri);
   const [data, setData] = useState<PixelArtData | null>(null);
   const [layers, setLayers] = useState<Layer[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
@@ -55,6 +68,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
   const [saveFolderPath, setSaveFolderPath] = useState<string | null>(null);
   const [saveFilename, setSaveFilename] = useState("pixel-art.json");
   const [saveError, setSaveError] = useState("");
+  const [menuError, setMenuError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string>("");
   const isDrawingRef = useRef(false);
@@ -99,6 +113,82 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
     },
     [windowId, resize, move]
   );
+
+  const applyLoadedPixelData = useCallback(
+    (loaded: PixelArtData) => {
+      const baseLayer: Layer = {
+        id: `layer-${Date.now()}`,
+        name: "Layer 1",
+        visible: true,
+        pixels: loaded.pixels.map((row) => row.map((c) => c)),
+      };
+      setData({
+        width: loaded.width,
+        height: loaded.height,
+        pixels: loaded.pixels.map((r) => [...r]),
+      });
+      setLayers([baseLayer]);
+      setActiveLayerId(baseLayer.id);
+      setZoom(1.5);
+      setPan({ x: 0, y: 0 });
+      if (windowId && typeof window !== "undefined") {
+        const w = PIXELART_EDITOR_SIZE.width;
+        const h = PIXELART_EDITOR_SIZE.height;
+        resize(windowId, w, h);
+        const dockBottom = 6;
+        const dockHeight = 56;
+        const safeBottom = dockBottom + dockHeight;
+        const availableHeight = window.innerHeight - safeBottom;
+        const centerX = Math.max(0, (window.innerWidth - w) / 2);
+        const centerY = Math.max(0, Math.min((availableHeight - h) / 2, availableHeight - h));
+        move(windowId, centerX, centerY);
+      }
+    },
+    [windowId, resize, move]
+  );
+
+  const handleOpenVmFile = useCallback(() => {
+    setFileMenuOpen(false);
+    setMenuError("");
+    openFilePicker({
+      mode: "file",
+      initialPath: getDefaultInitialPath(),
+      onSelect: (path) => {
+        void (async () => {
+          try {
+            if (useGrpc && token) {
+              const res = await invoke<{
+                success: boolean;
+                error_message: string;
+                content_base64: string;
+              }>("grpc_read_file_base64", { path, token });
+              if (!res.success) {
+                setMenuError(res.error_message || t("openFailed"));
+                return;
+              }
+              const raw = base64ToUint8Array(res.content_base64);
+              const parsed = decodePixelArtFromBytes(raw);
+              if (!parsed) {
+                setMenuError(t("invalidFile"));
+                return;
+              }
+              applyLoadedPixelData(parsed);
+            } else {
+              const content = getFileContent(path);
+              const parsed = parsePixelArt(content);
+              if (!parsed) {
+                setMenuError(t("invalidFile"));
+                return;
+              }
+              applyLoadedPixelData(parsed);
+            }
+          } catch (e) {
+            setMenuError(e instanceof Error ? e.message : t("openFailed"));
+          }
+        })();
+      },
+    });
+  }, [openFilePicker, useGrpc, token, t, applyLoadedPixelData]);
 
   const currentPalette = useMemo(
     () => PALETTES.find((p) => p.id === selectedPaletteId) ?? PALETTES[0],
@@ -270,7 +360,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
     if (!data) return;
     setSaveFolderPath(null);
     setSaveError("");
-    setSaveFilename("pixel-art.json");
+    setSaveFilename(useGrpc ? `pixel-art${PIXEL_ART_FILE_EXTENSION}` : "pixel-art.json");
     openFilePicker({
       mode: "folder",
       initialPath: getDefaultInitialPath(),
@@ -279,18 +369,13 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
         setSaveModalOpen(true);
       },
     });
-  }, [data, openFilePicker]);
+  }, [data, openFilePicker, useGrpc]);
 
   const handleSaveConfirm = useCallback(() => {
     if (!saveFolderPath || !data) return;
     const name = saveFilename.trim();
     if (!name) {
-      setSaveError("Enter a file name.");
-      return;
-    }
-    const created = createFile(saveFolderPath, name);
-    if (!created) {
-      setSaveError("A file with that name already exists.");
+      setSaveError(t("enterFileName"));
       return;
     }
     const path = joinPath(saveFolderPath, name);
@@ -299,12 +384,43 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
       height: data.height,
       pixels: compositePixels,
     };
-    setFileContent(path, serializePixelArt(flattened));
-    setSaveModalOpen(false);
-    setSaveError("");
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 2000);
-  }, [saveFolderPath, saveFilename, data, compositePixels]);
+    void (async () => {
+      if (useGrpc && token) {
+        try {
+          let bytes: Uint8Array;
+          try {
+            bytes = encodePixelArtBinary(flattened);
+          } catch (e) {
+            setSaveError(e instanceof Error ? e.message : t("saveFailed"));
+            return;
+          }
+          const res = await invoke<{ success: boolean; error_message: string }>("grpc_write_file_bytes", {
+            path,
+            content_base64: uint8ArrayToBase64(bytes),
+            token,
+          });
+          if (!res.success) {
+            setSaveError(res.error_message || t("saveFailed"));
+            return;
+          }
+        } catch (e) {
+          setSaveError(e instanceof Error ? e.message : t("saveFailed"));
+          return;
+        }
+      } else {
+        const created = createFile(saveFolderPath, name);
+        if (!created) {
+          setSaveError(t("fileExists"));
+          return;
+        }
+        setFileContent(path, serializePixelArt(flattened));
+      }
+      setSaveModalOpen(false);
+      setSaveError("");
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+    })();
+  }, [saveFolderPath, saveFilename, data, compositePixels, useGrpc, token, t]);
 
   const handleZoom = useCallback((next: number) => {
     const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next));
@@ -347,6 +463,12 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
       prev.map((l) => (l.id === id ? { ...l, visible: !l.visible } : l))
     );
   }, []);
+
+  useEffect(() => {
+    if (!menuError) return;
+    const id = window.setTimeout(() => setMenuError(""), 5000);
+    return () => window.clearTimeout(id);
+  }, [menuError]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -398,7 +520,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
               className={styles.menuItem}
               onClick={() => setFileMenuOpen((v) => !v)}
             >
-              File
+              {t("file")}
             </button>
             {fileMenuOpen && (
               <div className={styles.menuDropdown}>
@@ -407,18 +529,25 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
                     key={size}
                     type="button"
                     className={styles.menuDropdownItem}
-                    onClick={() => startNewArt(size)}
+                    onClick={() => {
+                      startNewArt(size);
+                      setFileMenuOpen(false);
+                    }}
                   >
-                    New {size}×{size}
+                    {t("newCanvas", { size })}
                   </button>
                 ))}
+                <button type="button" className={styles.menuDropdownItem} onClick={handleOpenVmFile}>
+                  {t("open")}
+                </button>
               </div>
             )}
           </div>
+          {menuError ? <div className={styles.menuStatus}><span className={styles.saveError}>{menuError}</span></div> : null}
         </div>
         <div className={styles.emptyState}>
-          <h2 className={styles.title}>New pixel art</h2>
-          <p className={styles.subtitle}>Pick a canvas size to start.</p>
+          <h2 className={styles.title}>{t("emptyTitle")}</h2>
+          <p className={styles.subtitle}>{t("emptySubtitle")}</p>
           <div className={styles.newArtGrid}>
             {CANVAS_SIZES.map((size) => (
               <button
@@ -428,7 +557,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
                 onClick={() => startNewArt(size)}
               >
                 <span className={styles.newArtSize}>{size}×{size}</span>
-                <span className={styles.newArtLabel}>New canvas</span>
+                <span className={styles.newArtLabel}>{t("newArtLabel")}</span>
               </button>
             ))}
           </div>
@@ -446,7 +575,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
             className={styles.menuItem}
             onClick={() => setFileMenuOpen((v) => !v)}
           >
-            File
+            {t("file")}
           </button>
           {fileMenuOpen && (
             <div className={styles.menuDropdown}>
@@ -460,9 +589,12 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
                     setFileMenuOpen(false);
                   }}
                 >
-                  New {size}×{size}
+                  {t("newCanvas", { size })}
                 </button>
               ))}
+              <button type="button" className={styles.menuDropdownItem} onClick={handleOpenVmFile}>
+                {t("open")}
+              </button>
               <button
                 type="button"
                 className={styles.menuDropdownItem}
@@ -471,7 +603,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
                   setFileMenuOpen(false);
                 }}
               >
-                Save
+                {t("save")}
               </button>
             </div>
           )}
@@ -482,7 +614,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
             className={styles.menuItem}
             onClick={() => setViewMenuOpen((v) => !v)}
           >
-            View
+            {t("view")}
           </button>
           {viewMenuOpen && (
             <div className={styles.menuDropdown}>
@@ -491,33 +623,39 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
                 className={styles.menuDropdownItem}
                 onClick={() => handleZoom(zoom + 1)}
               >
-                Zoom In
+                {t("zoomIn")}
               </button>
               <button
                 type="button"
                 className={styles.menuDropdownItem}
                 onClick={() => handleZoom(zoom - 1)}
               >
-                Zoom Out
+                {t("zoomOut")}
               </button>
               <button
                 type="button"
                 className={styles.menuDropdownItem}
                 onClick={() => handleZoom(1.5)}
               >
-                Reset Zoom
+                {t("resetZoom")}
               </button>
             </div>
           )}
         </div>
         <div className={styles.menuStatus}>
-          {saveSuccess ? "Saved." : `Zoom ${zoom}×`}
+          {menuError ? (
+            <span className={styles.saveError}>{menuError}</span>
+          ) : saveSuccess ? (
+            t("saved")
+          ) : (
+            t("zoomStatus", { zoom })
+          )}
         </div>
       </div>
       <div className={styles.layout}>
         <aside className={styles.leftPanel}>
           <div className={styles.panelSection}>
-            <span className={styles.panelTitle}>Tools</span>
+            <span className={styles.panelTitle}>{t("toolsTitle")}</span>
             <div className={styles.toolList}>
               <button
                 type="button"
@@ -525,7 +663,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
                 onClick={() => setTool("pencil")}
               >
                 <Pencil className={styles.toolIcon} />
-                <span>Pencil</span>
+                <span>{t("toolPencil")}</span>
               </button>
               <button
                 type="button"
@@ -533,7 +671,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
                 onClick={() => setTool("eraser")}
               >
                 <Eraser className={styles.toolIcon} />
-                <span>Eraser</span>
+                <span>{t("toolEraser")}</span>
               </button>
               <button
                 type="button"
@@ -541,7 +679,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
                 onClick={() => setTool("fill")}
               >
                 <PaintBucket className={styles.toolIcon} />
-                <span>Fill</span>
+                <span>{t("toolFill")}</span>
               </button>
               <button
                 type="button"
@@ -549,18 +687,18 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
                 onClick={() => setTool("hand")}
               >
                 <Hand className={styles.toolIcon} />
-                <span>Hand</span>
+                <span>{t("toolHand")}</span>
               </button>
             </div>
           </div>
           <div className={styles.panelSection}>
-            <span className={styles.panelTitle}>Palette</span>
+            <span className={styles.panelTitle}>{t("paletteTitle")}</span>
             <div className={styles.paletteSelectWrap}>
               <select
                 className={styles.paletteSelect}
                 value={selectedPaletteId}
                 onChange={(e) => setSelectedPaletteId(e.target.value)}
-                aria-label="Choose palette"
+                aria-label={t("paletteAria")}
               >
                 {PALETTES.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -584,7 +722,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
               ))}
             </div>
             <div className={styles.colorPickerRow}>
-              <span className={styles.colorPickerLabel}>Custom</span>
+              <span className={styles.colorPickerLabel}>{t("customColor")}</span>
             </div>
             <div className={styles.colorPickerWrap}>
               <HexColorPicker
@@ -631,7 +769,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
             </div>
           </div>
           <div className={styles.zoomRow}>
-            <span className={styles.zoomLabel}>Zoom</span>
+            <span className={styles.zoomLabel}>{t("zoomLabel")}</span>
             <input
               className={styles.zoomSlider}
               type="range"
@@ -647,7 +785,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
         <aside className={styles.rightPanel}>
           <div className={styles.panelSection}>
             <div className={styles.previewHeader}>
-              <span className={styles.panelTitle}>Preview</span>
+              <span className={styles.panelTitle}>{t("previewTitle")}</span>
               <div className={styles.previewControls}>
                 <button
                   type="button"
@@ -690,10 +828,10 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
           </div>
           <div className={styles.panelSection}>
             <div className={styles.layerHeader}>
-              <span className={styles.panelTitle}>Layers</span>
+              <span className={styles.panelTitle}>{t("layersTitle")}</span>
               <div className={styles.layerActions}>
                 <button type="button" className={styles.layerBtn} onClick={addLayer}>
-                  Add
+                  {t("layerAdd")}
                 </button>
                 <button
                   type="button"
@@ -701,7 +839,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
                   onClick={removeLayer}
                   disabled={layers.length <= 1}
                 >
-                  Delete
+                  {t("layerDelete")}
                 </button>
               </div>
             </div>
@@ -720,8 +858,8 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
                       e.stopPropagation();
                       toggleLayerVisibility(layer.id);
                     }}
-                    aria-label={layer.visible ? "Hide layer" : "Show layer"}
-                    title={layer.visible ? "Hide layer" : "Show layer"}
+                    aria-label={layer.visible ? t("layerHide") : t("layerShow")}
+                    title={layer.visible ? t("layerHide") : t("layerShow")}
                   >
                     {layer.visible ? "On" : "Off"}
                   </button>
@@ -735,19 +873,19 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
       <Modal
         open={saveModalOpen}
         onClose={() => setSaveModalOpen(false)}
-        title="Save pixel art"
-        primaryButton={{ label: "Save", onClick: handleSaveConfirm }}
-        secondaryButton={{ label: "Cancel", onClick: () => setSaveModalOpen(false) }}
+        title={t("saveModalTitle")}
+        primaryButton={{ label: t("saveModalPrimary"), onClick: handleSaveConfirm }}
+        secondaryButton={{ label: t("saveModalCancel"), onClick: () => setSaveModalOpen(false) }}
       >
         <div className={styles.saveModalContent}>
           <label className={styles.saveLabel}>
-            File name
+            {t("fileNameLabel")}
             <input
               type="text"
               value={saveFilename}
               onChange={(e) => setSaveFilename(e.target.value)}
               className={styles.saveInput}
-              placeholder="pixel-art.json"
+              placeholder={useGrpc ? `pixel-art${PIXEL_ART_FILE_EXTENSION}` : "pixel-art.json"}
             />
           </label>
           {saveError && <p className={styles.saveError}>{saveError}</p>}

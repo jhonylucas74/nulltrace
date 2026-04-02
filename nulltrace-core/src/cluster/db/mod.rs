@@ -151,6 +151,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(include_str!("../../../migrations/038_faction_member_bans.sql"))
         .execute(pool)
         .await?;
+    sqlx::raw_sql(include_str!("../../../migrations/039_hackerboard_pixel_avatars.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

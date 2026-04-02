@@ -8,6 +8,8 @@ export interface Hacker {
   username: string;
   points: number;
   factionId: string | null;
+  /** Standard base64 NTPX blob from cluster ranking; optional. */
+  avatarPixelB64?: string;
 }
 
 export interface Faction {
@@ -18,6 +20,8 @@ export interface Faction {
   creatorId: string | null;
   /** When false, only `creatorId` may send invites (server-enforced). */
   allowMemberInvites: boolean;
+  /** Standard base64 NTPX emblem from cluster; optional. */
+  emblemPixelB64?: string;
 }
 
 export type FeedPostType = "hacked" | "mission" | "system" | "user";
@@ -347,6 +351,14 @@ interface HackerboardContextValue {
   unbanFactionMember: (
     targetUsername: string
   ) => Promise<{ success: boolean; errorMessage?: string }>;
+  /** Copy NTPX file from VM path into Hackerboard profile avatar (cluster). */
+  setHackerboardAvatarFromVmPath: (
+    vmPath: string
+  ) => Promise<{ success: boolean; errorMessage?: string }>;
+  /** Copy NTPX file into faction emblem; creator only (cluster). */
+  setFactionEmblemFromVmPath: (
+    vmPath: string
+  ) => Promise<{ success: boolean; errorMessage?: string }>;
 }
 
 const HackerboardContext = createContext<HackerboardContextValue | null>(null);
@@ -368,7 +380,7 @@ function computeFactionsWithRank(hackers: Hacker[], factions: Faction[]): Factio
 
 export function HackerboardProvider({ children }: { children: React.ReactNode }) {
   const { token, playerId } = useAuth();
-  const { i18n } = useTranslation("hackerboard");
+  const { i18n, t } = useTranslation("hackerboard");
   const [feed, setFeed] = useState<FeedPost[]>([]);
   const [feedLanguageFilter, setFeedLanguageFilterState] = useState<FeedLanguageFilter>("all");
   const [composePostLanguage, setComposePostLanguageState] = useState<FeedPostLanguage>(() =>
@@ -435,6 +447,8 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
           faction_name: string;
           faction_creator_id: string;
           faction_allow_member_invites: boolean;
+          hackerboard_avatar_pixel_b64: string;
+          faction_hackerboard_emblem_pixel_b64: string;
         }>;
         error_message: string;
       }>("grpc_get_ranking", { token });
@@ -448,25 +462,35 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
         username: e.username,
         points: e.points,
         factionId: e.faction_id || null,
+        avatarPixelB64: (e.hackerboard_avatar_pixel_b64 ?? "").trim() || undefined,
       }));
       const factionMap = new Map<
         string,
-        { name: string; memberIds: string[]; creatorId: string; allowMemberInvites: boolean }
+        {
+          name: string;
+          memberIds: string[];
+          creatorId: string;
+          allowMemberInvites: boolean;
+          emblemPixelB64?: string;
+        }
       >();
       for (const e of res.entries) {
         if (!e.faction_id) continue;
         const cur = factionMap.get(e.faction_id);
         const creatorId = (e.faction_creator_id ?? "").trim();
         const allowMemberInvites = e.faction_allow_member_invites !== false;
+        const emblemB64 = (e.faction_hackerboard_emblem_pixel_b64 ?? "").trim();
         if (cur) {
           cur.memberIds.push(e.player_id);
           if (!cur.creatorId && creatorId) cur.creatorId = creatorId;
+          if (emblemB64 && !cur.emblemPixelB64) cur.emblemPixelB64 = emblemB64;
         } else {
           factionMap.set(e.faction_id, {
             name: e.faction_name || "Faction",
             memberIds: [e.player_id],
             creatorId,
             allowMemberInvites,
+            emblemPixelB64: emblemB64 || undefined,
           });
         }
       }
@@ -476,6 +500,7 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
         memberIds: v.memberIds,
         creatorId: v.creatorId || null,
         allowMemberInvites: v.allowMemberInvites,
+        emblemPixelB64: v.emblemPixelB64,
       }));
       setApiRanking({ hackers: hackersFromApi, factions: factionsFromApi });
       setRankingError(null);
@@ -488,6 +513,65 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
   const retryRanking = useCallback(() => {
     setRankingRefreshTrigger((n) => n + 1);
   }, []);
+
+  const setHackerboardAvatarFromVmPath = useCallback(
+    async (vmPath: string) => {
+      if (!token) return { success: false, errorMessage: "UNAUTHENTICATED" };
+      const path = vmPath.trim();
+      if (!path) {
+        return { success: false, errorMessage: t("profileAvatarVmPathRequired") };
+      }
+      try {
+        const res = await invoke<{ success: boolean; error_message: string }>(
+          "grpc_set_hackerboard_avatar_from_vm_path",
+          // Tauri IPC expects camelCase for multi-word Rust args (see grpc_set_hackerboard_language_preferences).
+          { token, vmPath: path }
+        );
+        if (res.success) {
+          await fetchRanking();
+        }
+        return {
+          success: res.success,
+          errorMessage: res.error_message || undefined,
+        };
+      } catch (e) {
+        return {
+          success: false,
+          errorMessage: e instanceof Error ? e.message : String(e),
+        };
+      }
+    },
+    [token, fetchRanking, t]
+  );
+
+  const setFactionEmblemFromVmPath = useCallback(
+    async (vmPath: string) => {
+      if (!token) return { success: false, errorMessage: "UNAUTHENTICATED" };
+      const path = vmPath.trim();
+      if (!path) {
+        return { success: false, errorMessage: t("profileAvatarVmPathRequired") };
+      }
+      try {
+        const res = await invoke<{ success: boolean; error_message: string }>(
+          "grpc_set_hackerboard_faction_emblem_from_vm_path",
+          { token, vmPath: path }
+        );
+        if (res.success) {
+          await fetchRanking();
+        }
+        return {
+          success: res.success,
+          errorMessage: res.error_message || undefined,
+        };
+      } catch (e) {
+        return {
+          success: false,
+          errorMessage: e instanceof Error ? e.message : String(e),
+        };
+      }
+    },
+    [token, fetchRanking, t]
+  );
 
   useEffect(() => {
     fetchRanking();
@@ -1816,6 +1900,8 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       refreshFactionBannedMembers: loadFactionBannedMembers,
       kickFactionMember,
       unbanFactionMember,
+      setHackerboardAvatarFromVmPath,
+      setFactionEmblemFromVmPath,
     }),
     [
       hackers,
@@ -1871,6 +1957,8 @@ export function HackerboardProvider({ children }: { children: React.ReactNode })
       loadFactionBannedMembers,
       kickFactionMember,
       unbanFactionMember,
+      setHackerboardAvatarFromVmPath,
+      setFactionEmblemFromVmPath,
     ]
   );
 

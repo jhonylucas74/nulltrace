@@ -23,6 +23,8 @@ pub struct Player {
     pub preferred_theme: Option<String>,
     pub hackerboard_feed_language_filter: String,
     pub hackerboard_post_language: String,
+    /// NTPX binary blob for Hackerboard avatar (validated on set).
+    pub hackerboard_avatar_pixel: Option<Vec<u8>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -53,7 +55,7 @@ impl PlayerService {
             r#"
             INSERT INTO players (id, username, password_hash)
             VALUES ($1, $2, $3)
-            RETURNING id, username, password_hash, points, faction_id, preferred_theme, hackerboard_feed_language_filter, hackerboard_post_language, created_at, updated_at
+            RETURNING id, username, password_hash, points, faction_id, preferred_theme, hackerboard_feed_language_filter, hackerboard_post_language, hackerboard_avatar_pixel, created_at, updated_at
             "#,
         )
         .bind(id)
@@ -68,7 +70,7 @@ impl PlayerService {
     pub async fn get_by_username(&self, username: &str) -> Result<Option<Player>, sqlx::Error> {
         let rec = sqlx::query_as::<_, Player>(
             r#"
-            SELECT id, username, password_hash, points, faction_id, preferred_theme, hackerboard_feed_language_filter, hackerboard_post_language, created_at, updated_at
+            SELECT id, username, password_hash, points, faction_id, preferred_theme, hackerboard_feed_language_filter, hackerboard_post_language, hackerboard_avatar_pixel, created_at, updated_at
             FROM players WHERE username = $1
             "#,
         )
@@ -82,7 +84,7 @@ impl PlayerService {
     pub async fn get_by_id(&self, id: Uuid) -> Result<Option<Player>, sqlx::Error> {
         let rec = sqlx::query_as::<_, Player>(
             r#"
-            SELECT id, username, password_hash, points, faction_id, preferred_theme, hackerboard_feed_language_filter, hackerboard_post_language, created_at, updated_at
+            SELECT id, username, password_hash, points, faction_id, preferred_theme, hackerboard_feed_language_filter, hackerboard_post_language, hackerboard_avatar_pixel, created_at, updated_at
             FROM players WHERE id = $1
             "#,
         )
@@ -211,6 +213,25 @@ impl PlayerService {
         Ok(())
     }
 
+    /// Set Hackerboard avatar pixel blob (NTPX). Pass `None` to clear.
+    pub async fn set_hackerboard_avatar_pixel(
+        &self,
+        player_id: Uuid,
+        data: Option<&[u8]>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE players SET hackerboard_avatar_pixel = $2, updated_at = now()
+            WHERE id = $1
+            "#,
+        )
+        .bind(player_id)
+        .bind(data)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Ranking: all players ordered by points DESC with 1-based rank.
     pub async fn get_ranking(&self) -> Result<Vec<(u32, Uuid, String, i32, Option<Uuid>)>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (i64, Uuid, String, i32, Option<Uuid>)>(
@@ -233,11 +254,36 @@ impl PlayerService {
     pub async fn get_ranking_for_viewer(
         &self,
         viewer_id: Uuid,
-    ) -> Result<Vec<(u32, Uuid, String, i32, Option<Uuid>, Option<Uuid>, bool)>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (i64, Uuid, String, i32, Option<Uuid>, Option<Uuid>, Option<bool>)>(
+    ) -> Result<
+        Vec<(
+            u32,
+            Uuid,
+            String,
+            i32,
+            Option<Uuid>,
+            Option<Uuid>,
+            bool,
+            Option<Vec<u8>>,
+            Option<Vec<u8>>,
+        )>,
+        sqlx::Error,
+    > {
+        let rows = sqlx::query_as::<_,
+            (
+                i64,
+                Uuid,
+                String,
+                i32,
+                Option<Uuid>,
+                Option<Uuid>,
+                Option<bool>,
+                Option<Vec<u8>>,
+                Option<Vec<u8>>,
+            ),
+        >(
             r#"
             WITH visible AS (
-                SELECT p.id, p.username, p.points, p.faction_id
+                SELECT p.id, p.username, p.points, p.faction_id, p.hackerboard_avatar_pixel
                 FROM players p
                 WHERE NOT EXISTS (
                     SELECT 1 FROM player_blocks b
@@ -246,7 +292,8 @@ impl PlayerService {
                 )
             )
             SELECT ROW_NUMBER() OVER (ORDER BY v.points DESC, v.id) AS rank,
-                   v.id, v.username, v.points, v.faction_id, f.creator_id, f.allow_member_invites
+                   v.id, v.username, v.points, v.faction_id, f.creator_id, f.allow_member_invites,
+                   v.hackerboard_avatar_pixel, f.hackerboard_emblem_pixel
             FROM visible v
             LEFT JOIN factions f ON f.id = v.faction_id
             ORDER BY v.points DESC, v.id
@@ -257,9 +304,21 @@ impl PlayerService {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|(r, id, u, p, fac, fcreator, allow_inv)| {
-                (r as u32, id, u, p, fac, fcreator, allow_inv.unwrap_or(true))
-            })
+            .map(
+                |(r, id, u, p, fac, fcreator, allow_inv, avatar, emblem)| {
+                    (
+                        r as u32,
+                        id,
+                        u,
+                        p,
+                        fac,
+                        fcreator,
+                        allow_inv.unwrap_or(true),
+                        avatar,
+                        emblem,
+                    )
+                },
+            )
             .collect())
     }
 }

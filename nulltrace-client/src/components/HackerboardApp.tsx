@@ -21,6 +21,8 @@ import {
   UserCircle,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { useFilePicker, getDefaultInitialPath } from "../contexts/FilePickerContext";
+import { pixelArtDataUrlFromNtpixelsBase64 } from "../lib/pixelArt";
 import {
   useHackerboard,
   type FeedPost,
@@ -252,6 +254,9 @@ function GroupWithFaction({
   onCancelOutgoingInvite,
   cancelOutgoingBusyId,
   clusterRankingActive,
+  factionEmblemDataUrl,
+  showFactionEmblemVmButton,
+  onChooseFactionEmblemFromVm,
 }: {
   currentUserHacker: { id: string };
   currentUserFaction: FactionWithRank;
@@ -282,6 +287,9 @@ function GroupWithFaction({
   onCancelOutgoingInvite: (inviteId: string) => void | Promise<void>;
   cancelOutgoingBusyId: string | null;
   clusterRankingActive: boolean;
+  factionEmblemDataUrl: string | null;
+  showFactionEmblemVmButton: boolean;
+  onChooseFactionEmblemFromVm?: () => void;
 }) {
   const { t } = useTranslation("hackerboard");
   const {
@@ -310,7 +318,23 @@ function GroupWithFaction({
 
   return (
     <>
-      <div className={styles.groupTitle}>{currentUserFaction.name}</div>
+      <div className={styles.factionHeaderRow}>
+        {factionEmblemDataUrl ? (
+          <img
+            src={factionEmblemDataUrl}
+            alt=""
+            width={32}
+            height={32}
+            className={styles.factionEmblemImg}
+          />
+        ) : null}
+        <div className={styles.groupTitle}>{currentUserFaction.name}</div>
+        {showFactionEmblemVmButton && onChooseFactionEmblemFromVm ? (
+          <button type="button" className={styles.vmPixelFileBtn} onClick={onChooseFactionEmblemFromVm}>
+            {t("setFactionEmblemFromVmFile")}
+          </button>
+        ) : null}
+      </div>
       <p className={styles.factionSummary} aria-live="polite">
         {t("factionSummaryStats", {
           rank: currentUserFaction.rank,
@@ -646,6 +670,8 @@ export default function HackerboardApp() {
     sendFactionInviteByUsername,
     factionInvitesOutgoing,
     cancelFactionInviteOutgoing,
+    setHackerboardAvatarFromVmPath,
+    setFactionEmblemFromVmPath,
   } = useHackerboard();
   const [section, setSection] = useState<Section>("feed");
   const [rankTab, setRankTab] = useState<RankTab>("hackers");
@@ -912,6 +938,10 @@ export default function HackerboardApp() {
     () => (effectiveFactionId ? factions.find((f) => f.id === effectiveFactionId) : null),
     [effectiveFactionId, factions]
   );
+  const factionEmblemDataUrl = useMemo(() => {
+    if (!currentUserFaction?.emblemPixelB64) return null;
+    return pixelArtDataUrlFromNtpixelsBase64(currentUserFaction.emblemPixelB64);
+  }, [currentUserFaction?.emblemPixelB64]);
   const profileUser = useMemo(
     () => (selectedProfileUserId ? hackers.find((h) => h.id === selectedProfileUserId) ?? null : null),
     [selectedProfileUserId, hackers]
@@ -1127,6 +1157,44 @@ export default function HackerboardApp() {
       profileInviteToastTimerRef.current = null;
     }, 4000);
   }, []);
+
+  const { openFilePicker } = useFilePicker();
+
+  const handleSetProfileAvatarFromVm = useCallback(() => {
+    setProfileActionError(null);
+    openFilePicker({
+      mode: "file",
+      initialPath: getDefaultInitialPath(),
+      onSelect: (path) => {
+        void (async () => {
+          const r = await setHackerboardAvatarFromVmPath(path);
+          if (!r.success) {
+            setProfileActionError(r.errorMessage ?? t("feedError"));
+          } else {
+            showProfileInviteToast(t("profileAvatarUpdated"));
+          }
+        })();
+      },
+    });
+  }, [openFilePicker, setHackerboardAvatarFromVmPath, showProfileInviteToast, t]);
+
+  const handleSetFactionEmblemFromVm = useCallback(() => {
+    setGroupInviteFeedback(null);
+    openFilePicker({
+      mode: "file",
+      initialPath: getDefaultInitialPath(),
+      onSelect: (path) => {
+        void (async () => {
+          const r = await setFactionEmblemFromVmPath(path);
+          if (!r.success) {
+            setGroupInviteFeedback(r.errorMessage ?? t("kickFactionFailed"));
+          } else {
+            showProfileInviteToast(t("factionEmblemUpdated"));
+          }
+        })();
+      },
+    });
+  }, [openFilePicker, setFactionEmblemFromVmPath, showProfileInviteToast, t]);
 
   useEffect(() => {
     return () => {
@@ -1347,6 +1415,13 @@ export default function HackerboardApp() {
               <>
                 {rootPosts.map((post) => {
                 const authorHandle = getAuthorHandle(post, hackers);
+                const authorHacker = post.authorId
+                  ? hackers.find((x) => x.id === post.authorId)
+                  : undefined;
+                const authorAvatarUrl =
+                  authorHacker?.avatarPixelB64 != null
+                    ? pixelArtDataUrlFromNtpixelsBase64(authorHacker.avatarPixelB64)
+                    : null;
                 const likeCount = post.likeCount ?? 0;
                 const isLiked = userLikedPostIds.has(post.id);
                 const replies = repliesByRootId.get(post.id) ?? [];
@@ -1360,10 +1435,20 @@ export default function HackerboardApp() {
                           type="button"
                           className={`${styles.postIcon} ${styles.postIconUser} ${styles.postIconLink}`}
                           onClick={() => openProfile(post.authorId!)}
-                          title={`View ${authorHandle}'s profile`}
-                          aria-label={`View ${authorHandle}'s profile`}
+                          title={t("viewAuthorProfile", { handle: authorHandle })}
+                          aria-label={t("viewAuthorProfile", { handle: authorHandle })}
                         >
-                          <User size={16} />
+                          {authorAvatarUrl ? (
+                            <img
+                              src={authorAvatarUrl}
+                              alt=""
+                              width={16}
+                              height={16}
+                              className={styles.postAuthorAvatar}
+                            />
+                          ) : (
+                            <User size={16} />
+                          )}
                         </button>
                       ) : (
                         <PostIcon type={post.type} />
@@ -1518,14 +1603,14 @@ export default function HackerboardApp() {
                 className={`${styles.rankTab} ${rankTab === "hackers" ? styles.rankTabActive : ""}`}
                 onClick={() => setRankTab("hackers")}
               >
-                Hackers
+                {t("rankTabHackers")}
               </button>
               <button
                 type="button"
                 className={`${styles.rankTab} ${rankTab === "factions" ? styles.rankTabActive : ""}`}
                 onClick={() => setRankTab("factions")}
               >
-                Factions
+                {t("rankTabFactions")}
               </button>
             </div>
             <div className={styles.searchWrap}>
@@ -1533,15 +1618,27 @@ export default function HackerboardApp() {
               <input
                 type="text"
                 className={styles.searchInput}
-                placeholder={rankTab === "hackers" ? "Search hackers..." : "Search factions..."}
+                placeholder={
+                  rankTab === "hackers"
+                    ? t("rankSearchHackersPlaceholder")
+                    : t("rankSearchFactionsPlaceholder")
+                }
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                aria-label="Search"
+                aria-label={t("rankSearchAria")}
               />
             </div>
             {currentUserHacker && rankTab === "hackers" && (
               <div className={styles.youCard}>
-                <span className={styles.youLabel}>You</span>
+                <span className={styles.youLabel}>{t("rankYouLabel")}</span>
+                {(() => {
+                  const u = currentUserHacker.avatarPixelB64
+                    ? pixelArtDataUrlFromNtpixelsBase64(currentUserHacker.avatarPixelB64)
+                    : null;
+                  return u ? (
+                    <img src={u} alt="" width={28} height={28} className={styles.rankRowAvatar} />
+                  ) : null;
+                })()}
                 <span className={styles.youRank}>#{currentUserHacker.rank}</span>
                 <span className={styles.youPoints}>{currentUserHacker.points.toLocaleString()} pts</span>
               </div>
@@ -1550,59 +1647,100 @@ export default function HackerboardApp() {
               const userFaction = currentUserFaction;
               return userFaction ? (
                 <div className={styles.youCard}>
-                  <span className={styles.youLabel}>Your faction</span>
-                  <span className={styles.youRank}>#{userFaction.rank} — {userFaction.name}</span>
+                  <span className={styles.youLabel}>{t("rankYourFactionLabel")}</span>
+                  {userFaction.emblemPixelB64 ? (
+                    (() => {
+                      const eu = pixelArtDataUrlFromNtpixelsBase64(userFaction.emblemPixelB64);
+                      return eu ? (
+                        <img src={eu} alt="" width={28} height={28} className={styles.rankRowAvatar} />
+                      ) : null;
+                    })()
+                  ) : null}
+                  <span className={styles.youRank}>
+                    #{userFaction.rank} — {userFaction.name}
+                  </span>
                   <span className={styles.youPoints}>{userFaction.totalPoints.toLocaleString()} pts</span>
                 </div>
               ) : (
                 <div className={styles.youCard}>
-                  <span className={styles.youLabel}>You</span>
-                  <span className={styles.youPoints}>No faction</span>
+                  <span className={styles.youLabel}>{t("rankYouLabel")}</span>
+                  <span className={styles.youPoints}>{t("rankNoFaction")}</span>
                 </div>
               );
             })()}
             <div className={styles.rankList}>
               {rankTab === "hackers" ? (
                 filteredHackers.length === 0 ? (
-                  <p className={styles.emptyState}>No hackers match your search.</p>
+                  <p className={styles.emptyState}>{t("rankNoHackersMatch")}</p>
                 ) : (
-                  filteredHackers.map((h) => (
-                    <div
-                      key={h.id}
-                      role="button"
-                      tabIndex={0}
-                      className={`${styles.rankRow} ${styles.rankRowInteractive} ${
-                        currentUserHacker?.id === h.id ? styles.rankRowYou : ""
-                      }`}
-                      onClick={() => openProfile(h.id)}
-                      onKeyDown={(ev) => {
-                        if (ev.key === "Enter" || ev.key === " ") {
-                          ev.preventDefault();
-                          openProfile(h.id);
-                        }
-                      }}
-                    >
-                      <span className={styles.rankNum}>{h.rank}</span>
-                      <span className={styles.rankName}>{h.username}</span>
-                      <span className={styles.rankPoints}>{h.points.toLocaleString()} pts</span>
-                    </div>
-                  ))
+                  filteredHackers.map((h) => {
+                    const rowAvatar = h.avatarPixelB64
+                      ? pixelArtDataUrlFromNtpixelsBase64(h.avatarPixelB64)
+                      : null;
+                    return (
+                      <div
+                        key={h.id}
+                        role="button"
+                        tabIndex={0}
+                        className={`${styles.rankRow} ${styles.rankRowInteractive} ${
+                          currentUserHacker?.id === h.id ? styles.rankRowYou : ""
+                        }`}
+                        onClick={() => openProfile(h.id)}
+                        onKeyDown={(ev) => {
+                          if (ev.key === "Enter" || ev.key === " ") {
+                            ev.preventDefault();
+                            openProfile(h.id);
+                          }
+                        }}
+                      >
+                        <span className={styles.rankNum}>{h.rank}</span>
+                        {rowAvatar ? (
+                          <img
+                            src={rowAvatar}
+                            alt=""
+                            width={24}
+                            height={24}
+                            className={styles.rankRowAvatar}
+                          />
+                        ) : (
+                          <span className={styles.rankRowAvatarPlaceholder} aria-hidden>
+                            <User size={16} />
+                          </span>
+                        )}
+                        <span className={styles.rankName}>{h.username}</span>
+                        <span className={styles.rankPoints}>{h.points.toLocaleString()} pts</span>
+                      </div>
+                    );
+                  })
                 )
               ) : (
                 filteredFactions.length === 0 ? (
-                  <p className={styles.emptyState}>No factions match your search.</p>
+                  <p className={styles.emptyState}>{t("rankNoFactionsMatch")}</p>
                 ) : (
-                  filteredFactions.map((f: FactionWithRank) => (
-                    <div
-                      key={f.id}
-                      className={styles.rankRow}
-                    >
-                      <span className={styles.rankNum}>{f.rank}</span>
-                      <span className={styles.rankName}>{f.name}</span>
-                      <span className={styles.factionMembers}>{f.memberIds.length} members</span>
-                      <span className={styles.rankPoints}>{f.totalPoints.toLocaleString()} pts</span>
-                    </div>
-                  ))
+                  filteredFactions.map((f: FactionWithRank) => {
+                    const facEmblem = f.emblemPixelB64
+                      ? pixelArtDataUrlFromNtpixelsBase64(f.emblemPixelB64)
+                      : null;
+                    return (
+                      <div key={f.id} className={styles.rankRow}>
+                        <span className={styles.rankNum}>{f.rank}</span>
+                        {facEmblem ? (
+                          <img
+                            src={facEmblem}
+                            alt=""
+                            width={24}
+                            height={24}
+                            className={styles.rankRowAvatar}
+                          />
+                        ) : null}
+                        <span className={styles.rankName}>{f.name}</span>
+                        <span className={styles.factionMembers}>
+                          {t("rankMembersCount", { count: f.memberIds.length })}
+                        </span>
+                        <span className={styles.rankPoints}>{f.totalPoints.toLocaleString()} pts</span>
+                      </div>
+                    );
+                  })
                 )
               )}
             </div>
@@ -1909,6 +2047,14 @@ export default function HackerboardApp() {
                 onCancelOutgoingInvite={(id) => void handleCancelOutgoingInvite(id)}
                 cancelOutgoingBusyId={cancelOutgoingBusyId}
                 clusterRankingActive={clusterRankingActive}
+                factionEmblemDataUrl={factionEmblemDataUrl}
+                showFactionEmblemVmButton={
+                  !!token &&
+                  clusterRankingActive &&
+                  !!currentUserFaction?.creatorId &&
+                  currentUserFaction.creatorId === currentUserHacker.id
+                }
+                onChooseFactionEmblemFromVm={handleSetFactionEmblemFromVm}
                 onLeaveFaction={() => void leaveFaction(currentUserHacker.id)}
               />
             )}
@@ -1917,18 +2063,48 @@ export default function HackerboardApp() {
         {section === "profile" && selectedProfileUserId && (
           <div className={styles.profileArea}>
             <div className={styles.profileHeader}>
-              <button type="button" className={styles.profileBack} onClick={closeProfile} aria-label="Back">
+              <button type="button" className={styles.profileBack} onClick={closeProfile} aria-label={t("profileBack")}>
                 <ArrowLeft size={20} />
-                Back
+                {t("profileBack")}
               </button>
             </div>
             {profileUser && (
               <>
                 <div className={styles.profileInfo}>
-                  <h2 className={styles.profileUsername}>{profileUser.username}</h2>
-                  <p className={styles.profileMeta}>
-                    Rank #{profileUser.rank} · {profileUser.points.toLocaleString()} pts
-                  </p>
+                  <div className={styles.profileIdentityRow}>
+                    {(() => {
+                      const url = profileUser.avatarPixelB64
+                        ? pixelArtDataUrlFromNtpixelsBase64(profileUser.avatarPixelB64)
+                        : null;
+                      return url ? (
+                        <img
+                          src={url}
+                          alt=""
+                          width={48}
+                          height={48}
+                          className={styles.profileAvatarImg}
+                        />
+                      ) : (
+                        <span className={styles.profileAvatarPlaceholder} aria-hidden>
+                          <User size={28} />
+                        </span>
+                      );
+                    })()}
+                    <div>
+                      <h2 className={styles.profileUsername}>{profileUser.username}</h2>
+                      <p className={styles.profileMeta}>
+                        Rank #{profileUser.rank} · {profileUser.points.toLocaleString()} pts
+                      </p>
+                    </div>
+                  </div>
+                  {playerId &&
+                    selectedProfileUserId === playerId &&
+                    token &&
+                    clusterRankingActive && (
+                      <button type="button" className={styles.vmPixelFileBtn} onClick={handleSetProfileAvatarFromVm}>
+                        {t("setAvatarFromVmFile")}
+                      </button>
+                    )}
                   {profileActionError ? (
                     <p className={styles.inviteFeedbackError} role="alert">
                       {profileActionError}
@@ -1995,9 +2171,9 @@ export default function HackerboardApp() {
                   )}
                 </div>
                 <div className={styles.profilePosts}>
-                  <h3 className={styles.profilePostsTitle}>Posts</h3>
+                  <h3 className={styles.profilePostsTitle}>{t("profilePostsTitle")}</h3>
                   {profilePosts.length === 0 ? (
-                    <p className={styles.emptyState}>No posts yet.</p>
+                    <p className={styles.emptyState}>{t("profileNoPosts")}</p>
                   ) : (
                     profilePosts.map((p) => (
                       <article key={p.id} className={styles.profilePostCard}>

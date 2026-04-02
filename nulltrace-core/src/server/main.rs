@@ -26,8 +26,11 @@ use game::{
     MovePathRequest, MovePathResponse, PingRequest, PingResponse, ProcessSpyClientMessage,
     ProcessSpyServerMessage,     RefreshTokenRequest, RefreshTokenResponse, RenamePathRequest,
     RenamePathResponse, RunProcessRequest, RunProcessResponse, RestoreDiskRequest, RestoreDiskResponse,     SetPreferredThemeRequest,
-    SetPreferredThemeResponse, SetHackerboardLanguagePreferencesRequest,
-    SetHackerboardLanguagePreferencesResponse, SetShortcutsRequest, SetShortcutsResponse, TerminalClientMessage,
+    SetPreferredThemeResponse,     SetHackerboardLanguagePreferencesRequest,
+    SetHackerboardLanguagePreferencesResponse,
+    SetHackerboardAvatarFromVmPathRequest, SetHackerboardAvatarFromVmPathResponse,
+    SetHackerboardFactionEmblemFromVmPathRequest, SetHackerboardFactionEmblemFromVmPathResponse,
+    SetShortcutsRequest, SetShortcutsResponse, TerminalClientMessage,
     TerminalServerMessage, WriteFileRequest, WriteFileResponse,
     ReadFileRequest, ReadFileResponse,
     EmptyTrashRequest, EmptyTrashResponse,
@@ -411,6 +414,26 @@ impl GameService for MyGameService {
         Ok(Response::new(SetHackerboardLanguagePreferencesResponse {
             success: false,
             error_message: "Use the unified cluster binary for Hackerboard preferences".to_string(),
+        }))
+    }
+
+    async fn set_hackerboard_avatar_from_vm_path(
+        &self,
+        _request: Request<SetHackerboardAvatarFromVmPathRequest>,
+    ) -> Result<Response<SetHackerboardAvatarFromVmPathResponse>, Status> {
+        Ok(Response::new(SetHackerboardAvatarFromVmPathResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for Hackerboard".to_string(),
+        }))
+    }
+
+    async fn set_hackerboard_faction_emblem_from_vm_path(
+        &self,
+        _request: Request<SetHackerboardFactionEmblemFromVmPathRequest>,
+    ) -> Result<Response<SetHackerboardFactionEmblemFromVmPathResponse>, Status> {
+        Ok(Response::new(SetHackerboardFactionEmblemFromVmPathResponse {
+            success: false,
+            error_message: "Use the unified cluster binary for Hackerboard".to_string(),
         }))
     }
 

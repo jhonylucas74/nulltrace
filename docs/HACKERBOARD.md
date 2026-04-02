@@ -7,7 +7,7 @@ This document tracks what the **Hackerboard** in-game app already implements, wh
 | Layer | Done | Not done |
 |-------|------|----------|
 | **UI shell** | Full layout (feed, rankings, messages, group, profile); **Feed** uses `hackerboard` i18n namespace | Rankings / messages / group / profile still mostly hardcoded English |
-| **Rankings & factions (server)** | Cluster gRPC: ranking (per-viewer, block-filtered; `faction_creator_id` + `faction_allow_member_invites` on entries), create/leave faction, **faction invites** (send by username, list incoming, list outgoing, cancel, accept, decline); **`038` `faction_member_bans`** — creator may **kick** members (`KickFactionMember` with optional `ban_from_rejoin`), **unban** (`UnbanFactionMember`), **list banned** (`ListFactionBannedMembers`); banned players cannot be invited or accept invites to that faction; `factions.allow_member_invites` (default true; when false, only creator may `SendFactionInvite`); pending invites sent by a player are cancelled when they leave | Non-cluster server returns stubs only |
+| **Rankings & factions (server)** | Cluster gRPC: ranking (per-viewer, block-filtered; `faction_creator_id` + `faction_allow_member_invites` on entries; **`039` BYTEA** `hackerboard_avatar_pixel` / `hackerboard_emblem_pixel` on `RankingEntry` as bytes), create/leave faction, **faction invites** (send by username, list incoming, list outgoing, cancel, accept, decline); **`038` `faction_member_bans`** — creator may **kick** members (`KickFactionMember` with optional `ban_from_rejoin`), **unban** (`UnbanFactionMember`), **list banned** (`ListFactionBannedMembers`); banned players cannot be invited or accept invites to that faction; `factions.allow_member_invites` (default true; when false, only creator may `SendFactionInvite`); pending invites sent by a player are cancelled when they leave; **`SetHackerboardAvatarFromVmPath`** / **`SetHackerboardFactionEmblemFromVmPath`** (read NTPX file under VM home → validate → store BYTEA) | Non-cluster server returns stubs only |
 | **Social (feed, DMs, group chat)** | **Feed** (as above). **Player blocks** (`player_blocks`): symmetric hide in feed, ranking, DM threads, and DM send; gRPC `BlockHackerboardPlayer` / `UnblockHackerboardPlayer` / `ListBlockedPlayers` (`target_username` only; JWT identity). **Faction invites** + **DMs** + **faction group chat:** Postgres + cluster RPCs when `clusterRankingActive`; Tauri + `HackerboardContext`; poll on Messages/Group focus and after send (v1). **Mock** DMs / group chat / offline faction-invite bubbles when ranking is not from the cluster; mock block list in `localStorage` per player | Non-cluster **server** stub returns errors for feed, faction invites, blocks, **and Hackerboard messaging** RPCs (use unified cluster binary) |
 
 ---
@@ -25,6 +25,32 @@ PostgreSQL → cluster gRPC → Tauri → React: shared timeline, reload-safe li
 | **Proto** | `game.proto` (client + core); cluster handlers `nulltrace-core/src/cluster/grpc.rs`; stubs `nulltrace-core/src/server/main.rs` |
 | **Tauri** | `grpc_list_feed_posts`, `grpc_create_feed_post`, `grpc_toggle_feed_post_like` in `nulltrace-client/src-tauri/src/grpc.rs` |
 | **Client** | `HackerboardContext.tsx`, `HackerboardApp.tsx`; i18n `en/hackerboard.json`, `pt-br/hackerboard.json` |
+
+---
+
+## Pixel art on VM and Hackerboard (NTPX, shipped)
+
+**Problem:** Public Hackerboard faces need a small server-side copy; reading every player’s VM on each `GetRanking` does not scale.
+
+**Flow:** Pixel Art (in-game) writes a **canonical binary** file on the player’s VM (`grpc_write_file` with raw bytes). The user picks that path in Hackerboard; the cluster **`SetHackerboardAvatarFromVmPath`** (or **`SetHackerboardFactionEmblemFromVmPath`**, creator only) reads the file under **`/home/<username>/…`**, validates it, and stores the same bytes in Postgres **`BYTEA`**. **`GetRanking`** returns those blobs on each `RankingEntry` (empty when unset). The game client encodes/decodes in TS (`pixelArt.ts`) and in Rust (`pixel_art_binary.rs`).
+
+### Binary layout (`.ntpixels`)
+
+| Offset | Size | Content |
+|--------|------|---------|
+| 0 | 4 | Magic ASCII **`NTPX`** |
+| 4 | 2 | Width, **little-endian `u16`** — must be **16** or **32** |
+| 6 | 2 | Height, **little-endian `u16`** — must be **16** or **32** |
+| 8 | `w × h × 3` | **RGB** pixels, row-major, top-to-bottom, left-to-right |
+
+- **Expected file size:** `8 + width × height × 3` (must match exactly).
+- **Max size:** 16 KiB (abuse cap).
+- **MIME type** for VM metadata: `application/x-nulltrace-pixel-art` (optional; `fs_nodes.size_bytes` still reflects file size from `fs_service.write_file`).
+
+### Security
+
+- Identity from JWT only; **no `player_id` in RPC bodies** ([grpc-no-player-id-in-requests](../.cursor/rules/grpc-no-player-id-in-requests.mdc)).
+- VM path must resolve **under the player’s home** after normalization (no traversal outside `/home/<username>`).
 
 ---
 
@@ -69,6 +95,7 @@ Use these boxes to track progress. Checked items are **implemented in the repo t
 - [x] **Player blocks:** `036_player_blocks`; feed/ranking/DM filtering; `BlockHackerboardPlayer` / `UnblockHackerboardPlayer` / `ListBlockedPlayers`; Tauri; context + profile / DM header / client feed filter for defense-in-depth
 - [x] **DMs (2.1):** `hackerboard_dm_messages`; send / list threads / list messages RPCs; Tauri; Messages tab uses server when `clusterRankingActive`
 - [x] **Faction group chat (2.2):** `hackerboard_faction_messages`; send / list RPCs; Tauri; Group chat uses server when `clusterRankingActive` and user has a faction
+- [x] **Pixel avatars / faction emblems (NTPX):** migration `039_hackerboard_pixel_avatars.sql`; `players.hackerboard_avatar_pixel` / `factions.hackerboard_emblem_pixel` (BYTEA); `RankingEntry` bytes fields; `SetHackerboardAvatarFromVmPath` / `SetHackerboardFactionEmblemFromVmPath`; Pixel Art app saves/opens `.ntpixels` on VM; Hackerboard picks VM file + decodes for UI; Tauri base64 bridge; `nulltrace-core/src/cluster/pixel_art_binary.rs` + `HACKERBOARD.md` (this doc) binary layout
 - [x] Intentional **exclusion from fixed dock** (open from launcher)
 
 ### Not done yet
@@ -125,7 +152,8 @@ Use these boxes to track progress. Checked items are **implemented in the repo t
 
 ### Backend (cluster)
 
-- **`GetRanking`:** Authenticated; reads ranking rows and faction names via `player_service` / `faction_service` (`nulltrace-core/src/cluster/grpc.rs`).
+- **`GetRanking`:** Authenticated; reads ranking rows and faction names via `player_service` / `faction_service` (`nulltrace-core/src/cluster/grpc.rs`); includes optional **`hackerboard_avatar_pixel`** / **`faction_hackerboard_emblem_pixel`** bytes per entry when set (`039` migration).
+- **`SetHackerboardAvatarFromVmPath` / `SetHackerboardFactionEmblemFromVmPath`:** Authenticated; read VM file by path under home, validate NTPX, update `players` / `factions` BYTEA columns.
 - **`CreateFaction` / `LeaveFaction`:** Authenticated; create faction and set/clear `faction_id` on the player (with validation, e.g. cannot create while already in a faction). `LeaveFaction` cancels pending invites where `from_player_id` is the leaver.
 - **`SendFactionInvite` / `ListFactionInvites` / `AcceptFactionInvite` / `DeclineFactionInvite`:** Authenticated; `faction_invite_service` + `faction_invites` table (identity from JWT only).
 - **`ListFeedPosts` / `CreateFeedPost` / `ToggleFeedPostLike`:** Authenticated; `feed_service` + `feed_posts` / `feed_post_likes` tables.
@@ -134,7 +162,7 @@ Use these boxes to track progress. Checked items are **implemented in the repo t
 
 ### Tauri bridge
 
-- Commands: `grpc_get_ranking`, `grpc_create_faction`, `grpc_leave_faction`, `grpc_send_faction_invite`, `grpc_list_faction_invites`, `grpc_accept_faction_invite`, `grpc_decline_faction_invite`, `grpc_list_feed_posts`, `grpc_create_feed_post`, `grpc_toggle_feed_post_like`, `grpc_send_hackerboard_dm`, `grpc_list_hackerboard_dm_threads`, `grpc_list_hackerboard_dm_messages`, `grpc_send_hackerboard_faction_message`, `grpc_list_hackerboard_faction_messages` (`nulltrace-client/src-tauri/src/grpc.rs`, registered in `lib.rs`).
+- Commands: `grpc_get_ranking`, `grpc_create_faction`, `grpc_leave_faction`, `grpc_send_faction_invite`, `grpc_list_faction_invites`, `grpc_accept_faction_invite`, `grpc_decline_faction_invite`, `grpc_list_feed_posts`, `grpc_create_feed_post`, `grpc_toggle_feed_post_like`, `grpc_send_hackerboard_dm`, `grpc_list_hackerboard_dm_threads`, `grpc_list_hackerboard_dm_messages`, `grpc_send_hackerboard_faction_message`, `grpc_list_hackerboard_faction_messages`, **`grpc_write_file_bytes`**, **`grpc_read_file_base64`**, **`grpc_set_hackerboard_avatar_from_vm_path`**, **`grpc_set_hackerboard_faction_emblem_from_vm_path`** (`nulltrace-client/src-tauri/src/grpc.rs`, registered in `lib.rs`). Ranking pixel fields are exposed as **base64** strings to the frontend.
 
 ### Non-cluster server stub
 
@@ -207,11 +235,13 @@ Phases are ordered by **dependency** and **value vs complexity**. Adjust if prod
 | Feed | Migration `031_create_feed_posts.sql`; `nulltrace-core/src/cluster/db/feed_service.rs` |
 | Hackerboard DMs | Migration `034_hackerboard_direct_messages.sql`; `hackerboard_dm_service.rs` |
 | Hackerboard faction chat | Migration `035_hackerboard_faction_chat.sql`; `hackerboard_faction_chat_service.rs` |
+| Hackerboard pixel avatars | Migration `039_hackerboard_pixel_avatars.sql`; `nulltrace-core/src/cluster/pixel_art_binary.rs`; ranking + set-from-VM-path handlers in `grpc.rs`; client `pixelArt.ts`, `PixelArtApp.tsx`, `HackerboardContext` / `HackerboardApp` |
 
 ---
 
 ## Changelog
 
+- **2026-03-27:** **NTPX pixel avatars:** migration `039`; BYTEA on `players` / `factions`; `RankingEntry` bytes; `SetHackerboardAvatarFromVmPath` / `SetHackerboardFactionEmblemFromVmPath`; VM save/open in Pixel Art; Hackerboard VM file pick + pixelated thumbnails; Tauri write/read + base64 ranking fields; gRPC tests in `grpc.rs` (run DB tests with `--test-threads=1` if migrations deadlock under parallel test runs). See **Pixel art on VM and Hackerboard** above.
 - **2026-03-27 (post–Phase 2):** Client: DM and faction chat **older-message pagination** (`before_message_id`); **ranking error** state + banner + retry; **60s polling** on Messages/Group when cluster ranking is active; i18n keys `rankingClusterRequired`, `rankingNetworkError`, `retryRanking`, `loadOlderMessages`, `loadingOlderMessages`.
 - **2026-03-27:** **Phase 2 messaging:** DMs + faction group chat (migrations `034`–`035`, services, proto, cluster gRPC, server stubs, Tauri, `HackerboardContext` / `HackerboardApp`, polling refresh, messaging i18n). Doc: summary, checklists, “What exists today”, Tauri list, stubs, key files, “missing” section.
 - **2025-03-24:** **Feed full stack implemented** (migration `031`, `feed_service`, proto + cluster + Tauri + client + `hackerboard` i18n). Doc updated: checklists, “Feed — full stack” section, `What exists today`, stubs note.

@@ -1387,6 +1387,23 @@
   margin: 0;
 }
 
+.factionHeaderRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.factionHeaderRow .groupTitle {
+  padding: 0;
+  border-bottom: none;
+  flex: 1;
+  min-width: 0;
+}
+
 .groupTitle {
   padding: 0.75rem 0;
   font-size: 1rem;
@@ -2144,4 +2161,65 @@
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
+}
+
+/* NTPX pixel avatars / emblems */
+.postAuthorAvatar,
+.rankRowAvatar,
+.factionEmblemImg,
+.profileAvatarImg {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border-radius: var(--border-radius-sm, 4px);
+  border: 1px solid var(--border-color);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.postAuthorAvatar {
+  display: block;
+}
+
+.rankRowAvatarPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.profileIdentityRow {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.profileAvatarPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--border-radius-sm, 6px);
+  border: 1px dashed var(--border-color);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.vmPixelFileBtn {
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+  cursor: pointer;
+}
+
+.vmPixelFileBtn:hover {
+  background: var(--bg-tertiary);
 }

@@ -217,6 +217,112 @@ export function parsePixelArt(json: string): PixelArtData | null {
   }
 }
 
+/** NTPX — canonical VM / Hackerboard pixel blob (matches cluster `pixel_art_binary`). */
+export const PIXEL_ART_MAGIC = new Uint8Array([0x4e, 0x54, 0x50, 0x58]);
+export const PIXEL_ART_MIME = "application/x-nulltrace-pixel-art";
+export const PIXEL_ART_FILE_EXTENSION = ".ntpx";
+const PIXEL_ART_MAX_BYTES = 16 * 1024;
+
+function u16LeBytes(n: number): [number, number] {
+  return [n & 0xff, (n >> 8) & 0xff];
+}
+
+export function encodePixelArtBinary(data: PixelArtData): Uint8Array {
+  const w = data.width;
+  const h = data.height;
+  if ((w !== 16 && w !== 32) || (h !== 16 && h !== 32)) {
+    throw new Error("NTPX export requires width and height 16 or 32.");
+  }
+  const pixelBytes = w * h * 3;
+  const out = new Uint8Array(8 + pixelBytes);
+  out.set(PIXEL_ART_MAGIC, 0);
+  const [w0, w1] = u16LeBytes(w);
+  const [h0, h1] = u16LeBytes(h);
+  out[4] = w0;
+  out[5] = w1;
+  out[6] = h0;
+  out[7] = h1;
+  let o = 8;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const hex = data.pixels[y]?.[x] ?? "#ffffff";
+      if (!/^#[0-9a-fA-F]{6}$/.test(hex)) {
+        throw new Error("Invalid pixel color for NTPX export.");
+      }
+      out[o++] = parseInt(hex.slice(1, 3), 16);
+      out[o++] = parseInt(hex.slice(3, 5), 16);
+      out[o++] = parseInt(hex.slice(5, 7), 16);
+    }
+  }
+  return out;
+}
+
+export function decodePixelArtBinary(buf: Uint8Array): PixelArtData | null {
+  if (buf.length > PIXEL_ART_MAX_BYTES || buf.length < 8) return null;
+  for (let i = 0; i < 4; i++) {
+    if (buf[i] !== PIXEL_ART_MAGIC[i]) return null;
+  }
+  const w = buf[4] | (buf[5] << 8);
+  const h = buf[6] | (buf[7] << 8);
+  if ((w !== 16 && w !== 32) || (h !== 16 && h !== 32)) return null;
+  const expected = 8 + w * h * 3;
+  if (buf.length !== expected) return null;
+  const pixels: string[][] = [];
+  let o = 8;
+  for (let y = 0; y < h; y++) {
+    const row: string[] = [];
+    for (let x = 0; x < w; x++) {
+      const r = buf[o++].toString(16).padStart(2, "0");
+      const g = buf[o++].toString(16).padStart(2, "0");
+      const b = buf[o++].toString(16).padStart(2, "0");
+      row.push(`#${r}${g}${b}`);
+    }
+    pixels.push(row);
+  }
+  return { width: w, height: h, pixels };
+}
+
+/** Try NTPX first, then UTF-8 JSON legacy format. */
+export function decodePixelArtFromBytes(buf: Uint8Array): PixelArtData | null {
+  const fromBin = decodePixelArtBinary(buf);
+  if (fromBin) return fromBin;
+  try {
+    const text = new TextDecoder("utf-8", { fatal: false }).decode(buf);
+    return parsePixelArt(text);
+  } catch {
+    return null;
+  }
+}
+
+export function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 8192;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+export function base64ToUint8Array(b64: string): Uint8Array {
+  const binary = atob(b64.trim());
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    out[i] = binary.charCodeAt(i);
+  }
+  return out;
+}
+
+export function pixelArtDataUrlFromNtpixelsBase64(b64: string): string | null {
+  if (!b64) return null;
+  try {
+    const raw = base64ToUint8Array(b64);
+    const data = decodePixelArtBinary(raw);
+    return data ? renderPixelArtToDataUrl(data) : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Render pixel art data to a base64 PNG data URL.
  * Uses a tiny canvas (size is 16/32), so it's lightweight.
