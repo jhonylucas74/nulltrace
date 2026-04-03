@@ -386,97 +386,20 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
       pixels: compositePixels,
     };
     void (async () => {
-      // #region agent log
-      fetch("http://127.0.0.1:7782/ingest/23874c85-724f-4e5a-8ddd-e696989e8898", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "54714f" },
-        body: JSON.stringify({
-          sessionId: "54714f",
-          hypothesisId: "D",
-          runId: "pre-fix",
-          location: "PixelArtApp.tsx:handleSaveConfirm",
-          message: "save branch",
-          data: {
-            grpcBranch: !!(useGrpc && token),
-            useGrpc,
-            hasToken: !!token,
-            pathLen: path.length,
-            pathTail: path.length > 48 ? path.slice(-48) : path,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       if (useGrpc && token) {
         try {
           const bytes = await encodePixelArtToPngBytes(flattened);
-          // #region agent log
-          fetch("http://127.0.0.1:7782/ingest/23874c85-724f-4e5a-8ddd-e696989e8898", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "54714f" },
-            body: JSON.stringify({
-              sessionId: "54714f",
-              hypothesisId: "A",
-              runId: "pre-fix",
-              location: "PixelArtApp.tsx:afterEncode",
-              message: "png bytes ready",
-              data: { byteLen: bytes.length, b64Len: uint8ArrayToBase64(bytes).length },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
           const res = await invoke<{ success: boolean; error_message: string }>("grpc_write_file_bytes", {
             path,
             contentBase64: uint8ArrayToBase64(bytes),
             token,
           });
-          // #region agent log
-          fetch("http://127.0.0.1:7782/ingest/23874c85-724f-4e5a-8ddd-e696989e8898", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "54714f" },
-            body: JSON.stringify({
-              sessionId: "54714f",
-              hypothesisId: "C",
-              runId: "pre-fix",
-              location: "PixelArtApp.tsx:afterInvoke",
-              message: "invoke returned",
-              data: {
-                success: res?.success,
-                errDefined: typeof res?.error_message === "string",
-                errLen: typeof res?.error_message === "string" ? res.error_message.length : -1,
-                errHead:
-                  typeof res?.error_message === "string"
-                    ? res.error_message.slice(0, 120)
-                    : null,
-              },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
           if (!res.success) {
             const msg = typeof res.error_message === "string" ? res.error_message.trim() : "";
             setSaveError(msg || t("saveFailed"));
             return;
           }
         } catch (e) {
-          // #region agent log
-          fetch("http://127.0.0.1:7782/ingest/23874c85-724f-4e5a-8ddd-e696989e8898", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "54714f" },
-            body: JSON.stringify({
-              sessionId: "54714f",
-              hypothesisId: "B",
-              runId: "pre-fix",
-              location: "PixelArtApp.tsx:saveCatch",
-              message: "save threw",
-              data: {
-                name: e instanceof Error ? e.name : typeof e,
-                msg: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
-              },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
           const msg = e instanceof Error ? e.message.trim() : "";
           setSaveError(msg || t("saveFailed"));
           return;

@@ -451,24 +451,5 @@ export async function encodePixelArtToPngBytes(data: PixelArtData): Promise<Uint
   if (!meta.startsWith("data:image/png") || !meta.includes("base64")) {
     throw new Error("Failed to encode PNG (unexpected data URL)");
   }
-  // #region agent log
-  fetch("http://127.0.0.1:7782/ingest/23874c85-724f-4e5a-8ddd-e696989e8898", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "54714f" },
-    body: JSON.stringify({
-      sessionId: "54714f",
-      hypothesisId: "A",
-      runId: "pre-fix",
-      location: "pixelArt.ts:encodePixelArtToPngBytes",
-      message: "data url parsed",
-      data: {
-        dataUrlLen: dataUrl.length,
-        meta,
-        payloadB64Len: dataUrl.length - comma - 1,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   return base64ToUint8Array(dataUrl.slice(comma + 1));
 }
