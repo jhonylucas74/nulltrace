@@ -579,7 +579,7 @@ pub struct SetHackerboardAvatarFromVmPathCommandResponse {
     pub error_message: String,
 }
 
-/// Tauri: copy validated NTPX pixel file from VM path into profile avatar (authenticated).
+/// Tauri: copy validated PNG (or legacy NTPX, converted to PNG) from VM path into profile avatar (authenticated).
 #[tauri::command]
 pub async fn grpc_set_hackerboard_avatar_from_vm_path(
     token: String,
@@ -618,7 +618,7 @@ pub struct SetHackerboardFactionEmblemFromVmPathCommandResponse {
     pub error_message: String,
 }
 
-/// Tauri: copy validated NTPX file into faction emblem (creator only; authenticated).
+/// Tauri: copy validated PNG (or legacy NTPX, converted to PNG) into faction emblem (creator only; authenticated).
 #[tauri::command]
 pub async fn grpc_set_hackerboard_faction_emblem_from_vm_path(
     token: String,
@@ -2025,33 +2025,102 @@ pub async fn grpc_write_file_bytes(
     content_base64: String,
     token: String,
 ) -> Result<WriteFileCommandResponse, String> {
-    let raw = B64_ENGINE
-        .decode(content_base64.trim())
-        .map_err(|e| format!("Invalid base64: {}", e))?;
+    // #region agent log
+    fn agent_ndjson(hypothesis_id: &str, msg: &str, data: serde_json::Value) {
+        use std::io::Write;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let line = serde_json::json!({
+            "sessionId": "54714f",
+            "hypothesisId": hypothesis_id,
+            "runId": "pre-fix",
+            "location": "grpc.rs:grpc_write_file_bytes",
+            "message": msg,
+            "timestamp": ts,
+            "data": data,
+        });
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/home/jhony/projects/nulltrace/.cursor/debug-54714f.log")
+        {
+            let _ = writeln!(f, "{}", line);
+        }
+    }
+    // #endregion
+
+    let raw = match B64_ENGINE.decode(content_base64.trim()) {
+        Ok(b) => b,
+        Err(e) => {
+            agent_ndjson(
+                "B",
+                "base64_decode_failed",
+                serde_json::json!({ "err": e.to_string() }),
+            );
+            return Err(format!("Invalid base64: {}", e));
+        }
+    };
+
+    agent_ndjson(
+        "B",
+        "decoded_ok",
+        serde_json::json!({ "path_len": path.len(), "raw_len": raw.len() }),
+    );
+
     let url = grpc_url();
-    let mut client = GameServiceClient::connect(url).await.map_err(|e| e.to_string())?;
+    let mut client = match GameServiceClient::connect(url).await {
+        Ok(c) => c,
+        Err(e) => {
+            agent_ndjson(
+                "B",
+                "grpc_connect_failed",
+                serde_json::json!({ "err": e.to_string() }),
+            );
+            return Err(e.to_string());
+        }
+    };
 
     let mut request = tonic::Request::new(WriteFileRequest {
         path: path.clone(),
         content: raw,
     });
-    request.metadata_mut().insert(
-        "authorization",
-        format!("Bearer {}", token)
-            .parse()
-            .map_err(|e| format!("Invalid token: {:?}", e))?,
+    let auth_header = format!("Bearer {}", token)
+        .parse()
+        .map_err(|e| format!("Invalid token: {:?}", e))?;
+    request.metadata_mut().insert("authorization", auth_header);
+
+    let response = match client.write_file(request).await {
+        Ok(r) => r.into_inner(),
+        Err(e) => {
+            agent_ndjson(
+                "B",
+                "tonic_write_file_err",
+                serde_json::json!({
+                    "code": format!("{:?}", e.code()),
+                    "unauthenticated": e.code() == tonic::Code::Unauthenticated,
+                    "msg": e.to_string(),
+                }),
+            );
+            return Err(if e.code() == tonic::Code::Unauthenticated {
+                "UNAUTHENTICATED".to_string()
+            } else {
+                e.to_string()
+            });
+        }
+    };
+
+    agent_ndjson(
+        "C",
+        "write_file_inner",
+        serde_json::json!({
+            "success": response.success,
+            "err_len": response.error_message.len(),
+            "err_head": response.error_message.chars().take(120).collect::<String>(),
+        }),
     );
 
-    let response = client
-        .write_file(request)
-        .await
-        .map_err(|e| {
-            if e.code() == tonic::Code::Unauthenticated {
-                return "UNAUTHENTICATED".to_string();
-            }
-            e.to_string()
-        })?
-        .into_inner();
     Ok(WriteFileCommandResponse {
         success: response.success,
         error_message: response.error_message,

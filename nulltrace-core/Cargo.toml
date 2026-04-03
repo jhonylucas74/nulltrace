@@ -36,6 +36,7 @@ serde_yaml = "0.9"
 num_cpus = "1.16"
 regex = "1"
 lua-patterns = "0.4"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [build-dependencies]
 tonic-build = "0.9"

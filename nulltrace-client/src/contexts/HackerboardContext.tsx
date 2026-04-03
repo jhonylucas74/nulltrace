@@ -8,7 +8,7 @@ export interface Hacker {
   username: string;
   points: number;
   factionId: string | null;
-  /** Standard base64 NTPX blob from cluster ranking; optional. */
+  /** Standard base64 PNG (or legacy NTPX) avatar from cluster; optional. */
   avatarPixelB64?: string;
 }
 
@@ -20,7 +20,7 @@ export interface Faction {
   creatorId: string | null;
   /** When false, only `creatorId` may send invites (server-enforced). */
   allowMemberInvites: boolean;
-  /** Standard base64 NTPX emblem from cluster; optional. */
+  /** Standard base64 PNG (or legacy NTPX) emblem from cluster; optional. */
   emblemPixelB64?: string;
 }
 
@@ -351,11 +351,11 @@ interface HackerboardContextValue {
   unbanFactionMember: (
     targetUsername: string
   ) => Promise<{ success: boolean; errorMessage?: string }>;
-  /** Copy NTPX file from VM path into Hackerboard profile avatar (cluster). */
+  /** Copy PNG (or legacy NTPX) file from VM path into Hackerboard profile avatar (cluster). */
   setHackerboardAvatarFromVmPath: (
     vmPath: string
   ) => Promise<{ success: boolean; errorMessage?: string }>;
-  /** Copy NTPX file into faction emblem; creator only (cluster). */
+  /** Copy PNG (or legacy NTPX) file into faction emblem; creator only (cluster). */
   setFactionEmblemFromVmPath: (
     vmPath: string
   ) => Promise<{ success: boolean; errorMessage?: string }>;

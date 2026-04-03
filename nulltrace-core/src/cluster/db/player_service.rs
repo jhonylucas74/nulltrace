@@ -23,7 +23,7 @@ pub struct Player {
     pub preferred_theme: Option<String>,
     pub hackerboard_feed_language_filter: String,
     pub hackerboard_post_language: String,
-    /// NTPX binary blob for Hackerboard avatar (validated on set).
+    /// PNG bytes for Hackerboard avatar (canonical on set; legacy rows may be NTPX).
     pub hackerboard_avatar_pixel: Option<Vec<u8>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -213,7 +213,7 @@ impl PlayerService {
         Ok(())
     }
 
-    /// Set Hackerboard avatar pixel blob (NTPX). Pass `None` to clear.
+    /// Set Hackerboard avatar image blob (PNG). Pass `None` to clear.
     pub async fn set_hackerboard_avatar_pixel(
         &self,
         player_id: Uuid,

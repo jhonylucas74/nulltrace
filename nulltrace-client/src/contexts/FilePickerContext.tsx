@@ -7,6 +7,11 @@ export interface FilePickerOptions {
   mode: FilePickerMode;
   /** Initial path to show (folder path). Defaults to home. */
   initialPath?: string;
+  /**
+   * When mode is "file", only list files whose names end with one of these extensions (e.g. [".png"]).
+   * Case-insensitive. Folders are always shown. Omit or empty = all files.
+   */
+  allowedFileExtensions?: string[];
   onSelect: (path: string) => void;
   onCancel?: () => void;
 }

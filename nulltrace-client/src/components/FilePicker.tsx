@@ -17,10 +17,24 @@ function normalizePath(p: string): string {
   return s.startsWith("/") ? s : s ? `/${s}` : "/";
 }
 
+/** Normalize extension to lowercase with a leading dot. */
+function normalizeExtension(ext: string): string {
+  const t = ext.trim().toLowerCase();
+  return t.startsWith(".") ? t : `.${t}`;
+}
+
+function fileMatchesAllowedExtensions(fileName: string, extensions: string[]): boolean {
+  if (extensions.length === 0) return true;
+  const lower = fileName.toLowerCase();
+  return extensions.some((ext) => lower.endsWith(normalizeExtension(ext)));
+}
+
 export interface FilePickerProps {
   open: boolean;
   mode: FilePickerMode;
   initialPath: string;
+  /** When mode is "file", only list files matching these extensions (folders always shown). */
+  allowedFileExtensions?: string[];
   onSelect: (path: string) => void;
   onCancel: () => void;
 }
@@ -35,6 +49,7 @@ export default function FilePicker({
   open,
   mode,
   initialPath,
+  allowedFileExtensions,
   onSelect,
   onCancel,
 }: FilePickerProps) {
@@ -119,12 +134,24 @@ export default function FilePicker({
       })()
     : getParentPath(currentPath);
 
-  const children: FileSystemNode[] = useGrpc
+  const rawChildren: FileSystemNode[] = useGrpc
     ? grpcEntries.map((e) => ({
         name: e.name,
         type: (e.node_type === "directory" ? "folder" : "file") as "folder" | "file",
       }))
     : getChildren(currentPath);
+
+  const extFilter =
+    mode === "file" && allowedFileExtensions && allowedFileExtensions.length > 0
+      ? allowedFileExtensions.map(normalizeExtension)
+      : null;
+
+  const children: FileSystemNode[] =
+    extFilter === null
+      ? rawChildren
+      : rawChildren.filter(
+          (node) => node.type === "folder" || fileMatchesAllowedExtensions(node.name, extFilter)
+        );
 
   function handleSelectNode(node: FileSystemNode) {
     const path = joinPath(currentPath, node.name);

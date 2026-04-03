@@ -15,12 +15,12 @@ import {
   createEmptyData,
   serializePixelArt,
   renderPixelArtToDataUrl,
-  encodePixelArtBinary,
-  decodePixelArtFromBytes,
+  decodePixelArtFromBytesAsync,
+  encodePixelArtToPngBytes,
   uint8ArrayToBase64,
   base64ToUint8Array,
   parsePixelArt,
-  PIXEL_ART_FILE_EXTENSION,
+  PIXEL_ART_PNG_EXTENSION,
 } from "../lib/pixelArt";
 import { HexColorPicker } from "react-colorful";
 import Modal from "./Modal";
@@ -28,7 +28,8 @@ import styles from "./PixelArtApp.module.css";
 
 function joinPath(base: string, name: string): string {
   const b = base.replace(/\/$/, "");
-  return b ? `${b}/${name}` : `/${name}`;
+  const joined = b ? `${b}/${name}` : `/${name}`;
+  return joined.replace(/\/+/g, "/");
 }
 
 const CELL_SIZE_PX = 14;
@@ -167,7 +168,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
                 return;
               }
               const raw = base64ToUint8Array(res.content_base64);
-              const parsed = decodePixelArtFromBytes(raw);
+              const parsed = await decodePixelArtFromBytesAsync(raw);
               if (!parsed) {
                 setMenuError(t("invalidFile"));
                 return;
@@ -360,7 +361,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
     if (!data) return;
     setSaveFolderPath(null);
     setSaveError("");
-    setSaveFilename(useGrpc ? `pixel-art${PIXEL_ART_FILE_EXTENSION}` : "pixel-art.json");
+    setSaveFilename(useGrpc ? `pixel-art${PIXEL_ART_PNG_EXTENSION}` : "pixel-art.json");
     openFilePicker({
       mode: "folder",
       initialPath: getDefaultInitialPath(),
@@ -385,26 +386,99 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
       pixels: compositePixels,
     };
     void (async () => {
+      // #region agent log
+      fetch("http://127.0.0.1:7782/ingest/23874c85-724f-4e5a-8ddd-e696989e8898", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "54714f" },
+        body: JSON.stringify({
+          sessionId: "54714f",
+          hypothesisId: "D",
+          runId: "pre-fix",
+          location: "PixelArtApp.tsx:handleSaveConfirm",
+          message: "save branch",
+          data: {
+            grpcBranch: !!(useGrpc && token),
+            useGrpc,
+            hasToken: !!token,
+            pathLen: path.length,
+            pathTail: path.length > 48 ? path.slice(-48) : path,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       if (useGrpc && token) {
         try {
-          let bytes: Uint8Array;
-          try {
-            bytes = encodePixelArtBinary(flattened);
-          } catch (e) {
-            setSaveError(e instanceof Error ? e.message : t("saveFailed"));
-            return;
-          }
+          const bytes = await encodePixelArtToPngBytes(flattened);
+          // #region agent log
+          fetch("http://127.0.0.1:7782/ingest/23874c85-724f-4e5a-8ddd-e696989e8898", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "54714f" },
+            body: JSON.stringify({
+              sessionId: "54714f",
+              hypothesisId: "A",
+              runId: "pre-fix",
+              location: "PixelArtApp.tsx:afterEncode",
+              message: "png bytes ready",
+              data: { byteLen: bytes.length, b64Len: uint8ArrayToBase64(bytes).length },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
           const res = await invoke<{ success: boolean; error_message: string }>("grpc_write_file_bytes", {
             path,
-            content_base64: uint8ArrayToBase64(bytes),
+            contentBase64: uint8ArrayToBase64(bytes),
             token,
           });
+          // #region agent log
+          fetch("http://127.0.0.1:7782/ingest/23874c85-724f-4e5a-8ddd-e696989e8898", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "54714f" },
+            body: JSON.stringify({
+              sessionId: "54714f",
+              hypothesisId: "C",
+              runId: "pre-fix",
+              location: "PixelArtApp.tsx:afterInvoke",
+              message: "invoke returned",
+              data: {
+                success: res?.success,
+                errDefined: typeof res?.error_message === "string",
+                errLen: typeof res?.error_message === "string" ? res.error_message.length : -1,
+                errHead:
+                  typeof res?.error_message === "string"
+                    ? res.error_message.slice(0, 120)
+                    : null,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
           if (!res.success) {
-            setSaveError(res.error_message || t("saveFailed"));
+            const msg = typeof res.error_message === "string" ? res.error_message.trim() : "";
+            setSaveError(msg || t("saveFailed"));
             return;
           }
         } catch (e) {
-          setSaveError(e instanceof Error ? e.message : t("saveFailed"));
+          // #region agent log
+          fetch("http://127.0.0.1:7782/ingest/23874c85-724f-4e5a-8ddd-e696989e8898", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "54714f" },
+            body: JSON.stringify({
+              sessionId: "54714f",
+              hypothesisId: "B",
+              runId: "pre-fix",
+              location: "PixelArtApp.tsx:saveCatch",
+              message: "save threw",
+              data: {
+                name: e instanceof Error ? e.name : typeof e,
+                msg: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
+          const msg = e instanceof Error ? e.message.trim() : "";
+          setSaveError(msg || t("saveFailed"));
           return;
         }
       } else {
@@ -885,7 +959,7 @@ export default function PixelArtApp({ windowId }: PixelArtAppProps) {
               value={saveFilename}
               onChange={(e) => setSaveFilename(e.target.value)}
               className={styles.saveInput}
-              placeholder={useGrpc ? `pixel-art${PIXEL_ART_FILE_EXTENSION}` : "pixel-art.json"}
+              placeholder={useGrpc ? `pixel-art${PIXEL_ART_PNG_EXTENSION}` : "pixel-art.json"}
             />
           </label>
           {saveError && <p className={styles.saveError}>{saveError}</p>}

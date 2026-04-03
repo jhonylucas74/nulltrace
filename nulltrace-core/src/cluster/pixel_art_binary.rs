@@ -63,6 +63,7 @@ pub fn validate_pixel_art_binary(data: &[u8]) -> Result<(), PixelArtBinaryError>
 }
 
 /// Returns an owned copy after validation (for storing in BYTEA).
+#[allow(dead_code)] // Legacy; Hackerboard stores PNG via `pixel_art_png::validated_hackerboard_image_bytes`.
 pub fn validated_pixel_art_bytes(data: &[u8]) -> Result<Vec<u8>, PixelArtBinaryError> {
     validate_pixel_art_binary(data)?;
     Ok(data.to_vec())

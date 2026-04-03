@@ -9,6 +9,7 @@ mod incoming_money_listener;
 mod mailbox_hub;
 mod path_util;
 mod pixel_art_binary;
+mod pixel_art_png;
 mod process;
 mod process_parser;
 mod vm;

@@ -217,10 +217,12 @@ export function parsePixelArt(json: string): PixelArtData | null {
   }
 }
 
-/** NTPX — canonical VM / Hackerboard pixel blob (matches cluster `pixel_art_binary`). */
+/** NTPX — legacy VM binary (matches cluster `pixel_art_binary`); prefer PNG for new files. */
 export const PIXEL_ART_MAGIC = new Uint8Array([0x4e, 0x54, 0x50, 0x58]);
 export const PIXEL_ART_MIME = "application/x-nulltrace-pixel-art";
 export const PIXEL_ART_FILE_EXTENSION = ".ntpx";
+/** Hackerboard avatar/emblem and Pixel Art save (gRPC): canonical PNG on disk and in DB. */
+export const PIXEL_ART_PNG_EXTENSION = ".png";
 const PIXEL_ART_MAX_BYTES = 16 * 1024;
 
 function u16LeBytes(n: number): [number, number] {
@@ -282,7 +284,7 @@ export function decodePixelArtBinary(buf: Uint8Array): PixelArtData | null {
   return { width: w, height: h, pixels };
 }
 
-/** Try NTPX first, then UTF-8 JSON legacy format. */
+/** Try NTPX first, then UTF-8 JSON legacy format (sync; no PNG — use `decodePixelArtFromBytesAsync`). */
 export function decodePixelArtFromBytes(buf: Uint8Array): PixelArtData | null {
   const fromBin = decodePixelArtBinary(buf);
   if (fromBin) return fromBin;
@@ -292,6 +294,75 @@ export function decodePixelArtFromBytes(buf: Uint8Array): PixelArtData | null {
   } catch {
     return null;
   }
+}
+
+function isPngSignature(buf: Uint8Array): boolean {
+  return (
+    buf.length >= 8 &&
+    buf[0] === 0x89 &&
+    buf[1] === 0x50 &&
+    buf[2] === 0x4e &&
+    buf[3] === 0x47 &&
+    buf[4] === 0x0d &&
+    buf[5] === 0x0a &&
+    buf[6] === 0x1a &&
+    buf[7] === 0x0a
+  );
+}
+
+/** Decode PNG (16×16 / 16×32 / 32×16 / 32×32), NTPX, or JSON. */
+export function decodePixelArtFromPngBytes(buf: Uint8Array): Promise<PixelArtData | null> {
+  return new Promise((resolve) => {
+    const blob = new Blob([buf], { type: "image/png" });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      if ((w !== 16 && w !== 32) || (h !== 16 && h !== 32)) {
+        resolve(null);
+        return;
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const pixels: string[][] = [];
+      let i = 0;
+      for (let y = 0; y < h; y++) {
+        const row: string[] = [];
+        for (let x = 0; x < w; x++) {
+          const r = imageData.data[i++].toString(16).padStart(2, "0");
+          const g = imageData.data[i++].toString(16).padStart(2, "0");
+          const b = imageData.data[i++].toString(16).padStart(2, "0");
+          i++; // alpha
+          row.push(`#${r}${g}${b}`);
+        }
+        pixels.push(row);
+      }
+      resolve({ width: w, height: h, pixels });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    img.src = url;
+  });
+}
+
+/** PNG (async), NTPX, or JSON — full VM / editor open path. */
+export async function decodePixelArtFromBytesAsync(buf: Uint8Array): Promise<PixelArtData | null> {
+  if (isPngSignature(buf)) {
+    return decodePixelArtFromPngBytes(buf);
+  }
+  return decodePixelArtFromBytes(buf);
 }
 
 export function uint8ArrayToBase64(bytes: Uint8Array): string {
@@ -312,15 +383,27 @@ export function base64ToUint8Array(b64: string): Uint8Array {
   return out;
 }
 
-export function pixelArtDataUrlFromNtpixelsBase64(b64: string): string | null {
+/**
+ * Hackerboard avatar/emblem: DB stores PNG bytes (or legacy NTPX). Returns a data URL for `<img src>`.
+ */
+export function hackerboardImageDataUrlFromBase64(b64: string): string | null {
   if (!b64) return null;
   try {
     const raw = base64ToUint8Array(b64);
+    if (isPngSignature(raw)) {
+      const t = b64.trim();
+      return `data:image/png;base64,${t}`;
+    }
     const data = decodePixelArtBinary(raw);
     return data ? renderPixelArtToDataUrl(data) : null;
   } catch {
     return null;
   }
+}
+
+/** @deprecated Use `hackerboardImageDataUrlFromBase64` */
+export function pixelArtDataUrlFromNtpixelsBase64(b64: string): string | null {
+  return hackerboardImageDataUrlFromBase64(b64);
 }
 
 /**
@@ -349,4 +432,43 @@ export function renderPixelArtToDataUrl(data: PixelArtData): string {
   }
   ctx.putImageData(image, 0, 0);
   return canvas.toDataURL("image/png");
+}
+
+/**
+ * Encode editor pixels as PNG file bytes (for VM save; server validates on profile import).
+ * Uses the data URL from canvas directly — avoid `fetch(data:...)` which often fails in Tauri WebViews.
+ */
+export async function encodePixelArtToPngBytes(data: PixelArtData): Promise<Uint8Array> {
+  const dataUrl = renderPixelArtToDataUrl(data);
+  if (!dataUrl) {
+    throw new Error("Failed to encode PNG (canvas unavailable)");
+  }
+  const comma = dataUrl.indexOf(",");
+  if (comma < 0) {
+    throw new Error("Failed to encode PNG (invalid data URL)");
+  }
+  const meta = dataUrl.slice(0, comma).toLowerCase();
+  if (!meta.startsWith("data:image/png") || !meta.includes("base64")) {
+    throw new Error("Failed to encode PNG (unexpected data URL)");
+  }
+  // #region agent log
+  fetch("http://127.0.0.1:7782/ingest/23874c85-724f-4e5a-8ddd-e696989e8898", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "54714f" },
+    body: JSON.stringify({
+      sessionId: "54714f",
+      hypothesisId: "A",
+      runId: "pre-fix",
+      location: "pixelArt.ts:encodePixelArtToPngBytes",
+      message: "data url parsed",
+      data: {
+        dataUrlLen: dataUrl.length,
+        meta,
+        payloadB64Len: dataUrl.length - comma - 1,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+  return base64ToUint8Array(dataUrl.slice(comma + 1));
 }

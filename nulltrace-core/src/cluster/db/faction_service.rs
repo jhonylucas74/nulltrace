@@ -10,7 +10,7 @@ pub struct Faction {
     pub name: String,
     pub creator_id: Option<Uuid>,
     pub allow_member_invites: bool,
-    /// NTPX binary blob for Hackerboard faction emblem (validated on set).
+    /// PNG bytes for Hackerboard faction emblem (canonical on set; legacy rows may be NTPX).
     pub hackerboard_emblem_pixel: Option<Vec<u8>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -79,7 +79,7 @@ impl FactionService {
         Ok(row.0.unwrap_or(0))
     }
 
-    /// Set Hackerboard emblem pixel blob (NTPX). Pass `None` to clear.
+    /// Set Hackerboard emblem image blob (PNG). Pass `None` to clear.
     pub async fn set_hackerboard_emblem_pixel(
         &self,
         faction_id: Uuid,

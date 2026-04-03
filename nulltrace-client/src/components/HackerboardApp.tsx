@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useFilePicker, getDefaultInitialPath } from "../contexts/FilePickerContext";
-import { pixelArtDataUrlFromNtpixelsBase64 } from "../lib/pixelArt";
+import { hackerboardImageDataUrlFromBase64, PIXEL_ART_PNG_EXTENSION } from "../lib/pixelArt";
 import {
   useHackerboard,
   type FeedPost,
@@ -940,7 +940,7 @@ export default function HackerboardApp() {
   );
   const factionEmblemDataUrl = useMemo(() => {
     if (!currentUserFaction?.emblemPixelB64) return null;
-    return pixelArtDataUrlFromNtpixelsBase64(currentUserFaction.emblemPixelB64);
+    return hackerboardImageDataUrlFromBase64(currentUserFaction.emblemPixelB64);
   }, [currentUserFaction?.emblemPixelB64]);
   const profileUser = useMemo(
     () => (selectedProfileUserId ? hackers.find((h) => h.id === selectedProfileUserId) ?? null : null),
@@ -1165,6 +1165,7 @@ export default function HackerboardApp() {
     openFilePicker({
       mode: "file",
       initialPath: getDefaultInitialPath(),
+      allowedFileExtensions: [PIXEL_ART_PNG_EXTENSION],
       onSelect: (path) => {
         void (async () => {
           const r = await setHackerboardAvatarFromVmPath(path);
@@ -1183,6 +1184,7 @@ export default function HackerboardApp() {
     openFilePicker({
       mode: "file",
       initialPath: getDefaultInitialPath(),
+      allowedFileExtensions: [PIXEL_ART_PNG_EXTENSION],
       onSelect: (path) => {
         void (async () => {
           const r = await setFactionEmblemFromVmPath(path);
@@ -1420,7 +1422,7 @@ export default function HackerboardApp() {
                   : undefined;
                 const authorAvatarUrl =
                   authorHacker?.avatarPixelB64 != null
-                    ? pixelArtDataUrlFromNtpixelsBase64(authorHacker.avatarPixelB64)
+                    ? hackerboardImageDataUrlFromBase64(authorHacker.avatarPixelB64)
                     : null;
                 const likeCount = post.likeCount ?? 0;
                 const isLiked = userLikedPostIds.has(post.id);
@@ -1633,7 +1635,7 @@ export default function HackerboardApp() {
                 <span className={styles.youLabel}>{t("rankYouLabel")}</span>
                 {(() => {
                   const u = currentUserHacker.avatarPixelB64
-                    ? pixelArtDataUrlFromNtpixelsBase64(currentUserHacker.avatarPixelB64)
+                    ? hackerboardImageDataUrlFromBase64(currentUserHacker.avatarPixelB64)
                     : null;
                   return u ? (
                     <img src={u} alt="" width={28} height={28} className={styles.rankRowAvatar} />
@@ -1650,7 +1652,7 @@ export default function HackerboardApp() {
                   <span className={styles.youLabel}>{t("rankYourFactionLabel")}</span>
                   {userFaction.emblemPixelB64 ? (
                     (() => {
-                      const eu = pixelArtDataUrlFromNtpixelsBase64(userFaction.emblemPixelB64);
+                      const eu = hackerboardImageDataUrlFromBase64(userFaction.emblemPixelB64);
                       return eu ? (
                         <img src={eu} alt="" width={28} height={28} className={styles.rankRowAvatar} />
                       ) : null;
@@ -1675,7 +1677,7 @@ export default function HackerboardApp() {
                 ) : (
                   filteredHackers.map((h) => {
                     const rowAvatar = h.avatarPixelB64
-                      ? pixelArtDataUrlFromNtpixelsBase64(h.avatarPixelB64)
+                      ? hackerboardImageDataUrlFromBase64(h.avatarPixelB64)
                       : null;
                     return (
                       <div
@@ -1719,7 +1721,7 @@ export default function HackerboardApp() {
                 ) : (
                   filteredFactions.map((f: FactionWithRank) => {
                     const facEmblem = f.emblemPixelB64
-                      ? pixelArtDataUrlFromNtpixelsBase64(f.emblemPixelB64)
+                      ? hackerboardImageDataUrlFromBase64(f.emblemPixelB64)
                       : null;
                     return (
                       <div key={f.id} className={styles.rankRow}>
@@ -2074,7 +2076,7 @@ export default function HackerboardApp() {
                   <div className={styles.profileIdentityRow}>
                     {(() => {
                       const url = profileUser.avatarPixelB64
-                        ? pixelArtDataUrlFromNtpixelsBase64(profileUser.avatarPixelB64)
+                        ? hackerboardImageDataUrlFromBase64(profileUser.avatarPixelB64)
                         : null;
                       return url ? (
                         <img

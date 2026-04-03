@@ -634,6 +634,7 @@ function DesktopContent() {
             open={true}
             mode={filePickerOptions.mode}
             initialPath={filePickerOptions.initialPath ?? getDefaultInitialPath()}
+            allowedFileExtensions={filePickerOptions.allowedFileExtensions}
             onSelect={(path) => {
               filePickerOptions.onSelect(path);
               closeFilePicker();

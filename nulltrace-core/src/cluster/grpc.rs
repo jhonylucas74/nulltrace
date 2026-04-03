@@ -24,7 +24,8 @@ use super::process_run_hub::{ProcessRunHub, RunProcessStreamMsg};
 use super::process_spy_hub::{ProcessSpyConnection, ProcessSpyDownstreamMsg, ProcessSpyHub};
 use super::resource_limits;
 use super::terminal_hub::{SessionReady, TerminalHub};
-use super::pixel_art_binary::validated_pixel_art_bytes;
+use super::pixel_art_binary::PIXEL_ART_MIME;
+use super::pixel_art_png::validated_hackerboard_image_bytes;
 use super::vm_manager::ProcessSnapshot;
 use std::collections::HashMap;
 use dashmap::DashMap;
@@ -112,6 +113,29 @@ use game::{
     CreateFeedPostRequest, CreateFeedPostResponse, FeedPostEntry, ListFeedPostsRequest,
     ListFeedPostsResponse, ToggleFeedPostLikeRequest, ToggleFeedPostLikeResponse,
 };
+
+/// MIME stored on `fs_nodes` for user writes; helps Explorer / HTTP serve correct type.
+fn mime_type_for_vm_path(path: &str) -> Option<&'static str> {
+    let name = path.rsplit('/').next().unwrap_or(path).to_lowercase();
+    if name.ends_with(".png") {
+        return Some("image/png");
+    }
+    if name.ends_with(".ntpx") || name.ends_with(".ntpixels") {
+        return Some(PIXEL_ART_MIME);
+    }
+    if name.ends_with(".json") {
+        return Some("application/json");
+    }
+    if name.ends_with(".txt")
+        || name.ends_with(".lua")
+        || name.ends_with(".md")
+        || name.ends_with(".csv")
+        || name.ends_with(".ntml")
+    {
+        return Some("text/plain");
+    }
+    None
+}
 
 pub struct ClusterGameService {
     player_service: Arc<PlayerService>,
@@ -1417,9 +1441,10 @@ impl GameService for ClusterGameService {
             }));
         }
 
+        let mime = mime_type_for_vm_path(&path);
         match self
             .fs_service
-            .write_file(vm.id, &path, &content, Some("text/plain"), &owner.1)
+            .write_file(vm.id, &path, &content, mime, &owner.1)
             .await
         {
             Ok(_) => Ok(Response::new(WriteFileResponse {
@@ -1920,12 +1945,12 @@ impl GameService for ClusterGameService {
                 }));
             }
         };
-        let validated = match validated_pixel_art_bytes(&data) {
+        let validated = match validated_hackerboard_image_bytes(&data) {
             Ok(v) => v,
             Err(e) => {
                 return Ok(Response::new(SetHackerboardAvatarFromVmPathResponse {
                     success: false,
-                    error_message: e.to_string(),
+                    error_message: e,
                 }));
             }
         };
@@ -2006,12 +2031,12 @@ impl GameService for ClusterGameService {
                 }));
             }
         };
-        let validated = match validated_pixel_art_bytes(&data) {
+        let validated = match validated_hackerboard_image_bytes(&data) {
             Ok(v) => v,
             Err(e) => {
                 return Ok(Response::new(SetHackerboardFactionEmblemFromVmPathResponse {
                     success: false,
-                    error_message: e.to_string(),
+                    error_message: e,
                 }));
             }
         };
@@ -3672,6 +3697,7 @@ mod tests {
         wallet_card_service::WalletCardService,
     };
     use super::super::pixel_art_binary::{PIXEL_ART_MAGIC, PIXEL_ART_MIME};
+    use super::super::pixel_art_png::ntpx_to_canonical_png;
     use super::super::mailbox_hub;
     use super::super::process_run_hub::new_hub as new_process_run_hub;
     use super::super::process_spy_hub::new_hub as new_process_spy_hub;
@@ -4325,7 +4351,8 @@ mod tests {
         assert!(out.success, "{}", out.error_message);
 
         let p = players.get_by_id(player.id).await.unwrap().unwrap();
-        assert_eq!(p.hackerboard_avatar_pixel.as_ref(), Some(&bytes));
+        let expected_png = ntpx_to_canonical_png(&bytes).unwrap();
+        assert_eq!(p.hackerboard_avatar_pixel.as_ref(), Some(&expected_png));
     }
 
     #[tokio::test]
@@ -4383,7 +4410,10 @@ mod tests {
             .into_inner();
         assert!(!out.success);
         assert!(
-            out.error_message.contains("magic") || out.error_message.contains("short"),
+            out.error_message.contains("magic")
+                || out.error_message.contains("short")
+                || out.error_message.contains("Invalid PNG")
+                || out.error_message.contains("Invalid"),
             "unexpected message: {}",
             out.error_message
         );
@@ -4431,7 +4461,8 @@ mod tests {
         assert!(out.success, "{}", out.error_message);
 
         let f = factions.get_by_id(fac.id).await.unwrap().unwrap();
-        assert_eq!(f.hackerboard_emblem_pixel.as_ref(), Some(&bytes));
+        let expected_png = ntpx_to_canonical_png(&bytes).unwrap();
+        assert_eq!(f.hackerboard_emblem_pixel.as_ref(), Some(&expected_png));
     }
 
     #[tokio::test]
